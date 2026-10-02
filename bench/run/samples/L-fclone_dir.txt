@@ -1,0 +1,8 @@
+slabs: 199 N0=199
+objects: 2040 N0=2040
+aliases: 2
+object_size: 512
+slab_size: 512
+order: 2
+objs_per_slab: 32
+total_objects: 6368 N0=6368
