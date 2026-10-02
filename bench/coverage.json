@@ -1,0 +1,37 @@
+{
+ "about": "Two sections. 'targets' is what the records gate reads (bench/check_records.py): a target named there with not_covered_by may lack a record of those sanitizers, for the reason given; no other gap is allowed. It is empty in M0. The Go and Rust harnesses will be named there with MSan, and the Java harnesses with every sanitizer, when they become targets. 'declared_gaps' lists what the records cannot see although they exist (hypotheses.md, section 11; design/proposal.md, Z6). The gate reads nothing from it and it allows no missing record.",
+ "targets": {},
+ "declared_gaps": [
+  {
+   "gap": "OpenSSL's assembly",
+   "sanitizers": ["asan", "tsan", "msan"],
+   "reason": "No sanitizer instruments assembly. OpenSSL's MSan build (enable-msan) turns assembly off, so MSan covers the C fallbacks, not the measured build's assembly paths; the ASan and TSan builds keep the assembly, which they do not instrument either."
+  },
+  {
+   "gap": "OpenSSL under TSan",
+   "sanitizers": ["tsan"],
+   "reason": "Declared unless engineering builds OpenSSL with TSan and the suite passes, which the revision log of hypotheses.md then records."
+  },
+  {
+   "gap": "io_uring kernel writes are invisible to MSan",
+   "sanitizers": ["msan"],
+   "reason": "MemorySanitizer cannot see what the kernel writes through a raw system call or into the shared rings and provided buffers.",
+   "mitigation": "Value-initialise every structure a raw call fills, and unpoison exactly the res bytes a completion reports, in the selected provided buffer for a receive (bench/loop/src/common.hpp, kernel_wrote); the tests check res against the bytes used."
+  },
+  {
+   "gap": "Competitor binaries and runtimes",
+   "sanitizers": ["asan", "tsan", "msan"],
+   "reason": "nginx, HAProxy, Envoy, caddy-l4, sslh-ev, the JVM, the Go runtime, Rust's standard library and tokio are not first-party; they are pinned, not instrumented."
+  },
+  {
+   "gap": "The harnesses",
+   "sanitizers": ["msan"],
+   "reason": "The Go and Rust harnesses get ASan with UBSan and TSan records; only their MSan gap is declared. No sanitizer applies to the Java harnesses; that gap is declared whole."
+  },
+  {
+   "gap": "Windows",
+   "sanitizers": ["tsan", "msan"],
+   "reason": "On W only ASan is required (rule D5), built with MSVC; a third-party library that cannot be built with MSVC's AddressSanitizer is declared here before the code freeze."
+  }
+ ]
+}
