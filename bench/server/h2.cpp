@@ -6,6 +6,14 @@
 #include <cstring>
 #include <string_view>
 
+#if defined(_MSC_VER)
+// nghttp2.h declares its deprecated callbacks with ssize_t, which MSVC does not define. oneport
+// calls only the nghttp2_ssize API (the "2" functions), so any definition parses the header;
+// this is the Windows SDK's signed size type.
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 #include <nghttp2/nghttp2.h>
 
 namespace oneport::server::h2

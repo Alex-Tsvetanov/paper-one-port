@@ -134,7 +134,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     oneport_cli_test(relay_needs_port 2 "--dispatch relay needs --relay-port"
                      --mode one-port --detect replay --dispatch relay --backend io_uring)
 else()
-    oneport_cli_test(not_served_iocp 3 "not served yet: the IOCP backend is M6" ${_arm})
+    oneport_cli_test(not_served_iocp_workers 3 "not served yet: IOCP with more than one worker" ${_arm} --workers 2)
+    oneport_cli_test(relay_refused_iocp 2 "the relay is Linux only" --mode one-port --detect replay --dispatch relay --backend IOCP)
 endif()
 
 # The records gate and the record writer (bench/), when a Python 3 interpreter is found.
