@@ -56,6 +56,9 @@ What is wrong.
      0.025). The margin depends on one extreme draw.
    - The δ that gives 80% power on fresh runs is 0.0184 (1.82 σ). The rule's realized power had
      median 0.987, but 7 of 100 pilots gave power below 0.5 (minimum 0.059).
+   - Only "unrounded δ equals the pilot maximum" is structural. The spread of the rounded δ and
+     the power tail depend on the 0.005 grid, which is coarse at σ = 0.01. Corollary: if L's real
+     session noise is well below 0.005, the grid, not the pilot, sets δ (see F27).
    - Per host the margin is set by the noisiest cell. With 8 cells of equal noise on L, δ is the
      maximum of 128 sessions. Its median under the normal model solves
      (1 − 2(1 − Φ(t)))^128 = 0.5: t = Φ⁻¹(0.9973) = 2.78 σ, against 1.82 σ needed per cell. For
@@ -606,7 +609,9 @@ Freeze after fixes. The three-family structure is sound: the families do not mix
 one binary, Holm and the dual computation follow P2, m and the Holm table are right
 (m_C = 36, m_B = 34, m_M = 20; 2^-11 = 4.88e-4 < 6.94e-4 and 7.35e-4; 2^-10 = 9.77e-4 <
 1.25e-3), the hypothesis and question counts agree with the body, and the proposal names no
-private library and contains no em or en dash. The two blockers are definitional. ST13 must be
+private library and contains no em or en dash. On D8: P1 and P2 appear only as design sources
+(code to copy, the 13-byte body, the statistics), the proposal forces no self-citation, and Q7
+leaves any citation of P1 to Alex under D8. The two blockers are definitional. ST13 must be
 replaced, not patched: fix δ from relevance and size R from the pilot (F1, F3, F4). B3's metric
 and limits must be redefined (F2). The peek-path gaps (F8) are engineering items with known
 remedies. None needs a new architecture. Because the F1 fix changes how the cost family is
