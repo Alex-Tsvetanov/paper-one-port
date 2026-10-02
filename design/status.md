@@ -992,6 +992,12 @@ shared report pattern (`lab/bin/sanitize.sh`).
   (logs kept as `asan-d71ae06*.ctest.log` in `~/lab/p3/m2a-check/`); Debug, TSan and MSan at
   d71ae06 passed with 0 report lines.
 
+Also on W, as a compile check before M6 (as in M0 and M1): a Debug build of 63b3b5f with MSVC
+19.51.36246.0 (Build Tools 18, Ninja), out of tree in a scratch directory, had no warning; 105
+CTest entries, 55 passed (14 flags, 9 `loop.IOCP`, 25 pure, among them the new `apps.*` and
+`clienthello.*`, 1 structure, 4 cli, 2 gate) and the 50 IOCP case entries were skipped as pending
+M6. The third-party libraries are not built on W yet.
+
 Log sha256:
 
     ebc6e0485f0e2272cb738a2966097d8011e1ef20ddc00e2c23ae1bfa4e334305  debug-4e814f2.build.log
