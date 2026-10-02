@@ -865,7 +865,9 @@ host. Seeds:
 - orders: `SEED_ORDER_C_L`, `SEED_ORDER_C_W`, `SEED_ORDER_B_L`, `SEED_ORDER_M_L`,
   `SEED_ORDER_M_W`, `SEED_ORDER_S_L`, `SEED_ORDER_S_W` (S for the secondary cells; audit 2 N5);
 - resampling: `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`, `SEED_BOOT_S`, one generator per
-  family, cells in the family's order;
+  family. Each cell of the family's list (B3's descriptive cells after its Holm cells) draws its
+  resamples once, in the family's order, whether or not it is in Holm; the secondary cells draw
+  from `SEED_BOOT_S` in the order of 5.7. A cell with fewer than R valid sessions draws nothing;
 - the pilot: `SEED_PILOT_L`, `SEED_PILOT_W` (the order of the pilot's sessions) and `SEED_SIM`
   (the simulation of ST13).
 Every seed is fixed in one revision-log entry before the code freeze (I31 E4), so before any
