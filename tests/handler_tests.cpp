@@ -8,6 +8,7 @@
 
 #include "apps.hpp"
 #include "cases.hpp"
+#include "clienthello.hpp"
 #include "harness.hpp"
 #include "http1.hpp"
 #include "script.hpp"
@@ -100,6 +101,52 @@ namespace oneport::test
 			SSL_free(s);
 			CHECK(n == 1 && first == "TLS_AES_128_GCM_SHA256", n << " suites, the first " << first);
 			return std::nullopt;
+		}
+
+		/// opcase's live client and the recording are the same settings by construction: the
+		/// ClientHello the live client wrote has the recording's length and bytes everywhere but
+		/// in the three fields each connection draws afresh (random, legacy_session_id, the X25519
+		/// key share).
+		Result clienthello_live()
+		{
+			ServerArgs args;
+			Running srv(args);
+			opcase::TlsPlan plan;
+			plan.requests = {opcase::http_get()};
+			const auto t = run_and_wait(srv, Script{}.tls(plan), srv.port());
+			CHECK(t.tls && t.tls->handshake, "no handshake");
+			const Bytes& live = t.tls->client_hello;
+			const Bytes rec = opcase::recorded_client_hello();
+			CHECK(live.size() == rec.size(), "the live ClientHello has " << live.size() << " bytes, the recording " << rec.size());
+			std::array<std::byte, detect::kBCh> a{};
+			std::array<std::byte, detect::kBCh> b{};
+			const auto ra = clienthello::reassemble(live, a);
+			const auto rb = clienthello::reassemble(rec, b);
+			CHECK(ra.verdict == clienthello::Verdict::yes && rb.verdict == clienthello::Verdict::yes && ra.msg_len == rb.msg_len, "both reassemble");
+			const auto ha = clienthello::parse(std::span<const std::byte>(a.data(), ra.msg_len));
+			const auto hb = clienthello::parse(std::span<const std::byte>(b.data(), rb.msg_len));
+			CHECK(ha.ok && hb.ok, "both parse");
+			std::vector<bool> fresh(ra.msg_len, false);
+			for (const clienthello::Field f : {ha.random, ha.session_id, ha.x25519})
+			{
+				for (std::uint32_t i = 0; i < f.len; ++i) fresh[f.off + i] = true;
+			}
+			CHECK(ha.random.off == hb.random.off && ha.session_id.off == hb.session_id.off && ha.session_id.len == hb.session_id.len &&
+			          ha.x25519.off == hb.x25519.off && ha.x25519.len == hb.x25519.len,
+			      "the fields lie at other places");
+			std::size_t same_fresh = 0;
+			for (std::uint32_t i = 0; i < ra.msg_len; ++i)
+			{
+				if (fresh[i])
+				{
+					same_fresh += a[i] == b[i] ? 1 : 0;
+					continue;
+				}
+				CHECK(a[i] == b[i], "the live ClientHello differs from the recording at handshake byte " << i);
+			}
+			CHECK(same_fresh < 96 / 2, "the random, session id and key share look recorded, not drawn");
+			CHECK(std::equal(live.begin(), live.begin() + 5, rec.begin()), "the record headers differ");
+			return srv.stop_and_check();
 		}
 
 		/// A full handshake and three requests on one connection (WL3's keep-alive form, then
@@ -386,6 +433,7 @@ namespace oneport::test
 	void register_handler_tests(Registry& r)
 	{
 		r["handlers.tls_context"] = tls_context;
+		r["handlers.clienthello_live"] = clienthello_live;
 		r["handlers.tls_exchange"] = tls_exchange;
 		r["handlers.tls_h2"] = tls_h2;
 		r["handlers.tls_refusals"] = tls_refusals;

@@ -57,7 +57,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(server.binary_smoke PROPERTIES TIMEOUT 120 LABELS server)
     # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
     set(ONEPORT_HANDLER_TESTS
-        handlers.tls_context handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
+        handlers.tls_context handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
         handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
     foreach(_test IN LISTS ONEPORT_HANDLER_TESTS)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
