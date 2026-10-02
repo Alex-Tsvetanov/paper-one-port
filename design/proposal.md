@@ -1,7 +1,8 @@
 # P3 design proposal: one listener for client-first TCP protocols
 
-Status: proposal, revised after the first audit (commit 83c4710, `design/proposal-audit.md`) and
-the second audit (commit 49993f5, `design/proposal-audit-2.md`). Not frozen. Written 2026-10-02.
+Status: proposal, revised after the first audit (commit 83c4710, `design/proposal-audit.md`), the
+second audit (commit 49993f5, `design/proposal-audit-2.md`) and the freeze check of
+`hypotheses.md` (commit 56f90bd, `design/freeze-check.md`). Not frozen. Written 2026-10-02.
 Nothing in this file is a result. Alex's decisions of 2026-10-02 and the defaults of the first
 audit's question table are applied (section 11.1). Section 5 and every decision it depends on
 become `hypotheses.md`. The order of freezes and runs is fixed (I31 E4): `hypotheses.md` is
@@ -476,10 +477,16 @@ I31. Rule E:
   against the competitors or against another one-port option (for example M3's relay against a
   proxy, or peek against replay). No window, on any code, times one-port mode against dedicated
   mode before the pilot entry is committed (ST13 step 9). On the frozen code, no one-port window
-  of any kind runs before the pilot entry (E4). The margin was fixed by Alex on 2026-10-02,
-  before any code of this paper existed (section 11.1). R_C, the resolved list and m_C come from
-  the A/A pilot by a fixed rule with a fixed seed, and the pilot holds no one-port data (ST13). So
-  none of them can be tuned to a one-port comparison (audit F4; audit 2 N1).
+  of any kind runs before the pilot entry (E4). A dedicated window and a one-port window against
+  the same competitor, at the same protocol, backend and host, still give an indirect one-port
+  against dedicated ratio on pre-freeze code. The competitors are the only reference both modes
+  may share before the code freeze, since dedicated mode is never timed against one-port mode.
+  So every such pair of development cells is listed in the revision log of `hypotheses.md` when
+  it runs, and in the paper's methods; no rule uses it (freeze check FC5). The margin was fixed
+  by Alex on 2026-10-02, before any code of this paper existed (section 11.1). R_C, the resolved
+  list and m_C come from the A/A pilot by a fixed rule with a fixed seed, and the pilot holds no
+  one-port data (ST13). So none of them can be tuned to a one-port comparison (audit F4; audit 2
+  N1).
   Why one-port windows are allowed before the code freeze at all: rule D2 asks for the server to
   be engineered until it wins, which needs timings of the relay against the proxies and of one
   option against another, and the pilot must run on the frozen code, so it comes after them.
@@ -499,9 +506,9 @@ I31. Rule E:
 - E3. Engineering ends at the code freeze: one commit, `CODE_FREEZE`, of the server, the
   generators, the holder, the harnesses, the pins and the tests. The freeze needs green sanitizer
   records (Z1) and a passing test suite. The values that engineering sets (`K_SRC`, `N_ACCEPTEX`,
-  `RELAY_BUF`, `N_BG_TLS`, `N_BG_MQTT`, `N_BG_SILENT`, ℓ, and the pins of section 6) are recorded
-  in the revision log of `hypotheses.md` at the code freeze. The A/A pilot (ST13) runs on the
-  frozen code.
+  `RELAY_BUF`, `N_BG_TLS`, `N_BG_MQTT`, `N_BG_SILENT`, ℓ, and the pins of section 6) and the skb
+  caches as L's kernel lists them (WL7) are recorded in the revision log of `hypotheses.md` at the
+  code freeze. The A/A pilot (ST13) runs on the frozen code.
 - E4. The order (audit 2 N1). Each step starts only after the one before it is committed:
   1. The hypotheses freeze: `hypotheses.md` is frozen before any code of the server exists.
   2. Engineering (E1). Before it ends, one revision-log entry fixes the seeds of ST9, and the
@@ -514,11 +521,15 @@ I31. Rule E:
   6. The pilot entry (ST13 step 9).
   7. After it: rule E2's other two choices, M2's rates (WL6), the B3 feasibility windows,
      `K_BASE`, and every confirmatory, secondary and hard-case run.
-  A code change after the pilot: if it comes before the pilot entry and before any one-port
-  window of the frozen code, it needs new records and a new pilot (ST13 step 1). If it comes
-  later, the committed pilot outputs stand and the pilot is not run again; the new build gets
-  new records, every confirmatory window of the old build is archived and not used, the runs
-  start again on the new build, and the revision log records the change as a deviation.
+  A code change once the pilot has started (freeze check FC2, FC3). Before the simulation of
+  step 5 starts, a change that a named failure forces (ST13 step 1) needs new records and a new
+  pilot, under the cap of ST13 step 1. Every other change follows the rule for a later change: a
+  change that no named failure forces, a change once the simulation has started, and a change
+  once that cap is spent. Under that rule the pilot is not run again, and its outputs go into the
+  pilot entry or, if the entry is committed, stand; the new build gets new records; every
+  confirmatory window of the old build is archived and not used; the runs start again on the new
+  build; and the revision log records the change as a deviation. No one-port window of either
+  build runs before the pilot entry.
 
 I32. Engineering targets, stated as goals, not as results: in replay mode, one-port mode should
 issue the same operations per connection as dedicated mode on every backend; the relay should
@@ -592,17 +603,17 @@ Metric: connections per second, the exchanges completed without error per second
 measured window. Time to first response byte (TTFB) runs from just before `connect` to the
 first byte of the response, on the generator's clock.
 
-WL2. Churn, open loop. Exchanges fall due on a fixed schedule at rate λ = `RATE_FRAC` × the
-median, over the A/A pilot's sessions, of the session's mean connections per second in the C1
-pilot cell with the same protocol and backend (ST13). The pilot therefore runs the C1 cells of a
-host before its C3 cells. `RATE_FRAC` = 0.5 (Q9), below saturation, since the Envoy benchmarking
-FAQ advises never to measure latency at maximum load. Latency is measured from the due time, as
-t1gen does, so no stall is hidden. An open-loop window is invalid if fewer than 99% of the
-exchanges due in it completed (ST10; audit F11). Metric: median TTFB; the 99th percentile is
-secondary. For the secondary open-loop M cells, λ is `RATE_FRAC` × the slower arm's median
-connections per second in that cell's closed-loop sessions. For the secondary SSH C3 cells, which
-the pilot does not run, λ is `RATE_FRAC` × the slower arm's median connections per second in the
-SSH C1 secondary sessions of the same backend, which therefore run before them (audit 2 N12).
+WL2. Churn, open loop. Exchanges fall due on a fixed schedule at rate λ = `RATE_FRAC` × the median,
+over the A/A pilot's sessions, of the session's mean connections per second in the C1 pilot cell
+with the same protocol and backend (ST13). The pilot therefore runs the C1 cells of a host before
+its C3 cells. `RATE_FRAC` = 0.5 (Q9), below saturation, since the Envoy benchmarking FAQ advises
+never to measure latency at maximum load. Latency is measured from the due time, as t1gen does, so
+no stall is hidden. An open-loop window is invalid if fewer than 99% of the exchanges due in it
+completed, a design choice (ST10; audit F11). Metric: median TTFB; the 99th percentile is secondary.
+For the secondary open-loop M cells, λ is `RATE_FRAC` × the slower arm's median connections per
+second in that cell's closed-loop sessions. For the secondary SSH C3 cells, which the pilot does not
+run, λ is `RATE_FRAC` × the slower arm's median connections per second in the SSH C1 secondary
+sessions of the same backend, which therefore run before them (audit 2 N12).
 
 WL3. Keep-alive. C connections established before the window, one request in flight per
 connection. Requests: HTTP/1.1 GET; one h2 stream at a time; MQTT PINGREQ after one CONNECT;
@@ -655,11 +666,12 @@ reason (audit 2 N15):
 - Sample 1 at t = 20 s and sample 2 at t = 25 s: a design choice, two readings 5 s apart for the
   settling check, both 5 s or more before closing. Sample 2 is the value used. The window is
   invalid if any of these holds:
-  - the whole footprint W = U + Kq + Ks (below) differs between the samples by more than the
-    larger of 2% of sample 2's W and `SETTLE_ABS` = 8 bytes per pending connection. The 2% is a
-    design choice, a fifth of B3's margin of 10% (B3). W is checked, not U alone, because U can
-    be near 0 for a server built to hold little (I32), where a relative tolerance on U falls below
-    the resolution of `VmRSS`, and because Ks is now part of the footprint (audit 2 N8).
+  - the footprint W = U + Kq + Ks (below, with Ks net of the skb caches) differs between the
+    samples by more than the larger of 2% of sample 2's W and `SETTLE_ABS` = 8 bytes per pending
+    connection. The 2% is a design choice, a fifth of B3's margin of 10% (B3). W is checked, not
+    U alone, because U can be near 0 for a server built to hold little (I32), where a relative
+    tolerance on U falls below the resolution of `VmRSS`, and because Ks is now part of the
+    footprint (audit 2 N8).
     `SETTLE_ABS` is a design choice that keeps the rule defined when W is near 0 or negative: it
     is 80,000 bytes over `N_PEND`, above the 1 kB unit in which `/proc` reports `VmRSS` and
     `Slab` (proc_pid_status(5), proc_meminfo(5));
@@ -681,12 +693,62 @@ Each sample measures:
   systems receives no pending connection, is the same process for every relay system, and is left
   out.
 - Kq, the receive queue: the mean, over the system's accepted sockets on its listening port, of
-  the `r` field (rmem_alloc) of `ss -tm` (ss(8)). The `f` field (fwd_alloc) is reported beside it
-  and not added: ss(8) defines it as memory the socket holds as cache, not yet used for packets,
-  so adding it would count reserved, unused memory (audit F2.2).
+  the `r` field (rmem_alloc) of `ss -tm` (ss(8)). It is the sum of the truesize of the skbs
+  queued for reading, and truesize holds the payload and also the skb's struct and linear head
+  (include/net/sock.h lines 2474 to 2481, include/linux/skbuff.h lines 273 to 275,
+  net/ipv4/tcp.c lines 926 to 935, all at v7.2; via freeze check FC1). The `f` field (fwd_alloc)
+  is reported beside it and not added: ss(8) defines it as memory the socket holds as cache, not
+  yet used for packets, so adding it would count reserved, unused memory (audit F2.2).
 - Ks, kernel slab: the growth over the baseline of `Slab` in `/proc/meminfo` (proc_meminfo(5)),
-  divided by `N_PEND`. It is host-wide and includes both ends of each loopback connection. The
-  client ends are `opcase`'s, the same for every system.
+  less the growth of the skb caches (below), divided by `N_PEND`. It is host-wide and includes
+  both ends of each loopback connection. The client ends are `opcase`'s, the same for every
+  system.
+
+The skb caches (freeze check FC1; option (a), the coordinator's decision). A queued skb's struct
+and linear head are slab objects, so `Slab` holds them while Kq charges them too, and without a
+correction W would count them twice in every cell where a system leaves bytes queued. On Linux
+v7.2 the struct comes from the cache "skbuff_head_cache", or, for the fast clones that TCP's send
+path allocates, from "skbuff_fclone_cache"; a linear head that fits comes from
+"skbuff_small_head" (net/core/skbuff.c lines 606 to 625, 684 to 685 and 5196 to 5225). A search
+of every cache created under `net/` at v7.2 finds no other that holds skb structs or heads:
+"skbuff_ext_cache" (line 5176) holds skb extensions, neither a head nor data, and the payload
+lies in page fragments, outside `Slab`. At the baseline and at each sample the run script reads
+`/proc/slabinfo` as root, through L's passwordless sudo: the file has mode 0400
+(mm/slab_common.c lines 1098 and 1226; slabinfo(5): "Only root can read"). A cache's size is its
+num_slabs × pagesperslab × the page size (slabinfo(5)), a design choice: the unit in which
+`Slab` counts the same pages (slabinfo(5) notes that `Slab` holds the memory of these caches).
+The growth of the three caches over the baseline is subtracted from the growth of `Slab`, so a
+queued skb is counted once, in Kq. Two residuals remain, and the paper names both:
+- A head that does not fit "skbuff_small_head", or is asked for with flags that exclude it, comes
+  from kmalloc (skbuff.c lines 613 to 614 and 627 to 646; include/linux/slab.h lines 745 to 748)
+  and stays in Ks, so a queued skb with such a head is still counted twice. TCP's send path asks
+  for a head of `MAX_TCP_HEADER` bytes with `sk_allocation`, which is `GFP_KERNEL` (tcp.c lines
+  926 to 935 and 1256; net/core/sock.c line 3750), and that head fits "skbuff_small_head"
+  (skbuff.c lines 106 to 116). So B3's openings are not expected to take this path, but no rule
+  excludes it.
+- The subtraction also removes skb-cache memory that no receive queue is charged for, such as the
+  second struct of a fast-clone pair, which stays allocated while its clone is queued
+  (include/linux/skbuff.h lines 1395 to 1401; skbuff.c lines 1139 to 1167), and the unused part of
+  the caches' slab pages.
+Both residuals sit with a system that leaves bytes queued: nginx and Envoy in the
+partial-ClientHello case (their peek paths, survey 2.1 and 2.5), and the server only where its
+detection mode is peek (rule E, I31 E2, and the peek side of 5.7's B3 cells). The first residual
+raises that system's W, the second lowers it. Where the competitor leaves bytes queued and the
+server reads them, the first biases Q upward, in the server's favour, and the second downward;
+where the server leaves them queued and the competitor reads them, both directions reverse. In the
+silent case nothing is queued and neither applies.
+
+Merged caches. The kernel may merge a cache with others of the same size (mm/slab_common.c lines
+50 to 52 and 155 to 230 at v7.2), and "skbuff_fclone_cache" carries none of the flags that
+prevent it (skbuff.c lines 5208 to 5212). `/proc/slabinfo` exists only in a kernel built with
+`CONFIG_SLUB_DEBUG` (mm/slab_common.c lines 1097 to 1231). Before the code freeze, L's
+`/proc/slabinfo` and `/sys/kernel/slab/` are read for the three names (mm/slub.c lines 9156 to
+9160 and 9641 to 9722 at v7.2). A cache merged with others is read under the name that
+`/proc/slabinfo` lists for the shared cache, the whole growth of that cache is subtracted, and the
+caches merged with it are named in the revision log of `hypotheses.md` at the code freeze (E3)
+and in the paper. Whether L's kernel has `/proc/slabinfo` at all is not yet read ("Sources
+added", the list of items not verified); B3 as frozen depends on it.
+
 A system's footprint per pending connection is T = U + Kq + (Ks - `K_BASE`) (audit 2 N3): user
 memory, the receive queue, and the kernel slab the system adds beyond a bare held socket. The last
 term holds the kernel objects that differ by design between the systems. In replay mode on
@@ -696,24 +758,27 @@ every competitor and the server's epoll arm make, is an `epitem` from "eventpoll
 (fs/eventpoll.c line 3015 at v7.2) (both via audit 2 N3). The sign of that difference is not
 known before it is measured, so it is measured, not left out.
 
-W = T + `K_BASE` = U + Kq + Ks is the whole-system footprint per pending connection, as these
-three readings see it. Two things are outside it, and the paper says so: the `f` field, reserved
-and unused (above); and kernel memory outside `Slab` that no receive queue is charged for. The
+W = T + `K_BASE` = U + Kq + Ks is the counted footprint per pending connection: what these three
+readings see, with each queued skb counted once, except as named above. It is the footprint of
+each system as configured, not of its detection design alone (audit F10). It is no longer called
+whole-system (freeze check FC1): outside it, and said in the paper, are the `f` field, reserved
+and unused (above); kernel memory outside `Slab` that no receive queue is charged for; and the
+skb-cache memory of the second residual; and the first residual can count bytes twice. The
 client ends of the loopback connections are in Ks for every system alike. B3 tests the ratio of
 two systems' W (B3).
 
 The kernel's per-socket baseline (audit F2.2). The structures of an accepted TCP socket are paid
 alike by every system. They are measured once per host and case-independent, by one procedure
-applied to no system in particular: `ophold` accepts `N_PEND` silent connections in the same
-window layout and holds them without reading or polling them. Its Ks over 16 windows (median) is
-`K_BASE`, the kernel slab per held connection, both loopback ends included. Sixteen is a design
-choice, R_B, the number of sessions per B3 cell (audit 2 N15). Which slab caches make it up is not
-claimed; it is measured. Since T + `K_BASE` = W, `K_BASE` cancels from B3's ratio, (T_comp +
-`K_BASE`) / (T_srv + `K_BASE`) = W_comp / W_srv, as it cancels from the difference D: no decision
-depends on its value. It is reported beside every B3 result as the share of each footprint that
-every system pays alike. Because that share holds the client end, which every system pays, it
-pulls the ratio toward 1, against the server. Each system's Ks - `K_BASE` is reported as the
-kernel objects it adds beyond a bare held socket, such as its poll registrations.
+applied to no system in particular: `ophold` accepts `N_PEND` silent connections in the same window
+layout and holds them without reading or polling them. Its Ks, net of the skb caches as above, over
+16 windows (median) is `K_BASE`, the kernel slab per held connection, both loopback ends included.
+Sixteen is a design choice, R_B, the number of sessions per B3 cell (audit 2 N15). Which slab caches
+make it up is not claimed; it is measured. Since T + `K_BASE` = W, `K_BASE` cancels from B3's ratio,
+(T_comp + `K_BASE`) / (T_srv + `K_BASE`) = W_comp / W_srv, as it cancels from the difference D: no
+decision depends on its value. It is reported beside every B3 result as the share of each footprint
+that every system pays alike. Because that share holds the client end, which every system pays, it
+pulls the ratio toward 1, against the server. Each system's Ks - `K_BASE` is reported as the kernel
+objects it adds beyond a bare held socket, such as its poll registrations.
 
 Limits, so that every system can hold `N_PEND` (audit F2.1). Each line is in the system's B3
 configuration with its source (section 6):
@@ -810,14 +875,14 @@ and against their own documentation. That table is descriptive and tests nothing
 
 ST1. A session is four windows of the two arms of a cell in mirrored order, X Y Y X. Which arm
 is X is drawn per session from the order generator (ST9). Each window starts fresh processes
-(server, backend if any, generator), checks one exchange of each protocol the cell uses, then
-runs a 1 s warm-up and a 5 s measured window. These are the T1 defaults of `lab/t1/t1.py` and
-the design of P2's H6 (`papers/typed-routing/hypotheses-round2.md`). B3 windows have the fixed
-layout of WL7 instead.
+(server, backend if any, generator), checks one exchange of each protocol the cell uses (the
+probe), then runs a 1 s warm-up and a 5 s measured window. These are the T1 defaults of
+`lab/t1/t1.py` and the design of P2's H6 (`papers/typed-routing/hypotheses-round2.md`). B3
+windows have the fixed layout of WL7 instead.
 
 ST2. An arm's value in a session is the mean of its two windows. The session's ratio is
 arm / reference, with the direction each hypothesis states. In B3 the session's statistic is
-Q, the ratio of the two arms' whole footprints W, competitor / server (B3).
+Q, the ratio of the two arms' counted footprints W, competitor / server (B3).
 
 ST3. Placement: disjoint cores on loopback, the SMT sibling of every server core idle (LB2,
 LB3).
@@ -854,9 +919,10 @@ with R and 1/2; p = P(X ≥ x), computed exactly. In the cost family the sign te
 computation: at Holm's first threshold it allows fewer sessions beyond a bound than the BCa
 needs. The methods say so (audit F3).
 
-ST8. Holm's step-down per family, at family-wise α = 0.025, one-sided, run separately for each
-of the two computations. A cell passes only if it passes under both. If they disagree, both are
-reported and the cell does not pass. A cell that cannot be tested enters with p = 1.
+ST8. Holm's step-down per family, at family-wise α = 0.025, one-sided, as in P2 (its section 5),
+run separately for each of the two computations. A cell passes only if it passes under both. If
+they disagree, both are reported and the cell does not pass. A cell that cannot be tested enters
+with p = 1.
 
 ST9. Order. All sessions of one family's cells on one host run in one shuffled order, so that
 drift in time spreads over the cells (audit F21). The B3 order also holds B3's descriptive and
@@ -866,8 +932,16 @@ host. Seeds:
   `SEED_ORDER_M_W`, `SEED_ORDER_S_L`, `SEED_ORDER_S_W` (S for the secondary cells; audit 2 N5);
 - resampling: `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`, `SEED_BOOT_S`, one generator per
   family. Each cell of the family's list (B3's descriptive cells after its Holm cells) draws its
-  resamples once, in the family's order, whether or not it is in Holm; the secondary cells draw
-  from `SEED_BOOT_S` in the order of 5.7. A cell with fewer than R valid sessions draws nothing;
+  resamples once, in the family's order, whether or not it is in Holm. Every other interval, those
+  of 5.7, draws from `SEED_BOOT_S`, bullet by bullet in the order of 5.7; the cost cells not
+  resolved and B3's descriptive cells keep their family's draws and draw nothing more. Within a
+  bullet the cells follow the cost family's order of ST13 step 3 (hypothesis, host, backend,
+  protocol), then the system in the order of section 6; a case, variant or form that the bullet
+  names comes after the protocol, in the order the bullet names it; within a cell, the metrics
+  follow the order the bullet names them. A bullet that covers cells of a family's list (the cost
+  cells' CPU and memory, the analyses clustered by lab job of ST11) takes them in that list's
+  order, family by family (freeze check FC8). A cell with fewer than R valid sessions draws
+  nothing;
 - the pilot: `SEED_PILOT_L`, `SEED_PILOT_W` (the order of the pilot's sessions) and `SEED_SIM`
   (the simulation of ST13).
 Every seed is fixed in one revision-log entry before the code freeze (I31 E4), so before any
@@ -933,17 +1007,25 @@ ST13. Sizing R_C from an A/A pilot. The pilot only sizes R; it sets no margin.
    offset, so that every window transition changes port as in the A/B design (audit F6). No
    one-port data enters it. It runs on the frozen binary at step 4 of I31 E4, in an order shuffled
    with `SEED_PILOT_L` or `SEED_PILOT_W`, the C1 and C2 cells of a host before its C3 cells
-   (WL2). It is development data and never a result. Reruns (audit F4; audit 2 N1, N5):
+   (WL2). It is development data and never a result. Reruns (audit F4; audit 2 N1, N5; freeze
+   check FC2, FC3):
    - Within the pilot, a session with a window that is invalid by a rule of ST10 is discarded and
      run again at the end of the pilot's order, at most ⌈P/4⌉ = 4 times per cell, the rule of ST4.
      A cell that still has fewer than P valid sessions is not resolved (step 5).
-   - The whole pilot may be run again at most once: only if an infrastructure fault stopped it
-     (the host failed, the lab lock was lost, the run script crashed), or if the frozen code had
-     to change (I31 E4), with new records; and only before the pilot entry and before any one-port
-     window of the frozen code. The abandoned pilot is archived, named in the revision log with
-     its reason, and not used. The repeat uses the same seeds, as P2 restarted a stopped run.
-   - After the pilot entry, or once any one-port window of the frozen code has run, no pilot
-     session runs again, for any reason.
+   - The whole pilot may be run again at most once, and only before the simulation of I31 E4
+     step 5 starts: if an infrastructure fault stopped it (the host failed, the lab lock was
+     lost, the run script crashed), or if a named failure forced a change of the frozen code (a
+     failing test, a sanitizer record that is not green, the gate refusing a build, or a crash of
+     a first-party program), recorded with its evidence in the revision log, and the new build has
+     new records (I31 E4). The abandoned pilot is archived, named in the revision log with its
+     reason, and not used. The repeat uses the same seeds, as P2 restarted a stopped run. The
+     cutoff is the simulation's start, not the pilot entry, so that no repeat can be decided with
+     R_C and the resolved list in view.
+   - Once the simulation has started, no pilot session runs again, for any reason.
+   - If the cap is spent, or the repeat is itself stopped, the pilot entry is made from the last
+     pilot: a cell without P valid sessions is not resolved, and a timer run or split replicate
+     that did not take place counts as excluded (step 8). A further code change then follows the
+     rule for a later change (I31 E4).
 2. The per-cell rule. For cell c, y_i is the log of session i's ratio, i = 1 to P.
    - Centre: e_i = y_i - median(y). Power is then computed at a true ratio of 1, not at the
      pilot's chance offset.
@@ -1010,8 +1092,9 @@ ST13. Sizing R_C from an A/A pilot. The pilot only sizes R; it sets no margin.
      T_hdr = 3 s in the deadline queue of I13, the queue T_fb uses in one-port mode. The statistic
      is each run's lateness: the time from the deadline to the start of the loop pass that handled
      it, from the counters of I29. G for the host (`G_L`, `G_W`) is the smallest whole number of
-     milliseconds above the largest lateness of all the host's runs, so it is above their 99th
-     percentile. If G is not below T_fb, HC7 is not run on that host, and the paper says why.
+     milliseconds above the largest lateness of all the host's valid runs, so it is above their
+     99th percentile. If the host has no valid run, or G is not below T_fb, HC7 is not run on that
+     host, and the paper says why.
      128 runs per backend is a design choice, the number of the server's runs per timer case on
      L in 9.2.
    - Split part. On each backend of the host, HC2's HTTP/1.1 script split after its first byte,
@@ -1019,16 +1102,23 @@ ST13. Sizing R_C from an A/A pilot. The pilot only sizes R; it sets no margin.
      100 ms. The gaps are a design choice, a 1-2-5 series; 16 is the replicate count of the hard
      cases (4.2). A replicate shows the split read when the counters of its one connection show
      two receives that returned payload. `GAP_SPLIT` is the smallest tested gap at which every
-     replicate on every backend of L and of W shows it. If none does, `GAP_SPLIT` = 100 ms, and
-     HC2, HC3 and HC10 report the share of their replicates whose counters show the split.
+     valid replicate on every backend of L and of W shows it, each backend having at least one
+     valid replicate at that gap. If none does, `GAP_SPLIT` = 100 ms, and HC2, HC3 and HC10 report
+     the share of their replicates whose counters show the split.
    - Both parts run after the pilot's sessions on that host. They are development data and set
      G and `GAP_SPLIT` only.
+   - Failed runs of the parts (freeze check FC4). A timer run or split replicate whose server or
+     `opcase` failed is excluded and listed in the pilot entry. The parts run again only with the
+     whole pilot, under the cap of step 1. The two cases this leaves empty are closed: a host with
+     no valid timer run has no G, and HC7 is not run on it; a tested gap at which some backend has
+     no valid replicate does not qualify for `GAP_SPLIT`.
 9. The pilot entry (audit 2 N1). One revision-log entry of `hypotheses.md`, made from the
    pilot's and the simulation's outputs alone, is committed before any one-port window of the
    frozen code. It needs both hosts' pilots, since R_C and m_C span L and W. It records:
    `CODE_FREEZE`; `ANALYSIS_COMMIT`; the sha256 of the pilot's archive; the pilot's invalid
-   windows and reruns; each cell's Power_c at every candidate and its R_c; the resolved list;
-   R_C; m_C; the joint powers of step 7; λ for each C3 cell; `G_L` and `G_W`; `GAP_SPLIT`; and,
+   windows and reruns, and its excluded timer runs and split replicates; each cell's Power_c at
+   every candidate and its R_c; the resolved list; R_C; m_C; the joint powers of step 7; λ for
+   each C3 cell; `G_L` and `G_W`; `GAP_SPLIT`; and,
    named again, the IOCP receive form of rule E.
    Nothing in it is chosen: every value follows from the rules above.
 Appendix A checks the rule of steps 2 to 6 on synthetic data.
@@ -1073,16 +1163,19 @@ The lateness of timed events and the decision latency are reported per backend a
 distributions. They are not tested: they include the operating system's timer behaviour, which
 P3 does not claim to control.
 
-B3. Footprint per pending connection, in the Holm family. B3 compares whole-system footprints
-per pending connection, W of WL7, each system as configured for B3 in section 6, not detection
-designs alone (audit F10). "Whole-system" means W = U + Kq + Ks, with the two exclusions that WL7
-names (audit 2 N3).
+B3. Footprint per pending connection, in the Holm family. B3 compares counted footprints per
+pending connection, W of WL7, each system as configured for B3 in section 6, not detection
+designs alone (audit F10). "Counted" means W = U + Kq + Ks, with Ks in W and in `K_BASE` net of
+the skb caches' growth, so a queued skb is counted once, in Kq; the exclusions and the two
+residuals that WL7 names are stated beside the results (audit 2 N3; freeze check FC1). The test
+and Alex's margin of 1.10 are unchanged by that correction.
 - The margin. Alex decided on 2026-10-02 that a cell counts as a win only if
   (T_comp + `K_BASE`) / (T_srv + `K_BASE`) is at least 1.10, where `K_BASE` is the kernel
   per-socket memory common to all systems (Q22, section 11.1; audit 2 N2). By WL7 this ratio is
   W_comp / W_srv. The decision was taken before any B3 window ran, feasibility windows included.
 - Session statistic: Q = W_comp / W_srv, each arm's W the mean of its two windows (ST2). A session
-  whose W_srv is 0 or less has no ratio, and counts against.
+  whose W_srv is 0 or less has no ratio: it takes Q = 0 in both computations, below every bound,
+  so it counts against (freeze check FC6).
 - Cell statistic: the median of the R_B = 16 session values of Q (ST5).
 - The test: superiority against the ratio margin 1.10. The null of each cell is "the median Q is
   at most 1.10". Both computations:
@@ -1095,16 +1188,18 @@ names (audit 2 N3).
   computation (ST8). A cell passes only if it passes under both. A cell with fewer than 16 valid
   sessions enters with p = 1. At R = 16 the D9 condition holds: 2^-16 = 1.53e-5 < 0.025/18.
 - Reported beside each cell, deciding nothing: both footprints W and their parts U, Kq and
-  Ks - `K_BASE`; `f`; `K_BASE`; the difference D = W_comp - W_srv, which equals T_comp - T_srv,
-  in bytes per pending connection, with its 95% BCa interval; the median Q with its 95% BCa
-  interval and with the interval at the level Holm used for the cell (ST12's rule, on B3's BCa
-  ranks); the sign-test count; and the server's bounds of I15.
+  Ks - `K_BASE`; the skb caches' growth subtracted from each Ks; `f`; `K_BASE`; the difference
+  D = W_comp - W_srv, which equals T_comp - T_srv, in bytes per pending connection, with its 95%
+  BCa interval; the median Q with its 95% BCa interval and with the interval at the level Holm
+  used for the cell (ST12's rule, on B3's BCa ranks); the sign-test count; and the server's
+  bounds of I15.
 - The server runs in relay mode against the proxies and in in-process mode against the libraries,
   in its default detection mode.
 - Wording (audit 2 N2, N10). A pass is written "the competitor held at least 1.10 times the
-  server's footprint per pending connection, by B3's test", always with D and its interval. A cell
-  that fails is "not shown". "Loss" is used only where the 95% BCa interval of Q lies wholly below
-  1.00, and it is a description, not a test.
+  server's counted footprint per pending connection, by B3's test", always with D and its
+  interval, and with WL7's exclusions and residuals named. A cell that fails is "not shown".
+  "Loss" is used only where the 95% BCa interval of Q lies wholly below 1.00, and it is a
+  description, not a test.
 Holm cells:
 - the silent case, against nginx, HAProxy, Envoy, sslh-ev and hyper-util (5);
 - the partial-ClientHello case, against nginx, HAProxy, Envoy and sslh-ev (4); hyper-util serves
@@ -1213,14 +1308,19 @@ reported with its 95% BCa interval where it has one, and decides nothing:
   `SO_REUSEPORT` group against the shared listener, both in one-port mode (2 cells). The 4-core
   cells are dropped: they would leave `opgen` 1.5 logical CPUs per server core (audit F14);
 - the server's relay on io_uring against the proxies (10 cells);
-- on IOCP, on a listener without a fallback (gap 8): AcceptEx with a receive buffer, and the
-  posted-buffer form, each against the default form (2 cells);
+- on IOCP, on a listener without a fallback (gap 8), against the default form, which is AcceptEx
+  with no receive buffer (`dwReceiveDataLength` = 0, I5) followed by the receive form rule E
+  chose (I11, I31 E2) (2 cells): AcceptEx with a receive buffer; and the receive form rule E did
+  not choose (the zero-byte `WSARecv` or the posted buffer), after the same AcceptEx. If rule E
+  chooses the posted buffer, the second cell is the zero-byte `WSARecv` against it, so no cell
+  compares a form with itself (freeze check FC7);
 - operations and copies per connection for every mode and backend (I29), and system calls per
   connection for the proxies (WL5);
 - for M1 and M3, TTFB at a fixed load (WL2), 16 cells; for every M cell, CPU per connection (WL4)
   from its windows. So each mechanism contrast also reports setup latency and CPU;
 - B3 with the server in its other detection mode against its default mode, in both cases on
-  both Linux backends (4 cells), with B3's statistic Q (other mode / default mode);
+  both Linux backends (4 cells), with B3's statistic Q (other mode / default mode); a session
+  whose default-mode W is 0 or less takes Q = 0, as in B3;
 - B3's descriptive JVM and Go cells (B3);
 - the competitors' outcomes on the hard cases, at matched timeouts and at their defaults;
 - the lateness and decision-latency distributions of B2.
@@ -1738,10 +1838,35 @@ All read on 2026-10-02.
     Estimation for Statistics and Data Analysis, Chapman & Hall, London, 1986, p. 45,
     ISBN 978-0-412-24620-3, as cited (reference 22) by
     https://en.wikipedia.org/wiki/Kernel_density_estimation . The book itself was not read.
+- Added for the freeze check (FC1), read on 2026-10-02:
+  - Linux v7.2 sources, https://raw.githubusercontent.com/torvalds/linux/v7.2/ (tag v7.2, commit
+    8d3ae59288f1e7d58d76558a6ee96d533bc5019f): `net/core/skbuff.c` (`SKB_SMALL_HEAD_SIZE` and
+    `SKB_SMALL_HEAD_CACHE_SIZE`, lines 106 to 116; `kmalloc_reserve`, lines 606 to 649, with the
+    small-head cache at lines 613 to 625 and the kmalloc fallback at lines 627 to 646;
+    `__alloc_skb` taking the struct from "skbuff_fclone_cache" for `SKB_ALLOC_FCLONE`, lines 684
+    to 685; `kfree_skbmem`, which frees a fast-clone pair only when both halves are freed, lines
+    1139 to 1167; "skbuff_ext_cache", line 5176; `skb_init` creating "skbuff_head_cache" with
+    `SLAB_NO_MERGE`, "skbuff_fclone_cache" without it, and "skbuff_small_head" with a usercopy
+    region, lines 5186 to 5225); `include/linux/skbuff.h` (`SKB_TRUESIZE`, lines 273 to 275;
+    `struct sk_buff_fclones`, lines 1395 to 1401); `include/net/sock.h` (`skb_set_owner_r`, lines
+    2474 to 2481); `net/ipv4/tcp.c` (`tcp_stream_alloc_skb`, lines 926 to 935; its call with
+    `sk->sk_allocation`, line 1256); `net/core/sock.c` (`sk_allocation` = `GFP_KERNEL`, line
+    3750); `include/linux/slab.h` (`KMALLOC_NOT_NORMAL_BITS`, lines 745 to 748); `mm/slab_common.c`
+    (`SLAB_NEVER_MERGE`, lines 50 to 52; the merge rules, lines 155 to 230; `/proc/slabinfo`
+    under `CONFIG_SLUB_DEBUG`, lines 1097 to 1231, with mode 0400 at line 1098 and its creation
+    at line 1226); `mm/slub.c` (the `aliases` attribute, lines 9156 to 9160; the sysfs names and
+    links of merged caches, lines 9641 to 9722); `include/net/tcp.h` (`MAX_TCP_HEADER`, line 70).
+    A search of every `kmem_cache_create` and `KMEM_CACHE` under `net/` and `include/net/` at the
+    tag found no other cache that holds skb structs or heads.
+  - slabinfo(5), man-pages 6.19: the columns `pagesperslab` and `num_slabs`; "Only root can read"
+    the file; `Slab` in `/proc/meminfo` shows the memory of these caches.
+    https://man7.org/linux/man-pages/man5/slabinfo.5.html
 - Not verified, to be read at the freeze: HAProxy 3.4.6 `cpu-map` text; OpenSSL's Windows build
   notes on NASM; sslh's PROXY support for incoming connections; the Winsock `listen` text on
   `SOMAXCONN`; which JDK release is the latest LTS (Oracle's support roadmap page refused the
-  fetch); which receive allocator Netty's native epoll transport uses by default.
+  fetch); which receive allocator Netty's native epoll transport uses by default. To be read on L
+  before the hypotheses freeze, since B3 depends on it: whether L's kernel has `/proc/slabinfo`
+  (`CONFIG_SLUB_DEBUG`), and under which names it lists the three skb caches (WL7).
 
 ## Appendix A. Synthetic check of the R rule (ST13)
 
@@ -1782,7 +1907,11 @@ so most cells run with more power than their own R_c gives.
 - 2026-10-02, revision after the audit at 83c4710 and Alex's decisions of the same day: see the
   next section. m_B is now 18, with 16 descriptive cells.
 - 2026-10-02, revision after audit 2 (commit 49993f5) and the decisions of the same day on N1, N2
-  and N3: see the last section. `hypotheses.md` is drafted from this file.
+  and N3: see the section "Revision log (audit 2, commit 49993f5)". `hypotheses.md` is drafted
+  from this file.
+- 2026-10-02, revision after the freeze check of `hypotheses.md` (`design/freeze-check.md`,
+  commit 56f90bd) and the coordinator's decisions of the same day: see the last section. The same
+  changes are made in `hypotheses.md`, which stays a draft.
 
 ## Revision log (audit 83c4710)
 
@@ -1846,3 +1975,23 @@ deferred, with its reason.
 | N13 | MINOR | The pilot's timer and split parts, in dedicated mode, set G (per host) and `GAP_SPLIT`, with their cases, backends, runs and statistics; their time is in section 9; HC7's late run is counted at 3 s + G, at most 6 s (I30, HC7, ST13 step 8, section 9). |
 | N14 | MINOR | Each loop pass handles completions before expiries; a connection whose receive was posted with a buffer is checked by a non-waiting reap of the ring or port, not a peek; S6(b) claims only what these give (S6, I13). |
 | N15 | MINOR | WL7's phase lengths, `K_BASE`'s 16 windows and `N_SIM` are labelled design choices with reasons; Silverman's rule is sourced; HAProxy's 0 s default wait is sourced to survey 2.3 (WL7, ST13, section 9, sources). |
+
+## Revision log (freeze check, commit 56f90bd)
+
+Each finding of `design/freeze-check.md`, with the change it caused. FC1 is option (a), decided
+by the coordinator on 2026-10-02. FC2 to FC8 apply the fixes the check suggests; where it left a
+choice, the choice is stated in the row. W1 to W10 are applied. Nothing is deferred. B3's test
+and Alex's ratio margin of 1.10 are unchanged. `hypotheses.md` carries the same text and keeps
+its DRAFT status.
+
+| Finding | Severity | Change |
+|---|---|---|
+| FC1 | MAJOR | Option (a). Ks is now the growth of `Slab` less the growth of the skb caches "skbuff_head_cache", "skbuff_fclone_cache" and "skbuff_small_head", read from `/proc/slabinfo` as root at the baseline and at each sample, in slab pages, the unit of `Slab` (a design choice); `K_BASE` uses the same corrected Ks. So a queued skb is counted once, in Kq. The cache names and their roles are read in the v7.2 sources; a search of every cache created under `net/` finds no other that holds skb structs or heads, and "skbuff_ext_cache" holds extensions, so it is not subtracted. Two residuals are named with their directions: a head that falls back to kmalloc stays in Ks and is still counted twice (not expected on TCP's send path, which takes `MAX_TCP_HEADER` from "skbuff_small_head" under `GFP_KERNEL`); and skb-cache memory that no receive queue is charged for, such as the second struct of a fast-clone pair, leaves W. Both sit with a system that leaves bytes queued (nginx and Envoy in the partial-ClientHello case, the server only in peek mode): the first raises its W, the second lowers it, and the bias of Q follows from which side that is. Merged caches: a rule for a cache the kernel merged, and a reading on L before the code freeze, since `/proc/slabinfo` needs `CONFIG_SLUB_DEBUG` and "skbuff_fclone_cache" can be merged. "Whole-system" is dropped, since a residual can still count bytes twice: W is the "counted footprint", each system as configured, not its detection design alone (audit F10's point kept). The subtracted growth is reported beside each B3 cell (WL7, ST2, B3, I31 E3, "Sources added"). |
+| FC2 | MINOR | The cutoff for repeating the pilot moves from the pilot entry to the start of the simulation, so that no repeat can be decided with R_C and the resolved list in view. A code-change repeat needs a change forced by a named failure (a failing test, a sanitizer record that is not green, the gate refusing a build, a crash of a first-party program), recorded with its evidence. Choice made here: a change that no named failure forces follows the rule for a later change whenever it comes, so its pilot's outputs go into the entry and stand (ST13 step 1, I31 E4). |
+| FC3 | MINOR | If the cap is spent, or the repeat is itself stopped: the entry is made from the last pilot, a cell without P valid sessions is not resolved, a timer run or split replicate that did not take place counts as excluded, and a further code change follows the rule for a later change (ST13 step 1, I31 E4). |
+| FC4 | MINOR | A timer run or split replicate whose server or `opcase` failed is excluded and listed in the pilot entry; the parts run again only with the whole pilot, under its cap. Added beyond the check, to close the two cases this leaves empty: a host with no valid timer run has no G and does not run HC7; a tested gap at which some backend has no valid replicate does not qualify for `GAP_SPLIT` (ST13 steps 8 and 9). |
+| FC5 | MINOR | Disclosure, the coordinator's decision. Every pair of development cells in which dedicated mode and one-port mode were each timed against the same competitor, at the same protocol, backend and host, is listed in the revision log of `hypotheses.md` when it runs, and in the paper's methods. The competitors are the only reference both modes may share before the code freeze, so this covers the check's "same system or option" (I31 E1). FC2's cutoff closes the one path by which such data could reach a pilot output. |
+| FC6 | MINOR | A B3 session without a ratio takes Q = 0 in both computations, below every bound; the same holds in the secondary B3 cells of the server's other detection mode (B3, 5.7). |
+| FC7 | MINOR | The default form is named: AcceptEx with `dwReceiveDataLength` = 0, followed by the receive form rule E chose. The second cell compares the receive form rule E did not choose with the one it chose, so no cell compares a form with itself (5.7). |
+| FC8 | MINOR | The secondary intervals draw from `SEED_BOOT_S` bullet by bullet in the order of 5.7; within a bullet, the order of ST13 step 3 (hypothesis, host, backend, protocol), then the system in the order of section 6. Choices made here: a case, variant or form that a bullet names, and the metrics within a cell, follow the order the bullet names them; the cost cells not resolved and B3's descriptive cells keep their family's draws; a bullet that covers a family's list, including the analyses clustered by lab job (beyond the check), takes it in that list's order (ST9). |
+| W1 to W10 | wording | Applied to `hypotheses.md` at the lines the check names: the sources of the L and W versions (W1); α as in P2 (W2); the reason for the 536-byte PROXY v2 limit (W3); the 99% rule labelled a design choice from audit F11 (W4); "the probe" (W5); the placement as in P2's H6 (W6); the reason for R_B = R_M = 16 (W7); `TCP_TIMEWAIT_LEN` with its source line (W8); the split part's 16 replicates as the hard cases' count (W9); the Envoy buffer row (W10). This file already carried W1, W3 and W6 to W10; W2, W4 and W5 are added here too (ST8, WL2, ST1). |

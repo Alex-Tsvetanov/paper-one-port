@@ -2,13 +2,14 @@
 
 Status: DRAFT, to be frozen after a consistency check.
 
-Written on 2026-10-02 from `design/proposal.md` as revised that day after the second audit. That
-text applies the first
-audit (`design/proposal-audit.md`), the second audit (`design/proposal-audit-2.md`), and the
-decisions of Alex and of the coordinator of 2026-10-02. It is to be frozen before any code of the
-server exists. The commit that freezes it changes the status line and nothing else. After the
-freeze, every value this file leaves open (section 9) and every change goes into the revision log
-at the end, never into the frozen text. Nothing in this file is a result.
+Written on 2026-10-02 from `design/proposal.md` as revised that day after the second audit, and
+revised the same day after the freeze check (`design/freeze-check.md`), with the proposal. That
+text applies the first audit (`design/proposal-audit.md`), the second audit
+(`design/proposal-audit-2.md`), the freeze check, and the decisions of Alex and of the
+coordinator of 2026-10-02. It is to be frozen before any code of the server exists. The commit
+that freezes it changes the status line and nothing else. After the freeze, every value this file
+leaves open (section 9) and every change goes into the revision log at the end, never into the
+frozen text. Nothing in this file is a result.
 
 Words:
 - "The server" is `oneport`, the paper's own minimal C++23 server, built in this repository. One
@@ -20,14 +21,16 @@ Words:
   detection, no detection timer and no detection budget. Backend, workers, handlers, buffers and
   the PROXY setting are the same in both modes. That is the whole difference between them.
 - "L" is the Linux lab host, frozen at kernel 7.2.3, clang 22.1.8 and go1.27.1. "W" is the Windows
-  host, with MSVC 19.51.36246. Both run on loopback.
+  host, with MSVC 19.51.36246. Both run on loopback. The versions are those of P2's
+  `papers/typed-routing/hypotheses-round2.md`, section 1 (the L versions at its line 76; MSVC in
+  its records), as the proposal's LB1 and section 6 cite them.
 - A "window" is one timed run of one arm. A "session" is four windows in mirrored order
   (section 4.1). A "cell" is one contrast at one setting.
 - A "one-port window" is a timed window in which the server runs in one-port mode, whatever it is
   compared with. Unit tests and untimed counter checks are not windows.
 - "The code freeze" is the commit `CODE_FREEZE` of section 8. "The pilot entry" is the
   revision-log entry of section 8 step 6.
-- α = 0.025, family-wise and one-sided, in every family.
+- α = 0.025, family-wise and one-sided, in every family, as in P2 (its section 5).
 - "A design choice" marks a number this design picks, with its reason. It is not a measured fact.
   Names in capitals (for example `R_C`) are placeholders that a pilot or engineering fills by a
   stated rule (section 9).
@@ -41,8 +44,8 @@ claim is worded beyond them.
   dedicated mode. The claim is made only in the form "equivalent within [0.98, 1.02]", per
   protocol, backend and host, and only where C1, C2 and C3 all pass.
 - **Robustness.** The server's detection conforms to a frozen table of hard cases (B1); its timed
-  behaviour is bounded (B2); and it holds less memory per pending connection than named
-  competitors, by a ratio of at least 1.10 (B3).
+  behaviour is bounded (B2); and its counted footprint per pending connection (WL7) is smaller
+  than named competitors', by a ratio of at least 1.10 (B3).
 - **Mechanism.** The default detection mode is cheaper than the other (M1); in-process dispatch
   costs less CPU than relay (M2); the server's relay is faster than each proxy (M3).
 
@@ -98,7 +101,7 @@ order of the table cannot change a decision on it.
 | HTTP/1.1 | at most one leading CRLF, then GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS, TRACE or PATCH, then exactly one SP | at most 10 bytes |
 | SSH | `SSH-` (RFC 4253 s4.2) | 4 bytes |
 | MQTT | byte 0 = 0x10; a Remaining Length of 1 to 4 bytes; then `00 04 4D 51 54 54` and level 4 or 5 | 9 to 12 bytes |
-| PROXY v1 and v2 | parsed before the table, on a configured listener only: v2 needs 16 bytes with the first 13 matching, v1 needs 8 with the first 5 equal to "PROXY"; a prefix that cannot match closes the connection; a v2 header longer than 536 bytes is rejected | then the whole header |
+| PROXY v1 and v2 | parsed before the table, on a configured listener only: v2 needs 16 bytes with the first 13 matching, v1 needs 8 with the first 5 equal to "PROXY"; a prefix that cannot match closes the connection; a v2 header longer than 536 bytes, the size both formats were designed to fit (survey 2.4), is rejected | then the whole header |
 
 Budgets, compile-time constants: B_dec = 24 bytes after any PROXY header; B_CH = 16384 bytes for a
 ClientHello reassembled in pass-through. A connection that exceeds a budget while undecided is
@@ -208,7 +211,7 @@ First-party, each gated by its own sanitizer records:
   same protocol and backend). `RATE_FRAC` = 0.5, a design choice below saturation. Latency is
   measured from the due time. Metric: median time to first response byte (TTFB), from just before
   `connect` to the first response byte on the generator's clock. A window in which fewer than 99%
-  of the exchanges due completed is invalid.
+  of the exchanges due completed is invalid (99% is a design choice, from audit F11).
 - **WL3, keep-alive.** C connections established before the window, one request in flight per
   connection: HTTP/1.1 GET; one h2 stream at a time; MQTT PINGREQ after one CONNECT; HTTP/1.1 GET
   over one TLS connection. Metric: requests per second.
@@ -244,22 +247,69 @@ design choices too:
 Each sample reads:
 - U: the growth over the baseline of the summed `VmRSS` of the system's processes, per pending
   connection. The stub backend of the relay systems holds no pending connection and is left out.
-- Kq: the mean `r` field (rmem_alloc) of `ss -tm` over the system's accepted sockets. The `f`
-  field (fwd_alloc), reserved and unused memory, is reported and not added.
-- Ks: the growth over the baseline of `Slab` in `/proc/meminfo`, per pending connection. It is
-  host-wide and holds both loopback ends; the client ends are `opcase`'s, the same for every
-  system.
+- Kq: the mean `r` field (rmem_alloc) of `ss -tm` over the system's accepted sockets. It is the
+  sum of the truesize of the skbs queued for reading, and truesize holds the payload and also the
+  skb's struct and linear head (include/net/sock.h lines 2474 to 2481, include/linux/skbuff.h
+  lines 273 to 275, net/ipv4/tcp.c lines 926 to 935, all at Linux v7.2). The `f` field
+  (fwd_alloc), reserved and unused memory, is reported and not added.
+- Ks: the growth over the baseline of `Slab` in `/proc/meminfo`, less the growth of the skb caches
+  (below), per pending connection. It is host-wide and holds both loopback ends; the client ends
+  are `opcase`'s, the same for every system.
 - `K_BASE`: once per host, `ophold` holds `N_PEND` silent connections in the same window layout;
-  the median of its Ks over 16 windows is `K_BASE` (16 is a design choice, R_B). It is the kernel
-  slab of a bare held socket, both ends included.
+  the median of its Ks, corrected in the same way, over 16 windows is `K_BASE` (16 is a design
+  choice, R_B). It is the kernel slab of a bare held socket, both ends included.
+
+The skb caches (the freeze check's FC1; the coordinator's decision). A queued skb's struct and
+linear head are slab objects, so `Slab` holds them while Kq charges them too. On Linux v7.2 the
+struct comes from the cache "skbuff_head_cache", or, for the fast clones that TCP's send path
+allocates, from "skbuff_fclone_cache"; a linear head that fits comes from "skbuff_small_head"
+(net/core/skbuff.c lines 606 to 625, 684 to 685 and 5196 to 5225). A search of every cache
+created under `net/` at v7.2 finds no other that holds skb structs or heads: "skbuff_ext_cache"
+(line 5176) holds skb extensions, neither a head nor data, and the payload lies in page
+fragments, outside `Slab`. At the baseline and at each sample the run script reads
+`/proc/slabinfo` as root (the file has mode 0400; mm/slab_common.c lines 1098 and 1226). A
+cache's size is its num_slabs × pagesperslab × the page size (slabinfo(5)), a design choice: the
+unit in which `Slab` counts the same pages. The growth of the three caches over the baseline is
+subtracted from the growth of `Slab`, so a queued skb is counted once, in Kq. Two residuals
+remain, and the paper names both:
+- A head that does not fit "skbuff_small_head", or is asked for with flags that exclude it, comes
+  from kmalloc (skbuff.c lines 613 to 614 and 627 to 646; include/linux/slab.h lines 745 to 748)
+  and stays in Ks, so a queued skb with such a head is still counted twice. TCP's send path asks
+  for a head of `MAX_TCP_HEADER` bytes with `sk_allocation`, which is `GFP_KERNEL` (tcp.c lines
+  926 to 935 and 1256; net/core/sock.c line 3750), and that head fits "skbuff_small_head"
+  (skbuff.c lines 106 to 116). So B3's openings are not expected to take this path, but no rule
+  excludes it.
+- The subtraction also removes skb-cache memory that no receive queue is charged for, such as the
+  second struct of a fast-clone pair, which stays allocated while its clone is queued
+  (include/linux/skbuff.h lines 1395 to 1401; skbuff.c lines 1139 to 1167), and the unused part of
+  the caches' slab pages.
+Both residuals sit with a system that leaves bytes queued: nginx and Envoy in the
+partial-ClientHello case (their peek paths, survey 2.1 and 2.5), and the server only where its
+detection mode is peek (rule E of section 8, and the peek side of section 10's B3 cells). The first
+residual raises that system's W, the second lowers it. Where the competitor leaves bytes queued and
+the server reads them, the first biases Q upward, in the server's favour, and the second downward;
+where the server leaves them queued and the competitor reads them, both directions reverse. In the
+silent case nothing is queued and neither applies.
+
+Merged caches. The kernel may merge a cache with others of the same size (mm/slab_common.c lines
+50 to 52 and 155 to 230 at v7.2), and "skbuff_fclone_cache" carries none of the flags that
+prevent it (skbuff.c lines 5208 to 5212). `/proc/slabinfo` exists only in a kernel built with
+`CONFIG_SLUB_DEBUG` (mm/slab_common.c lines 1097 to 1231). Before the code freeze, L's
+`/proc/slabinfo` and `/sys/kernel/slab/` are read for the three names (mm/slub.c lines 9156 to
+9160 and 9641 to 9722 at v7.2). A cache merged with others is read under the name that
+`/proc/slabinfo` lists for the shared cache, the whole growth of that cache is subtracted, and the
+caches merged with it are named in the revision log (9.1) and in the paper.
 
 A system's footprint per pending connection is T = U + Kq + (Ks - `K_BASE`): user memory, receive
 queue, and the kernel slab the system adds beyond a bare held socket. That last term holds the
 kernel objects that differ by design between systems, for example an armed io_uring receive
-against an epoll registration. W = T + `K_BASE` = U + Kq + Ks is the whole-system footprint per
-pending connection, as these readings see it. Outside it, and said in the paper: the `f` field,
-and kernel memory outside `Slab` that no receive queue is charged for. `K_BASE` cancels from every
-B3 statistic and is reported as the share of each footprint that every system pays alike.
+against an epoll registration. W = T + `K_BASE` = U + Kq + Ks is the counted footprint per pending
+connection: what these readings see, with each queued skb counted once, except as named above. It
+is the footprint of each system as configured, not of its detection design alone. It is not called
+whole-system: outside it, and said in the paper, are the `f` field, kernel memory outside `Slab`
+that no receive queue is charged for, and the skb-cache memory of the second residual; and the
+first residual can count bytes twice. `K_BASE` cancels from every B3 statistic and is reported as
+the share of each footprint that every system pays alike.
 
 Limits, so that every system can hold `N_PEND`: the soft `RLIMIT_NOFILE` raised to the hard limit
 in every process; nginx `worker_connections` and `worker_rlimit_nofile` at 2 × `N_PEND`; HAProxy
@@ -280,22 +330,25 @@ bounds of the JDK guide's defaults written out as `-Xms` and `-Xmx`.
 
 - A session is four windows of a cell's two arms in mirrored order, X Y Y X. Which arm is X is
   drawn per session from the order's generator. Each window starts fresh processes, checks one
-  exchange of each protocol the cell uses, then runs a 1 s warm-up and a 5 s measured window (the
-  T1 defaults of `lab/t1/t1.py`, the design of P2's H6). B3 windows have the layout of WL7.
+  exchange of each protocol the cell uses (the probe), then runs a 1 s warm-up and a 5 s measured
+  window (the T1 defaults of `lab/t1/t1.py`, the design of P2's H6). B3 windows have the layout of
+  WL7.
 - An arm's value in a session is the mean of its two windows. The session's statistic is the
   ratio of the two arms' values, in the direction each hypothesis states.
-- Placement on L, the SMT sibling of every used core idle, CPUs 0 and 1 for the system and the
-  driver: in-process cells, the server on CPU 14, `opgen` on CPUs 2 to 13; hand-off cells, the
-  front on CPU 14, the backend on CPUs 10 and 12, `opgen` on CPUs 2 to 9; B3 and hard cases, the
-  system or `ophold` on CPU 14, its backend on CPUs 10 and 12, `opcase` on CPUs 2 to 9; the 2-core
-  secondary cells, the server on CPUs 12 and 14, `opgen` on CPUs 2 to 11. On W, the
-  server on one logical CPU of the last physical core, its sibling idle, `opgen` on the cores
-  between core 0 and the server's.
-- Replicates are fixed per family: R_C for the cost family (4.6), R_B = R_M = 16. No sequential
-  stopping. A session with an invalid window (section 7) is discarded and run again at the end of
-  the order, at most ⌈R/4⌉ times per cell, a design choice that bounds the time. A cell with fewer
-  than R valid sessions cannot pass and enters Holm with p = 1. Beside every decision the paper
-  reports the cell's invalid windows per arm, with their reasons.
+- Placement on L, as in P2's H6, the SMT sibling of every used core idle, CPUs 0 and 1 for the
+  system and the driver: in-process cells, the server on CPU 14, `opgen` on CPUs 2 to 13;
+  hand-off cells, the front on CPU 14, the backend on CPUs 10 and 12, `opgen` on CPUs 2 to 9; B3
+  and hard cases, the system or `ophold` on CPU 14, its backend on CPUs 10 and 12, `opcase` on
+  CPUs 2 to 9; the 2-core secondary cells, the server on CPUs 12 and 14, `opgen` on CPUs 2 to 11.
+  On W, the server on one logical CPU of the last physical core, its sibling idle, `opgen` on the
+  cores between core 0 and the server's.
+- Replicates are fixed per family: R_C for the cost family (4.6), R_B = R_M = 16 (P2's reference,
+  between the D9 minimum and 32, a design choice: no pilot can size a superiority family, since
+  nothing in this design sets its effect size). No sequential stopping. A session with an invalid
+  window (section 7) is discarded and run again at the end of the order, at most ⌈R/4⌉ times per
+  cell, a design choice that bounds the time. A cell with fewer than R valid sessions cannot pass
+  and enters Holm with p = 1. Beside every decision the paper reports the cell's invalid windows
+  per arm, with their reasons.
 - Sessions are separate process lifetimes and are treated as independent. The lab job of each
   session is recorded, and an analysis clustered by job is reported; it decides nothing.
 
@@ -311,7 +364,8 @@ passes under both. If they disagree, both are reported and the cell does not pas
   the bound of the two-sided 1 - 2α interval equals it.
 - **Exact sign test**: X counts the sessions whose value lies strictly on the hypothesis side of
   the bound; a tie, or a session without a value, counts against. At the null's boundary X is
-  binomial with R and 1/2, and p = P(X ≥ x), computed exactly.
+  binomial with R and 1/2, and p = P(X ≥ x), computed exactly. A B3 session without a ratio takes
+  Q = 0 in both computations (5.2).
 - **Holm's step-down** per family at family-wise α = 0.025, one-sided, run once for each
   computation. A cell that cannot be tested enters with p = 1.
 
@@ -362,6 +416,8 @@ D9 asks for an R at which an exact paired test can pass the family's first Holm 
 | Cost | at most 36, fixed by the pilot entry | 6.94e-4 at m = 36 | 11 (2^-11 = 4.88e-4) | R_C in {11, 15, 18, 22, 25, 28, 31}, from the pilot (4.6) |
 | Robustness (B3) | 18 | 1.39e-3 | 10 (2^-10 = 9.77e-4) | 16 |
 | Mechanism | 20 | 1.25e-3 | 10 (2^-10 = 9.77e-4) | 16 |
+
+R_B = R_M = 16 is P2's reference, between the D9 minimum and 32, a design choice (4.1).
 
 Cost family, sessions allowed beyond each bound at α/36, with the exact one-sided p of that count
 and of one more:
@@ -438,9 +494,15 @@ and never changed after:
   `SEED_ORDER_M_W`, `SEED_ORDER_S_L`, `SEED_ORDER_S_W`;
 - resampling: `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`, `SEED_BOOT_S`, one generator per
   family. Each cell of the family's list in section 6 (B3's descriptive cells after its Holm
-  cells) draws its 10,000 resamples once, in that order, whether or not it is in Holm; the
-  secondary cells draw from `SEED_BOOT_S` in the order of section 10. A cell with fewer than R
-  valid sessions draws nothing;
+  cells) draws its 10,000 resamples once, in that order, whether or not it is in Holm. Every other
+  interval, those of section 10, draws from `SEED_BOOT_S`, bullet by bullet in the order of
+  section 10; the cost cells not resolved and B3's descriptive cells keep their family's draws and
+  draw nothing more. Within a bullet the cells follow the order of 6.1 (hypothesis, host, backend,
+  protocol), then the system in the order of 2.3; a case, variant or form that the bullet names
+  comes after the protocol, in the order the bullet names it; within a cell, the metrics follow
+  the order the bullet names them. A bullet that covers cells of section 6 (the cost cells' CPU
+  and memory, the analyses clustered by lab job) takes them in the order of section 6, family by
+  family. A cell with fewer than R valid sessions draws nothing;
 - the pilot: `SEED_PILOT_L`, `SEED_PILOT_W` (order) and `SEED_SIM` (4.6).
 
 ## 5. Hypotheses
@@ -480,21 +542,25 @@ little power to show the cost of a 6-byte check, and are not read as evidence ab
   - (e) a half-close before a decision closes the connection in the pass that observes it.
   The lateness of timed events and the decision latency are reported per backend as distributions,
   and not tested.
-- **B3. Footprint per pending connection.** In Holm. Whole-system footprints W (WL7), each system
-  as configured for B3 (Appendix B).
+- **B3. Footprint per pending connection.** In Holm. Counted footprints W (WL7), each system as
+  configured for B3 (Appendix B), not detection designs alone. Ks in W and in `K_BASE` is net of
+  the skb caches' growth, so a queued skb is counted once, in Kq; the two residuals of WL7 are
+  named beside the results.
   - Margin: Alex decided on 2026-10-02, before any B3 window ran, that a cell counts as a win only
     if (T_comp + `K_BASE`) / (T_srv + `K_BASE`) is at least 1.10. By WL7 this ratio is
     W_comp / W_srv.
   - Session statistic: Q = W_comp / W_srv, each arm's W the mean of its two windows. A session
-    whose W_srv is 0 or less has no ratio and counts against.
+    whose W_srv is 0 or less has no ratio: it takes Q = 0 in both computations, below every bound,
+    so it counts against.
   - Null per cell: "the median Q is at most 1.10". Sign test: X counts the sessions with Q strictly
     above 1.10, with X binomial with 16 and 1/2 at the boundary. BCa: p is the level at which the
     lower bound of the two-sided 1 - 2α interval equals 1.10, the share of resamples below 1.10
     clipped as in 4.2.
   - Holm over the 18 cells of section 6.2, once per computation; a cell passes only under both.
-  - Reported beside each cell: both W and their parts U, Kq and Ks - `K_BASE`; `f`; `K_BASE`;
-    D = W_comp - W_srv in bytes per pending connection with its 95% BCa interval; the median Q with
-    its 95% interval and its interval at Holm's level; the sign-test count; the server's bounds.
+  - Reported beside each cell: both W and their parts U, Kq and Ks - `K_BASE`; the skb caches'
+    growth subtracted from each Ks; `f`; `K_BASE`; D = W_comp - W_srv in bytes per pending
+    connection with its 95% BCa interval; the median Q with its 95% interval and its interval at
+    Holm's level; the sign-test count; the server's bounds.
   - The server runs in relay mode against the proxies and in-process against the libraries, in
     its default detection mode.
   - The 16 descriptive cells (6.2) use the same statistic and are reported with their intervals
@@ -579,20 +645,22 @@ A window is invalid, and is listed with its reason, if:
   B1 (5.2), not only a reason to run the session again;
 - in hand-off cells, a backend core was more than 90% busy (a design choice, by analogy with the
   generator rule);
-- in an open-loop window, fewer than 99% of the exchanges due in it completed;
+- in an open-loop window, fewer than 99% of the exchanges due in it completed (a design choice,
+  from audit F11);
 - in the cost family, M1, M2 and B3, `TcpExtListenOverflows` or `TcpExtListenDrops` (nstat)
   changed during the window. In M3 the proxies keep their own backlogs, so overflows there are
   recorded and reported beside each cell instead;
-- in a B3 or `ophold` window: the whole footprint W changed between the two samples by more than
-  the larger of 2% of sample 2's W (a design choice, a fifth of B3's margin) and `SETTLE_ABS` =
-  8 bytes per pending connection (a design choice that keeps the rule defined near 0: 80,000 bytes
-  over `N_PEND`, above the 1 kB unit in which `/proc` reports `VmRSS` and `Slab`); or the host's
-  TIME-WAIT count at either sample differs from the baseline's; or fewer than `N_PEND` of the
-  system's accepted sockets are established at either sample.
+- in a B3 or `ophold` window: the footprint W of WL7, with Ks net of the skb caches, changed
+  between the two samples by more than the larger of 2% of sample 2's W (a design choice, a fifth
+  of B3's margin) and `SETTLE_ABS` = 8 bytes per pending connection (a design choice that keeps
+  the rule defined near 0: 80,000 bytes over `N_PEND`, above the 1 kB unit in which `/proc`
+  reports `VmRSS` and `Slab`); or the host's TIME-WAIT count at either sample differs from the
+  baseline's; or fewer than `N_PEND` of the system's accepted sockets are established at either
+  sample.
 
-TIME-WAIT sockets are slab objects and last 60 s. So B3 and `ophold` windows close by reset and
-create none, and the first B3 or `ophold` window of a lab job starts at least 60 s after the last
-other window on L ended.
+TIME-WAIT sockets are slab objects and last 60 s (`TCP_TIMEWAIT_LEN`, include/net/tcp.h line 140
+at v7.2). So B3 and `ophold` windows close by reset and create none, and the first B3 or `ophold`
+window of a lab job starts at least 60 s after the last other window on L ended.
 
 Recorded per window, deciding nothing: the TIME-WAIT count at start and end, the change of
 `TcpExtTCPTimeWaitOverflow`, the source-address block, and on W the power plan and the timer
@@ -608,9 +676,14 @@ Each step starts only after the one before it is committed.
    revision log and the lab journal, and disclosed in the methods. Before the code freeze they may
    time dedicated mode against anything, and one-port mode against the competitors or against
    another one-port option. No window, on any code, times one-port mode against dedicated mode
-   before the pilot entry. Why one-port windows are allowed here at all: rule D2 asks for the server
-   to be engineered until it wins, which needs such timings, and the pilot must run on the frozen
-   code, after them. They hold no cost contrast, and nothing they measure enters the pilot's rules.
+   before the pilot entry. A dedicated window and a one-port window against the same competitor,
+   at the same protocol, backend and host, still give an indirect one-port against dedicated
+   ratio on pre-freeze code. The competitors are the only reference both modes may share before
+   the code freeze, so every such pair of development cells is listed in the revision log when it
+   runs, and in the paper's methods. No rule of this file uses it. Why one-port windows are
+   allowed here at all: rule D2 asks for the server to be engineered until it wins, which needs
+   such timings, and the pilot must run on the frozen code, after them. They hold no cost
+   contrast, and nothing they measure enters the pilot's rules.
    Before engineering ends, one revision-log entry fixes every seed of 4.7, and the analysis code
    that runs 4.6 is committed with its tests (`ANALYSIS_COMMIT`).
 3. **The code freeze.** One commit, `CODE_FREEZE`, of the server, the generators, the holder, the
@@ -626,18 +699,29 @@ Each step starts only after the one before it is committed.
      from the deadline to the start of the loop pass that handled it. 128 is a design choice, the
      server's runs per timer case on L.
    - Split part, per host: on each backend, HC2's HTTP/1.1 script split after its first byte,
-     against the dedicated HTTP/1.1 port, 16 replicates at each tested gap of 5, 10, 20, 50 and
-     100 ms (a design choice, a 1-2-5 series). A replicate shows the split read when the counters of
-     its one connection show two receives that returned payload.
+     against the dedicated HTTP/1.1 port, 16 replicates (the hard cases' replicate count) at each
+     tested gap of 5, 10, 20, 50 and 100 ms (a design choice, a 1-2-5 series). A replicate shows
+     the split read when the counters of its one connection show two receives that returned
+     payload.
+   - Failed runs of the parts. A timer run or split replicate whose server or `opcase` failed is
+     excluded and listed in the pilot entry. The parts run again only with the whole pilot, under
+     its cap below. A host with no valid timer run has no G, and HC7 is not run on it, as when G
+     is not below T_fb. A tested gap at which some backend has no valid replicate does not qualify
+     for `GAP_SPLIT`.
    - Reruns. Within the pilot, a session with a window invalid by a rule of section 7 is run again
      at the end of the pilot's order, at most ⌈P/4⌉ = 4 times per cell; a cell that still lacks P
-     valid sessions is not resolved. The whole pilot may be run again at most once: only if an
-     infrastructure fault stopped it (the host failed, the lab lock was lost, the run script
-     crashed), or if the frozen code had to change, with new records; and only before the pilot
-     entry and before any one-port window of the frozen code. The abandoned pilot is archived,
-     named in the revision log with its reason, and not used; the repeat uses the same seeds.
-     After the pilot entry, or once any one-port window of the frozen code has run, no pilot
-     session runs again, for any reason.
+     valid sessions is not resolved. The whole pilot may be run again at most once, with the same
+     seeds, and only before the simulation of step 5 starts: if an infrastructure fault stopped it
+     (the host failed, the lab lock was lost, the run script crashed), or if a named failure
+     forced a change of the frozen code (a failing test, a sanitizer record that is not green, the
+     gate refusing a build, or a crash of a first-party program), recorded with its evidence in
+     the revision log, and the new build has new records. The abandoned pilot is archived, named
+     in the revision log with its reason, and not used. Once the simulation of step 5 has
+     started, no pilot session runs again, for any reason.
+   - If the cap is spent, or the repeat is itself stopped, the pilot entry is made from the last
+     pilot: a cell without P valid sessions is not resolved, and a timer run or split replicate
+     that did not take place counts as excluded (above). A further code change then follows the
+     rule for a later change (below).
 5. **The simulation** of 4.6, at `ANALYSIS_COMMIT`, with `SEED_SIM`, on the pilot's data alone.
 6. **The pilot entry.** One revision-log entry of this file, made from the pilot's and the
    simulation's outputs alone and committed before any one-port window of the frozen code. It
@@ -660,11 +744,14 @@ dedicated mode. The other two exist only in one-port mode and are decided after 
 before any confirmatory window. Each choice is written into the revision log when made. If rule E
 chooses `splice`, HAProxy gets `option splice-auto`.
 
-A code change after the pilot. Before the pilot entry and before any one-port window of the frozen
-code, it needs new records and a new pilot, under the cap above. Later, the committed pilot outputs
-stand and the pilot is not run again; the new build gets new records, every confirmatory window of
-the old build is archived and not used, the runs start again on the new build, and the revision log
-records the change as a deviation.
+A code change once the pilot has started. Before the simulation of step 5 starts, a change that a
+named failure forces (step 4) needs new records and a new pilot, under the cap above. Every other
+change follows the rule for a later change: a change that no named failure forces, a change once
+the simulation has started, and a change once the cap is spent. Under that rule the pilot is not
+run again, and its outputs go into the pilot entry or, if the entry is committed, stand; the new
+build gets new records; every confirmatory window of the old build is archived and not used; the
+runs start again on the new build; and the revision log records the change as a deviation. No
+one-port window of either build runs before the pilot entry.
 
 ## 9. Values to be filled in
 
@@ -683,6 +770,7 @@ named, and is never chosen after data that could favour a value.
 | `RELAY_BUF` | the relay's user-space buffer per direction, reported beside each proxy's default |
 | `N_BG_TLS`, `N_BG_MQTT`, `N_BG_SILENT` | the background of the secondary mixed-protocol cell |
 | ℓ | the length of the recorded ClientHello, measured when it is recorded |
+| The skb caches on L | read on L: that `/proc/slabinfo` exists; for "skbuff_head_cache", "skbuff_fclone_cache" and "skbuff_small_head", the name under which `/proc/slabinfo` lists each and the caches merged with it, from `/sys/kernel/slab/`; and the page size (WL7) |
 | Pins | OpenSSL (latest 3.5), nghttp2, the competitors, the JDK (latest LTS), the Rust toolchain, xcaddy; by archive URL and sha256 |
 | W's procedure | power plan, boost policy, timer resolution, and a CPU frequency counter tested against a known load; approved by Alex. If no counter passes, W windows are validated without the frequency rule and the paper says so |
 
@@ -691,15 +779,15 @@ named, and is never chosen after data that could favour a value.
 | Name | Rule |
 |---|---|
 | `CODE_FREEZE` and `ANALYSIS_COMMIT`, named again | section 8 steps 2 and 3 |
-| The pilot archive's sha256, and its invalid windows and reruns | section 8 step 4 |
+| The pilot archive's sha256, its invalid windows and reruns, and its excluded timer runs and split replicates | section 8 step 4 |
 | Power_c(R) for every cost cell and candidate, and each resolved cell's R_c | 4.6 steps 2 to 5 |
 | The resolved list | 4.6 step 5 |
 | `R_C` | 4.6 step 6 |
 | `m_C` | 4.6 step 7 |
 | The joint power per protocol, backend and host | 4.6 step 7 |
 | λ for each C3 cell | WL2, from the C1 pilot sessions |
-| `G_L`, `G_W` | per host, the smallest whole number of milliseconds above the largest lateness of the timer part over all the host's backends, so above its 99th percentile. If it is not below T_fb, HC7 is not run on that host, and the paper says why |
-| `GAP_SPLIT` | the smallest tested gap at which every replicate on every backend of L and W shows the split read; if none does, 100 ms, and HC2, HC3 and HC10 report the share of their replicates that split |
+| `G_L`, `G_W` | per host, the smallest whole number of milliseconds above the largest lateness of the timer part's valid runs over all the host's backends, so above its 99th percentile. If the host has no valid run, or G is not below T_fb, HC7 is not run on that host, and the paper says why |
+| `GAP_SPLIT` | the smallest tested gap at which every valid replicate on every backend of L and W shows the split read, each backend having at least one valid replicate at that gap; if none does, 100 ms, and HC2, HC3 and HC10 report the share of their replicates that split |
 | The IOCP receive form, named again | rule E; recorded when it is made, before the W pilot |
 
 ### 9.3 After the pilot entry, before the runs that use them (section 8 step 7)
@@ -726,15 +814,18 @@ design choice (P2's reference). Each is reported with its 95% BCa interval where
 - 2 server cores: C1 HTTP/1.1 on each backend (3 cells); and on epoll and io_uring the
   `SO_REUSEPORT` group against the shared listener, both in one-port mode (2 cells).
 - The server's relay on io_uring against the proxies (10 cells).
-- On IOCP, on a listener without a fallback: AcceptEx with a receive buffer, and the posted-buffer
-  form, each against the default form (2 cells).
+- On IOCP, on a listener without a fallback, against the default form, which is AcceptEx with no
+  receive buffer (`dwReceiveDataLength` = 0) followed by the receive form rule E chose (2 cells):
+  AcceptEx with a receive buffer; and the receive form rule E did not choose (the zero-byte
+  `WSARecv` or the posted buffer), after the same AcceptEx.
 - Operations and copies per connection for every mode and backend; system calls per connection
   for the proxies, from `perf trace -s` over untimed windows. On L, one untimed window per cost
   cell checks the server's system-call counters against `perf trace -s`.
 - For M1 and M3, TTFB at a fixed load (16 cells), λ = `RATE_FRAC` × the slower arm's median
   connections per second in the cell's closed-loop sessions; for every M cell, CPU per connection.
 - B3 with the server in its other detection mode against its default mode, in both cases on both
-  Linux backends (4 cells), with Q = other / default.
+  Linux backends (4 cells), with Q = other / default; a session whose default-mode W is 0 or less
+  takes Q = 0, as in B3.
 - B3's 16 descriptive cells (5.2).
 - The competitors' outcomes on the hard cases they cover, at matched timers and at their
   defaults: `R_COMP_CASES` = 3 replicates per case and setting, a design choice, since the table is
@@ -791,9 +882,10 @@ Declared gaps, for `bench/coverage.json`:
 - **B1 and B2.** Not narrowed. A failure in any run of the frozen code is reported as a failure, and
   the robustness claim is not made.
 - **B3.** Narrowed to the competitors and cases where it passes. A pass is written "the competitor
-  held at least 1.10 times the server's footprint per pending connection, by B3's test", always
-  with D and its interval. A cell that fails is "not shown". "Loss" is used only where the 95% BCa
-  interval of Q lies wholly below 1.00, as a description, not a test.
+  held at least 1.10 times the server's counted footprint per pending connection, by B3's test",
+  always with D and its interval, and with WL7's exclusions and residuals named. A cell that
+  fails is "not shown". "Loss" is used only where the 95% BCa interval of Q lies wholly below
+  1.00, as a description, not a test.
 - **M1 and M2.** Reported per backend as measured. A cell that fails shows only that a difference
   was not shown, never that the mode "costs nothing extra".
 - **M3.** Narrowed to the proxies and protocols where it passes. A cell that fails is "not shown";
@@ -874,7 +966,7 @@ the default is kept.
 |---|---|---|
 | nginx | `preread_buffer_size` 16k; `proxy_buffer_size` 16k, which also sizes reading from the client | Kept. No value for many pending connections and no growth is documented, and a full preread buffer ends the session, so a smaller one would refuse ClientHellos the default accepts. |
 | HAProxy | `tune.bufsize` 16384; `tune.maxrewrite`; `option use-small-buffers` | `tune.bufsize` and `tune.maxrewrite` kept: configuration.txt v3.4.6 (line 4208) says "It is strongly recommended not to change this from the default value". `option use-small-buffers`, with no parameter, set in the backends (it cannot be set in a frontend); it acts on queued requests, L7 retries and health checks, which a pending connection does not have, so it should change nothing B3 measures. |
-| Envoy | the listener's `per_connection_buffer_limit_bytes` (default 1 MiB); tls_inspector's `initial_read_buffer_size` (default 16 KiB, doubling on demand up to 16 KiB); http_inspector has none | Configured: `per_connection_buffer_limit_bytes` 32768 on the listener and the cluster, as the docs' edge page asks of TCP proxies; `initial_read_buffer_size` 256, the smallest value the proto accepts, a design choice, since the buffer doubles on demand. The edge page's admin and overload-manager items size nothing a connection holds and are not configured. |
+| Envoy | the listener's `per_connection_buffer_limit_bytes` (default 1 MiB); tls_inspector's `initial_read_buffer_size` (default: the maximum, 16 KiB; a smaller initial size doubles on demand up to it); http_inspector has none | Configured: `per_connection_buffer_limit_bytes` 32768 on the listener and the cluster, as the docs' edge page asks of TCP proxies; `initial_read_buffer_size` 256, the smallest value the proto accepts, a design choice, since the buffer doubles on demand. The edge page's admin and overload-manager items size nothing a connection holds and are not configured. |
 | caddy-l4 | none: the prefetch chunk and the matching cap are code constants | Nothing to configure. |
 | sslh-ev | none: probing reads into `BUFSIZ` bytes and keeps the bytes in a queue that grows with `realloc` | Nothing to configure. |
 | Netty | `ChannelOption.RECVBUF_ALLOCATOR` and `ChannelOption.ALLOCATOR`; the base default receive allocator is adaptive, 64 to 65536 bytes, starting at 2048 | Kept: no Netty document read gives a value for many pending connections. |
