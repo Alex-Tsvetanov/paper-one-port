@@ -47,6 +47,7 @@ namespace oneport::server
 			case Route::by_sni: return "by_sni";
 			case Route::rejected: return "rejected";
 			case Route::connect_failed: return "connect_failed";
+			case Route::timed_out: return "timed_out";
 		}
 		return "?";
 	}
@@ -112,6 +113,7 @@ namespace oneport::server
 		relayed += o.relayed;
 		routed_by_sni += o.routed_by_sni;
 		route_rejected += o.route_rejected;
+		route_timeouts += o.route_timeouts;
 		relay_connect_errors += o.relay_connect_errors;
 		conns_open += o.conns_open;
 		buffers_allocated += o.buffers_allocated;
@@ -197,6 +199,7 @@ namespace oneport::server
 		line("relayed", c.relayed);
 		line("routed_by_sni", c.routed_by_sni);
 		line("route_rejected", c.route_rejected);
+		line("route_timeouts", c.route_timeouts);
 		line("relay_connect_errors", c.relay_connect_errors);
 		line("conns_open", c.conns_open);
 		line("buffers_allocated", c.buffers_allocated);

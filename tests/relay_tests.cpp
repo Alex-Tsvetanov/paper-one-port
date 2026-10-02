@@ -6,6 +6,7 @@
 //     nothing in user space; splice moves its bytes inside the kernel);
 //   - relay.pass_through.<mode>: TLS routed by the ClientHello's SNI and ALPN to a stub backend,
 //     ClientHellos larger than the receive buffer and than B_CH, and the ones with no route;
+//   - relay.pass_through_tdec.<mode>: T_dec bounds the wait for the whole ClientHello;
 //   - relay.stub: stub mode's ports, the TLS port reading one record;
 //   - relay.matrix: the front's flag combinations;
 //   - relay.binary: the binary as a backend process and a front process.
@@ -180,7 +181,10 @@ namespace oneport::test
 		{
 			CHECK(relays.size() == 1, what << ": " << relays.size() << " route reports");
 			CHECK(relays[0].route == route, what << ": routed " << server::name(relays[0].route) << ", expected " << server::name(route));
-			if (route != server::Route::rejected) CHECK(relays[0].backend_port == port, what << ": to port " << relays[0].backend_port << ", expected " << port);
+			if (route != server::Route::rejected && route != server::Route::timed_out)
+			{
+				CHECK(relays[0].backend_port == port, what << ": to port " << relays[0].backend_port << ", expected " << port);
+			}
 			return std::nullopt;
 		}
 
@@ -417,6 +421,52 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		// ---- relay.pass_through_tdec ----
+
+		/// T_dec bounds pass-through's wait for the whole ClientHello (design/status.md, M3, step 0;
+		/// the revision log of hypotheses.md): WL7's partial-ClientHello opening (the record header
+		/// announcing the recorded ClientHello, then its first half), then silence. The connection is
+		/// classified TLS at byte 6 as before, and closed at T_dec with route timed_out; the timed
+		/// event meets B2(a) and (b) (stop_and_check), and the client sees the close no earlier than
+		/// T_dec after its connect. A ClientHello whose second half comes before T_dec is routed.
+		/// Not a case of Appendix A, which is frozen: a test of the reading.
+		Result pass_through_tdec(Detect detect)
+		{
+			ServerArgs f;
+			f.detect = detect;
+			Relayed r(Mode::stub, f);
+			const Bytes rec = opcase::recorded_client_hello();
+			const std::size_t ell = rec.size() - 5;  // the length the record header announces (WL7's ℓ)
+			const Bytes half = opcase::slice(rec, 0, 5 + ell / 2);
+			const opcase::Transcript t = opcase::run(Script{}.write(half).await_close(), r.front.port());
+			std::vector<server::DetectionReport> reps;
+			std::vector<server::RelayReport> relays;
+			CHECK(r.front.collector.wait_close(t.local_port, 10000ms, reps, &relays), "the front never closed the connection");
+			CHECK(reps.size() == 1 && reps[0].outcome == server::Outcome::classified && reps[0].proto == detect::Proto::tls && reps[0].at == 6,
+			      "the partial ClientHello was not classified TLS at byte 6");
+			if (auto bad = one_route(relays, server::Route::timed_out, 0, "half a ClientHello")) return bad;
+			CHECK(relays[0].held_max <= (detect == Detect::replay ? half.size() : 0), "held " << relays[0].held_max << " bytes (B2 d)");
+			CHECK(t.received.empty() && (t.eof || t.reset) && t.end, "a reply, or no close");
+			CHECK(*t.end - t.before_connect >= r.front.args.t_dec, "closed " << std::chrono::duration_cast<std::chrono::milliseconds>(*t.end - t.before_connect).count()
+			                                                              << " ms after connect, before T_dec");
+			// The second half before T_dec: routed, as without the timer.
+			std::vector<server::RelayReport> routed;
+			const opcase::Transcript u = r.run(Script{}.split(rec, {half.size()}, 30ms).await_close(), routed);
+			if (auto bad = one_route(routed, server::Route::by_sni, r.backend.port_of(detect::Proto::tls), "both halves before T_dec")) return bad;
+			CHECK(u.received == text(apps::kStubBody) && u.eof, "both halves: the stub's 13 bytes and its close did not come back");
+			if (auto bad = r.stop()) return bad;
+			const server::Counters c = r.front.server->totals();
+			CHECK(c.route_timeouts == 1 && c.routed_by_sni == 1 && c.route_rejected == 0,
+			      "timed out " << c.route_timeouts << ", routed " << c.routed_by_sni << ", rejected " << c.route_rejected);
+			std::size_t dec = 0;
+			for (const server::TimedEvent& ev : c.timed)
+			{
+				if (ev.kind == server::TimerKind::t_dec && ev.result == server::TimerResult::closed) ++dec;
+			}
+			CHECK(dec == 1 && c.timed.size() == 1, c.timed.size() << " timed events, " << dec << " T_dec closes");
+			return std::nullopt;
+		}
+
 		// ---- relay.stub ----
 
 		Result stub()
@@ -609,6 +659,8 @@ namespace oneport::test
 			r["relay.refused" + s] = on(refused);
 			r["relay.pass_through.replay" + s] = on([] { return pass_through(Detect::replay); });
 			r["relay.pass_through.peek" + s] = on([] { return pass_through(Detect::peek); });
+			r["relay.pass_through_tdec.replay" + s] = on([] { return pass_through_tdec(Detect::replay); });
+			r["relay.pass_through_tdec.peek" + s] = on([] { return pass_through_tdec(Detect::peek); });
 			r["relay.stub" + s] = on(stub);
 			r["relay.matrix" + s] = on(matrix);
 			r["relay.binary" + s] = on(binary);

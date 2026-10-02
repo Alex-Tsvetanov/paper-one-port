@@ -96,7 +96,10 @@ namespace oneport::server
 		std::uint64_t recv_calls = 0;
 		std::uint64_t peek_calls = 0;
 		std::uint64_t send_calls = 0;
-		std::uint64_t setsockopt_calls = 0;  // each SO_RCVLOWAT set and reset
+		/// Every setsockopt on a connection's socket: each SO_RCVLOWAT set and reset (peek mode and
+		/// pass-through's wait in peek), the two TCP_NODELAY of a relayed connection (its client
+		/// side and its backend side), and the SO_LINGER of each side a relay closes by reset.
+		std::uint64_t setsockopt_calls = 0;
 		std::uint64_t check_calls = 0;       // the non-blocking check of 1(b)
 		std::uint64_t epoll_wait_calls = 0;
 		std::uint64_t epoll_ctl_calls = 0;
@@ -137,6 +140,7 @@ namespace oneport::server
 		std::uint64_t relayed = 0;               // connected to the backend
 		std::uint64_t routed_by_sni = 0;         // of which TLS, routed by its ClientHello
 		std::uint64_t route_rejected = 0;        // pass-through: no route for the ClientHello, or not a ClientHello
+		std::uint64_t route_timeouts = 0;        // pass-through: the ClientHello still incomplete at T_dec (design/status.md, M3)
 		std::uint64_t relay_connect_errors = 0;  // the backend refused or failed the connect
 		// State at the end (after stop()).
 		std::uint64_t conns_open = 0;
@@ -201,6 +205,7 @@ namespace oneport::server
 		by_sni,          // TLS: pass-through, by the ClientHello's SNI and ALPN
 		rejected,        // TLS: no route for the ClientHello, or not a ClientHello
 		connect_failed,  // routed, but the backend refused the connection
+		timed_out,       // TLS: the ClientHello was still incomplete when T_dec expired
 	};
 	std::string_view name(Route r) noexcept;
 

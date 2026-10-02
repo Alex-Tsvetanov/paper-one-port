@@ -428,7 +428,10 @@ namespace oneport::server::detail
 	void Worker::dispatch(Conn* c, Proto p, std::uint32_t at)
 	{
 		disarm(c, TimerKind::t_fb);
-		disarm(c, TimerKind::t_dec);
+		// Pass-through's route needs the whole ClientHello (SNI and ALPN), so the decision T_dec
+		// bounds is complete only when the route is chosen (relay_connect) or refused: the timer
+		// stays armed through the wait (design/status.md, M3, step 0).
+		if (!(shared_.relay && p == Proto::tls)) disarm(c, TimerKind::t_dec);
 		++c_.outcomes[static_cast<std::size_t>(Outcome::classified)];
 		++c_.classified[static_cast<std::size_t>(p)];
 		const bool peeked = peeks(c);
@@ -631,6 +634,17 @@ namespace oneport::server::detail
 
 	void Worker::expire_dec(Conn* c, TimePoint wait_return)
 	{
+		if (c->stage == Stage::route)
+		{
+			// Pass-through: classified TLS at byte 6, its ClientHello still incomplete. The
+			// detection outcome is already counted (classified), so the end is counted apart.
+			record(c, TimerKind::t_dec, deadline_of(c, TimerKind::t_dec), wait_return, TimerResult::closed);
+			disarm(c, TimerKind::t_dec);
+			++c_.route_timeouts;
+			relay_report(c, Route::timed_out);
+			close_conn(c);
+			return;
+		}
 		if (c->app_seen == 0 && c->listener->spec->fallback)
 		{
 			record(c, TimerKind::t_dec, deadline_of(c, TimerKind::t_dec), wait_return, TimerResult::waited);

@@ -10,7 +10,7 @@
 // bench/server/clienthello.hpp, and routes by its SNI and ALPN (pass-through). In replay the
 // records are held as received, in the receive buffer or, once they outgrow it, in storage of
 // their own (a copy in user space, counted); in peek they stay in the socket, and SO_RCVLOWAT
-// waits for the bytes the reassembly needs next. The route table (a design choice of M2b, the one
+// waits for the bytes the reassembly needs next; T_dec bounds the wait. The route table (a design choice of M2b, the one
 // name and the two protocols the frozen settings serve): SNI oneport.test, with no ALPN or an
 // ALPN list that offers http/1.1 or h2, goes to the backend's TLS port; any other ClientHello,
 // or a record stream that is not one, is closed (counted route_rejected).
@@ -24,8 +24,11 @@
 //     --proxy off, and the source the server records is the front's.
 //   - TCP_NODELAY on both relayed sockets, as nginx's stream module sets by default
 //     (tcp_nodelay on, for client and proxied connections), so a write is passed on at once.
-//   - No timer once a connection is relayed or waits for its route: in-process, the TLS handler
-//     waits for the rest of a ClientHello with no timer too.
+//   - T_dec bounds pass-through's wait for the whole ClientHello: the route is the decision
+//     there, so T_dec stays armed from accept (or the PROXY header's end) until the route is
+//     chosen; a ClientHello still incomplete at T_dec is closed and counted route_timeouts
+//     (M3's reading, which supersedes M2b's; design/status.md). No timer once a connection is
+//     relayed.
 #include "worker.hpp"
 
 #if defined(__linux__)
@@ -226,6 +229,7 @@ namespace oneport::server::detail
 
 	void Worker::relay_connect(Conn* c, Route route)
 	{
+		disarm(c, TimerKind::t_dec);  // the route is decided: pass-through's wait ends (worker.cpp, dispatch)
 		Relay& r = *c->relay;
 		r.route = route;
 		c->stage = Stage::relay;

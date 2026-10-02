@@ -592,6 +592,7 @@ namespace oneport::server::detail
 				{
 					const linger l{1, 0};
 					::setsockopt(r.fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+					++c_.setsockopt_calls;
 				}
 				::close(r.fd);
 				r.fd = -1;
@@ -601,6 +602,7 @@ namespace oneport::server::detail
 		{
 			const linger l{1, 0};
 			::setsockopt(c->fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+			++c_.setsockopt_calls;
 		}
 		::close(c->fd);  // on epoll this also removes it from the set; io_uring holds it until its operations end
 		c->fd = -1;

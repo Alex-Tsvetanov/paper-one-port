@@ -57,7 +57,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Relay dispatch, pass-through and stub mode (proposal I17, I18).
     set(ONEPORT_RELAY_TESTS
         relay.exchanges.user_space.replay relay.exchanges.user_space.peek relay.exchanges.splice.replay
-        relay.exchanges.splice.peek relay.refused relay.pass_through.replay relay.pass_through.peek relay.stub relay.matrix)
+        relay.exchanges.splice.peek relay.refused relay.pass_through.replay relay.pass_through.peek
+        relay.pass_through_tdec.replay relay.pass_through_tdec.peek relay.stub relay.matrix)
     foreach(_backend IN LISTS ONEPORT_BACKENDS)
         foreach(_test IN LISTS ONEPORT_SERVER_TESTS)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
