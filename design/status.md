@@ -10,7 +10,8 @@ has run.
 |---|---|---|
 | M0 | Foundations | done, 2026-10-02 (below) |
 | M1 | epoll server with the detection table, the HTTP/1.1 handler and the 25-case generator as a deterministic test suite under every sanitizer | done, 2026-10-02 (below) |
-| M2 | h2c, TLS, PROXY, SSH and MQTT; relay mode and io_uring | next |
+| M2a | h2c, TLS, PROXY, SSH, MQTT and SMTP handlers on epoll in-process; the pinned OpenSSL and nghttp2; the recorded ClientHello; every hard case full on epoll in-process | done, 2026-10-02 (below) |
+| M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | next |
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | |
 | M4 | Competitors | |
 | M5 | Iterate until it wins | |
@@ -661,13 +662,366 @@ Each item may need a revision-log entry of hypotheses.md. The frozen text is not
   in-process hooks; M3 needs it from the binary.
 - Nothing was installed on L or W.
 
+## M2a, 2026-10-02
+
+### Step 0: M1's readings in the revision log
+
+c8a0525 appends one entry to the revision log of `hypotheses.md`, "Readings fixed during
+engineering (M1), before the code freeze", with M1's 13 items one line each; nothing above the
+log changed (`git diff` showed additions after line 1035 only). Items 1 to 3 say why each follows
+from the frozen text. Two notes for the coordinator:
+- Item 1 (peek mode's low-water mark) is the reading closest to the line. It changes the counted
+  class in a scenario no hard case covers: in peek mode a connection that sends "P" and later an
+  impossible byte is closed at T_dec as "undecided", where replay rejects it at once. The entry
+  logs it as a reading because section 1 states every fallback rule over delivered bytes
+  ("observed by the server's loop"), sets no value for the mark, and gives yes-lengths in its
+  "Decides at" column.
+- Item 12 reads the M1 brief and the milestone plan, not a frozen rule. The entry includes it so
+  that all 13 items are listed, and its line says it reads no frozen rule and changes nothing.
+No item was found to contradict the frozen text.
+
+### Commits (papers/one-port)
+
+| Commit | Message |
+|---|---|
+| c8a0525 | docs: hypotheses.md revision log, the readings fixed during engineering (M1), before the code freeze |
+| 6cb621d | build: pin OpenSSL 3.5.9 and nghttp2 1.70.0 (URL and sha256) and the script that builds them per sanitizer flavour |
+| f490ffb | feat: the TLS settings of I24 shared by the server and its clients (bench/tls), the labelled test certificate, and the pinned OpenSSL and nghttp2 per sanitizer flavour in CMake |
+| c9ff08a | feat: the recorded ClientHello of I18 (captured from OpenSSL 3.5.9 with the settings of I24), its recorder, and the ClientHello reader of pass-through (SNI, ALPN, B_CH) |
+| 85b1a6e | fix: OpenSSL's ASan+UBSan flavour leaves -fsanitize=function out of crypto/stack/stack.c alone, where OpenSSL calls typed free functions through OPENSSL_sk_freefunc |
+| 45b21eb | chore: build_deps.sh builds one library when ONEPORT_LIBS names it |
+| d71ae06 | feat: the handlers of I26 replace the M1 stubs (h2c and h2 on nghttp2, TLS terminated on OpenSSL through the worker's BIO, MQTT, SSH, SMTP); opcase runs a live TLS client and replays the recorded ClientHello; the hard cases on epoll are all full |
+| 42c4509 | fix: the OpenSSL ignore list matches the relative path its Makefile compiles crypto/stack/stack.c by |
+| 4aa547d | fix: OpenSSL's ASan+UBSan flavour leaves the function check out of all of OpenSSL (a second site, crypto/pem/pem_oth.c, comes from the same header macros); bench/coverage.json declares the gap |
+| 4e814f2 | test: opcase's live TLS client writes the recorded ClientHello but for its random, session id and key share |
+
+This file is committed after them. 6cb621d's type, "build", is not in
+the list of conventional types this repository uses; it is left as pushed. Each code commit was
+built alone on L (Debug, clang 22.1.8, Ninja) from a fresh clone of the `lab` remote and passed
+its own suite with no warning: f490ffb 275 CTest entries, c9ff08a 277, d71ae06 293 (logs in
+`~/lab/p3/m2a-check/commits/<sha>/`); 4e814f2 is the final code commit, checked below. The other
+commits change no compiled file. Nothing is pushed to origin; the `lab` remote has every
+commit.
+
+### Pins and the libraries on L
+
+`bench/cmake/pins.cmake` holds each library's version, archive URL and sha256, and
+`bench/third_party/build_deps.sh` reads them from there. Both archives were downloaded on L on
+2026-10-02, and each computed sha256 equals the value the release publishes beside it.
+
+| Library | Version | URL | sha256 (computed = published) | Published in |
+|---|---|---|---|---|
+| OpenSSL | 3.5.9 | https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz | 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a | the release asset `openssl-3.5.9.tar.gz.sha256` |
+| nghttp2 | 1.70.0 | https://github.com/nghttp2/nghttp2/releases/download/v1.70.0/nghttp2-1.70.0.tar.xz | e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2 | the release asset `checksums.txt` |
+
+- OpenSSL 3.5.9 is the latest release of the 3.5 LTS series on 2026-10-02: the GitHub releases
+  API lists openssl-3.5.9 published 2026-09-29T14:10:08Z (the same day as 3.6.5 and 4.0.3), and
+  openssl-library.org/source lists `openssl-3.5.9.tar.gz`. The pin is read again at the code
+  freeze.
+- nghttp2 v1.70.0 is the version hypotheses.md section 2.1 names; the releases API lists it
+  published 2026-07-29T12:31:43Z and still the latest on 2026-10-02.
+- Nothing was installed through pacman, and no system tool was missing: curl, perl, make, cmake,
+  ninja and clang 22.1.8 were present.
+
+Four flavours of each library, one prefix each in `~/opt`, built by build_deps.sh with clang
+22.1.8 from a fresh copy of the source under `~/opt/build` (logs `~/opt/build/logs/`). The
+exact command lines, from the logs:
+
+| Flavour | OpenSSL: `CC=clang ./Configure linux-x86_64-clang no-shared no-module no-tests no-docs` and | nghttp2: CMake Release, `ENABLE_LIB_ONLY=ON BUILD_SHARED_LIBS=OFF BUILD_STATIC_LIBS=ON ENABLE_DOC=OFF BUILD_TESTING=OFF`, and `CMAKE_C_FLAGS` |
+|---|---|---|
+| release (Debug and Release builds of oneport) | (nothing more; keeps the `openssl` program) | empty |
+| asan (ASan+UBSan) | `no-apps enable-asan enable-ubsan -fsanitize-ignorelist=~/lab/p3/one-port/bench/third_party/openssl-ubsan.ignorelist` | `-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g` |
+| tsan | `no-apps -fsanitize=thread -fno-omit-frame-pointer -g` | `-fsanitize=thread -fno-omit-frame-pointer -g` |
+| msan | `no-apps enable-msan -fsanitize-memory-track-origins=2` | `-fsanitize=memory -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer -g` |
+
+Every flavour also passes `--prefix=~/opt/<lib>-<version>-<flavour>` (OpenSSL with
+`--openssldir=<prefix>/ssl --libdir=lib`; nghttp2 with `CMAKE_INSTALL_LIBDIR=lib`). OpenSSL's
+TLS features are its defaults in every flavour; `no-apps` selects no feature. Checked after the
+builds:
+- Instrumentation, by `nm` (undefined runtime symbols): asan flavour libcrypto 9211 `__asan_`
+  and 2805 `__ubsan_`, libssl 1274 and 313, libnghttp2 269 and 78; tsan flavour libcrypto 7145
+  `__tsan_`, libssl 919, libnghttp2 199; msan flavour libcrypto 4766 `__msan_`, libssl 666,
+  libnghttp2 121; the release flavour none.
+- Assembly: `OPENSSL_NO_ASM` is defined only in the msan flavour's `configuration.h`
+  (`enable-msan` turns it off, Configure line 707 at 3.5.9); the other three hold the assembly
+  (for example 31 `aesni_` and `x25519_fe64` functions in libcrypto).
+- `CMakeLists.txt` picks the flavour from `ONEPORT_SANITIZER` and links the static libraries;
+  the prefixes used are kept in the cache as `ONEPORT_OPENSSL_USED` and `ONEPORT_NGHTTP2_USED`,
+  for the record driver's found keys at M7. On W the libraries are not looked for (M6).
+
+Library sha256 (`~/opt`, as linked by the checks below):
+
+| Flavour | libssl.a | libcrypto.a | libnghttp2.a |
+|---|---|---|---|
+| release | d0676fd432ddb5c7f19b377b8d1f40b01d902c6372ebe74a892e1f2e35eeda4c | 1933fff02e159bdb8b666a22e999aea491d43b42daa725e61320c3759996af32 | 3be408486f87b0ed4dd93a6671ae8b286e0c7d2c3318dadf28db6e9614248cb1 |
+| asan | 42bf1f1164eef2f9fa546c6b34f4f4cef9379b4077c26c69c957c201a3dd8ff4 | a40abfbccc9d0d9d84640ec7f67e462f882c7439074845859b964cd30ed017c3 | 9f941941e1355d23bd3f6b95c1af2d40c8ddbb90d41a5a28e476484ced20cf64 |
+| tsan | 7056c9578045ab77a59eac4d3a2dba0956aa596dd27e0f165c1f4de7617d30af | 60243f0df08c090f8211a601d61432b389492fa4e6b18907db84371e36c3e0da | 64d9fda6b1f373161c1d3c5c4be301724e70fd283c1524fb7059c1d57e485a3d |
+| msan | 7d02bf1fead9f48e199e19016888aa82f0f8e1e46a12c0afd8debca15efacd71 | 368fbb43c5d270b40ab8b91b3603ea6fc44f4e615f5ca490d988c7c61ddecf7c | fb4eee58373b92ed3dbaa88c9277820e0b0d2338a72c9fb3cc1ed846485c4be2 |
+
+The asan OpenSSL is the third build of that flavour (after 4aa547d); the instrumentation counts
+above were read before it, and the counts after it are in the next paragraph.
+
+UBSan in OpenSSL. The first ASan+UBSan run reported 150 lines, all one site in OpenSSL:
+`OPENSSL_sk_pop_free` (crypto/stack/stack.c line 440 at 3.5.9) calls each element's typed free
+function, here `pd_free(OSSL_PROPERTY_DEFINITION *)` from crypto/property/property_parse.c line
+400, through `OPENSSL_sk_freefunc`, `void (*)(void *)`, which clang 22's `-fsanitize=function`
+reports. With that file left out of the check (85b1a6e, and 42c4509 for its relative path), the
+next run met a second site, crypto/pem/pem_oth.c line 31, where `PEM_ASN1_read_bio` calls
+`d2i_X509` through `d2i_of_void` (from `PEM_read_bio_X509`). UBSan stops at the first report, so
+each run shows one site, and the sites come from macros of OpenSSL's public headers
+(`DEFINE_STACK_OF`, `IMPLEMENT_PEM_read`, `DEFINE_LHASH_OF`), so they are as many as those
+macros' uses. A list of the sites this suite meets today would fail on the next path opgen or the
+relay takes. So the asan flavour of OpenSSL is built with
+`bench/third_party/openssl-ubsan.ignorelist`, which leaves the function check out of all of
+OpenSSL (4aa547d); every other UBSan check stays on in OpenSSL, and oneport's own code and
+nghttp2 keep the function check. `bench/coverage.json` declares the gap. The superseded asan
+builds were moved, not deleted, to `~/opt/superseded/`.
+
+Checked after the rebuild, by `nm` (undefined-symbol entries, one per object and symbol):
+libcrypto.a and libssl.a have none for `__ubsan_handle_function_type_mismatch`, 2,499 for the
+other UBSan handlers and 10,484 for `__asan_`; in the test build, `handlers.cpp.o` still calls the function-type check and
+`apps.cpp.o` calls 108 UBSan handlers, so the exclusion did not reach first-party code.
+
+OpenSSL under TSan. The tsan flavour is OpenSSL instrumented with TSan, and the suite passed
+under it with 0 report lines (below). The gap of Z3 stays declared in `bench/coverage.json`: Z3
+withdraws it through the revision log when "the suite passes", and the passes that count are the
+records of the code freeze, not these development checks.
+
+### TLS (I22 to I24)
+
+`bench/tls/` (`oneport_tls`) holds the settings once, for the server, opcase and later opgen:
+- TLS 1.3 only (min and max version); `SSL_CTX_set_ciphersuites` TLS_AES_128_GCM_SHA256;
+  `SSL_CTX_set1_groups_list` X25519; `SSL_CTX_set1_sigalgs_list` ecdsa_secp256r1_sha256;
+  `SSL_CTX_set_num_tickets(ctx, 0)` on the server; `SSL_SESS_CACHE_OFF`;
+  `SSL_CTX_set_max_early_data(ctx, 0)`. The test `handlers.tls_context` reads them back from the
+  server's context; the suites left for negotiation are exactly TLS_AES_128_GCM_SHA256.
+- The test certificate and key, `tests/fixtures/tls/test-cert.pem` and `test-key.pem`: an
+  ECDSA P-256 key and a self-signed certificate, CN and SAN `oneport.test`, valid 2026-10-02 to
+  2126-09-08, SHA-256 fingerprint
+  B8:2B:5C:2B:AE:57:D6:3D:38:D4:D7:94:E5:D4:E4:7C:C2:89:A1:52:96:46:F3:99:F4:AA:55:FE:C6:95:EA:68.
+  Each file begins with a "TEST MATERIAL ... never a secret" label and the commands that made
+  it, with the pinned OpenSSL 3.5.9, before the PEM block (PEM readers skip those lines; checked
+  with `openssl x509` and `openssl pkey` on the labelled files). CMake embeds both at configure
+  time, so the binary takes no path or flag for them.
+- In-process the server terminates TLS through a BIO of its own: OpenSSL reads the bytes the
+  worker received from the connection's receive buffer and writes into the worker's output, so
+  the loop owns the socket on every backend (I22). Decrypted bytes go to a second buffer of the
+  same pool, from which the HTTP/1.1 or h2 handler reads.
+- SNI and ALPN, as the frozen text has them. In-process (section 2.1: "TLS is terminated in the
+  server"), ALPN chooses the handler: the first of the client's protocols that is `http/1.1` or
+  `h2`; no ALPN gives HTTP/1.1; ALPN with neither gets the fatal alert no_application_protocol
+  (RFC 7301 s3.2). There is one certificate, so SNI selects nothing in-process. Routing by SNI and
+  ALPN is the relay's pass-through (section 2.1, "Dispatch"), which M2b builds on the reader below.
+- The ClientHello reader of pass-through, `bench/server/clienthello.hpp`: it reassembles the
+  handshake bytes of the records that carry a ClientHello, up to B_CH = 16384, and reads its
+  SNI, ALPN list and X25519 key share. Pure and allocation-free; tested on the recording, on a
+  re-fragmented copy and on partial input (`clienthello.*`). M2a does not route with it yet.
+
+The recorded ClientHello (I18), `tests/fixtures/tls/clienthello.hex`:
+- How it was recorded: `bench/cases/record_clienthello.cpp` makes a client `SSL` from
+  `tls::client_ctx()` (the settings above), sets SNI `oneport.test` and ALPN `http/1.1`, and
+  calls `SSL_do_handshake` with memory BIOs and no peer; OpenSSL writes its first flight, one
+  record holding the ClientHello, and the program prints it as hex under a comment header. It
+  ran once on L, at 2026-10-02T18:43:42Z, linked against the pinned OpenSSL 3.5.9 (release
+  flavour), and its output was committed as it is (sha256 of the fixture
+  b553d6d76d8be29b2054ec762f2c01546ff92f1610214874048e15ee5ef222b2).
+- 211 bytes: a record header `16 03 01 00 ce`, then the ClientHello. ℓ (WL7, the length the
+  record header announces) is 206; recorded here as measured, and in the revision log at the
+  code freeze (section 9.1). Extensions, in order: server_name, ec_point_formats,
+  supported_groups (x25519), session_ticket (empty), ALPN (http/1.1), encrypt_then_mac,
+  extended_master_secret, signature_algorithms (ecdsa_secp256r1_sha256), supported_versions
+  (TLS 1.3), psk_key_exchange_modes, key_share (x25519). These are what OpenSSL 3.5.9 sends with
+  I24's settings; nothing was edited.
+- Where opcase uses it: wherever a case needs a ClientHello's bytes and no handshake: HC4's slow
+  drip, HC13 after the PROXY v1 line, and HC19 with each record version (and later B3's
+  partial-ClientHello openings and M3's stub exchange). The synthetic ClientHello of M1 is gone.
+- Where a frozen outcome includes a completed handshake (HC1 to HC3 for TLS, and HC20
+  in-process), opcase runs a live OpenSSL client with the same settings
+  (`bench/cases/script.hpp`, `TlsPlan`): its ClientHello is cut and timed as the case says, and
+  the rest of the handshake and the request follow as the server answers.
+  `handlers.clienthello_live` checks that this client's ClientHello has the recording's length and
+  equals it in every byte but the 96 that each connection draws afresh (random, session id,
+  X25519 key share).
+
+### The handlers (I26)
+
+The M1 stubs are gone. Every handler is the same code in both modes; entry differs (accept,
+classification, or T_fb for the fallback) and so does where the first bytes are (in the buffer
+after replay, in the socket after peek), and nothing after it.
+
+| Handler | Where | What it does |
+|---|---|---|
+| HTTP/1.1 | `apps.cpp` (`http1.hpp`'s parser) | as in M1; now a step that every input source shares, plain or decrypted |
+| h2 (h2c, and TLS with ALPN h2) | `h2.cpp`, nghttp2 1.70.0 | `nghttp2_session_server_new` with memory send and receive; every request stream that ends gets 200, Content-Type text/plain, Content-Length 13, "Hello, World!" |
+| TLS | `handlers.cpp`, `bench/tls` | the handshake on OpenSSL through the worker's BIO, then HTTP/1.1 or h2 by ALPN on the decrypted bytes; close_notify before the server closes |
+| MQTT | `apps.cpp` | CONNECT read to its end, then CONNACK accepted (`20 02 00 00` at level 4, `20 03 00 00 00` at level 5); PINGREQ gets PINGRESP; DISCONNECT closes; anything else closes |
+| SSH | `apps.cpp` | `SSH-2.0-oneport` CRLF on entry; the client's line read up to its LF, at most 255 bytes; then close |
+| SMTP | `apps.cpp` | 220 on entry; EHLO 250, QUIT 221 then close, anything else 500 |
+
+- SSH's banner timing (I28) is entry's timing: at accept in dedicated mode, at classification in
+  one-port mode (after the client's `SSH-`), at T_fb on a listener with `--fallback SSH`.
+  `handlers.ssh_banner_timing` checks all three on the client's clock.
+- MQTT and SSH apply the detector's grammar to their first bytes in both modes, as I26 has the
+  HTTP/1.1 handler do, so input that one-port mode rejects is closed without a response in
+  dedicated mode too.
+- PROXY v1 and v2: the parser and the exact consumption are M1's; the inner protocol is now served
+  by the real handlers on both listener kinds (HC9 to HC15).
+- Output. A handler step appends to the worker's output (for TLS, OpenSSL encrypts it), and one
+  `send` sends it. What the socket does not take is copied into the connection's own queue and
+  sent on EPOLLOUT; while the queue holds bytes the connection reads nothing more, and the read
+  resumes after the flush. `handlers.output_backpressure` drives this with 200,000 pipelined
+  requests behind an 8 KiB client receive buffer (15.6 MB of responses, above L's largest send
+  buffer, `tcp_wmem` 4 MB), and with 1,000 over TLS, in each mode.
+- The connection state is 352 bytes (`sizeof`, L, clang 22.1.8; M1's was 400, which held the
+  stub's 96-byte trailer).
+- One defect was found and fixed before d71ae06: a union's `{}` sets only its first member, so a
+  reused connection's MQTT state could keep a stale "connected" flag and close a CONNECT. The
+  hard-case suite caught it on the dedicated PROXY MQTT port when 24 copies ran at once. Each
+  handler now sets its own member at entry.
+
+### Design choices of M2a
+
+Every number here is a design choice of M2a, not a frozen value.
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| SMTP replies | `220 oneport.test ESMTP`, `250 oneport.test`, `221 oneport.test closing`, `500 syntax error, command unrecognized` | `apps.hpp` | RFC 5321's codes with plain texts |
+| SMTP commands | the verb case-insensitive; EHLO alone or before a space; QUIT alone; every other CRLF-terminated line, the empty one included, gets 500 | `apps.cpp` | RFC 5321 s2.4 (verbs are case-insensitive) |
+| SMTP line limit | 512 bytes with its CRLF; a longer line gets 500 and the connection closes | `apps.cpp` | RFC 5321 s4.5.3.1.4 and s4.2.2 |
+| SSH line end | the first LF (a CR before it is not required); 255 bytes without LF also end it | `apps.cpp` | the 255 is RFC 4253 s4.2's; accepting a bare LF reads every line a CRLF would end |
+| MQTT packets after CONNACK | PINGREQ and DISCONNECT only; a CONNECT whose Remaining Length is below 7 closes | `apps.cpp` | I26: no sessions, no publish; 7 bytes hold the name and level |
+| h2 SETTINGS | one setting, MAX_CONCURRENT_STREAMS 100; queued at the session's start, sent with the first output | `h2.cpp` | RFC 9113 s6.5.2 advises no less than 100; no byte leaves before the client's first bytes in either mode |
+| h2 messaging | nghttp2's HTTP checks on | `h2.cpp` | the library's default |
+| ALPN | the client's first of `http/1.1` and `h2`; none offered: HTTP/1.1; neither: no_application_protocol | `tls.cpp` | RFC 7301 s3.2 |
+| TLS buffers | ciphertext in the connection's receive buffer (4096 bytes); plaintext in a second buffer of the same pool, taken at the first decrypted byte and returned when empty | `handlers.cpp` | one buffer size for every handler (I27) |
+| Output queue | the unsent tail copied into a per-connection vector; no read while it holds bytes | `handlers.cpp` | the ordering of responses, and bounded input per connection |
+| Test certificate | ECDSA P-256, self-signed, CN and SAN oneport.test, 36,500 days | `tests/fixtures/tls` | I24's one P-256 certificate; outlives the paper |
+| opcase h2c request | GET `/` in static-table fields, `:authority oneport.test` as a literal without indexing, then GOAWAY | `fixtures.cpp` | proposal I30's static-table fields; nghttp2 checks for :authority or Host |
+| HC20's first record | 40 handshake bytes | `cases.cpp` | M1's split, kept: inside the ClientHello, before its extensions |
+| Backpressure test | 200,000 requests plain, 1,000 over TLS; client SO_RCVBUF 4096 | `handler_tests.cpp` | above `tcp_wmem`'s 4 MB; a TLS client that writes before it reads must not fill the server's receive buffer |
+
+### Readings of the frozen text in M2a
+
+Not yet in the revision log; each may need a line there.
+1. "The transcript equals the dedicated port's" for TLS (HC1 to HC3, HC20 in-process) is
+   compared after decryption: both handshakes complete with TLS 1.3, TLS_AES_128_GCM_SHA256,
+   x25519, ecdsa_secp256r1_sha256, a verified certificate and no session ticket; the same ALPN;
+   the same decrypted bytes; close_notify in both or neither. A handshake's wire bytes differ on
+   every connection (the server's random, key share and signature), in either mode, so a byte
+   comparison could never hold.
+2. HC13 and HC19, whose outcome is only "TLS": the class is checked, and the server's first
+   record must be a ServerHello; the flight is not compared with the dedicated port's (it is
+   drawn afresh, as in 1).
+3. I18's recorded ClientHello serves where a case needs a ClientHello's bytes and no handshake;
+   where the outcome needs the handshake to complete, a live client with the same settings sends
+   its own ClientHello, cut as the case says. The recording cannot finish a handshake: its key
+   share's private key is not kept.
+4. HC7's "its request gets 500 from the SMTP handler": each CRLF-terminated line of the request
+   gets one 500, the empty line included, so four 500s.
+5. The h2c exchange of the hard cases is written without reading (opcase scripts do not react):
+   preface, SETTINGS, HEADERS with END_STREAM and GOAWAY in the case's writes, then the client
+   shuts down writing. WL1's order (read to END_STREAM, then GOAWAY) is opgen's.
+6. In-process, SNI selects nothing (one certificate), and ALPN chooses HTTP/1.1 or h2 as in the
+   design choices above.
+
+### The suite on L at 4e814f2
+
+294 CTest entries in every build: 144 run and pass, 150 are skipped as pending, and none fails.
+
+| Group | Entries | Result |
+|---|---|---|
+| `flags.*` | 14 | pass |
+| `loop.{epoll,io_uring}.*` | 18 | pass |
+| `detect.*`, `http.*` | 11, 5 | pass |
+| `apps.*` (the protocol steps, pure) | 7 | pass |
+| `clienthello.*` (the reader on the recording, pure) | 2 | pass |
+| `structure.mode_readers` | 1 | pass |
+| `server.*` | 18 | pass |
+| `handlers.*` (TLS settings and exchange, ALPN h2, refusals, the live ClientHello, h2c, MQTT, SSH timing, SMTP, backpressure) | 10 | pass |
+| `case.HCnn.epoll.inproc.{replay,peek}` | 50 | pass, every case full |
+| `cli.*` | 6 | pass |
+| `gate.*` | 2 | pass |
+| `case.HCnn.epoll.relay.*` | 50 | pending M2b: relay dispatch |
+| `case.HCnn.io_uring.{inproc,relay}.*` | 100 | pending M2b: the io_uring backend |
+
+The hard cases on epoll with in-process dispatch, per detection mode (the same in replay and
+peek): 164 variants, each run 16 times; all 164 pass in full, none fails. What changed from M1:
+
+| Case | M1 | M2a |
+|---|---|---|
+| HC1, HC2, HC3 | stub for h2c, TLS, MQTT 3.1.1, MQTT 5.0 and SSH | full: nghttp2's response, a completed handshake with the request answered (live client), CONNACK, the SSH line; each transcript equal to the dedicated port's, and each dedicated transcript checked against what its handler sends |
+| HC5 | stub | full: 220, 250, 221 |
+| HC7 | late variant stub | full: 220, then 500 for each of the request's four lines; G is still the suite's stand-in |
+| HC13 | full (class) | full: TLS from the recorded ClientHello after a PROXY v1 line; a ServerHello comes back |
+| HC14 | full (class) | full: CONNACK after the TLVs and after a 536-byte header |
+| HC15 | stub | full: the 220 greeting T_fb after the header completed |
+| HC18 | full (class) | full: the SSH line, equal to the dedicated port's |
+| HC19 | full (class) | full: the recorded ClientHello with record version 03 01 and 03 03; a ServerHello comes back |
+| HC20 | partial | full in-process: the ClientHello in two records, two writes, the handshake completes and the request is answered; pass-through (routed by SNI) is the relay entries', pending M2b |
+| HC24 | full (class) | full: CONNACK for the four Remaining Lengths, the 2,097,152-byte CONNECT streamed through a 4096-byte buffer |
+
+The other cases are as in M1. The suite's stand-ins (timers 300 ms, GAP_SPLIT 10 ms, G 100 ms)
+are M1's.
+
+### Sanitizer checks on L (development checks, not records)
+
+Fresh clone at 4e814f2 in `~/lab/p3/m2a-check/final/`, clang 22.1.8, Ninja, `ctest -V -j 8`;
+each build links the OpenSSL and nghttp2 of its flavour (`ONEPORT_OPENSSL_USED`,
+`ONEPORT_NGHTTP2_USED`). "Report lines" counts the lines of the ctest log that match the lab's
+shared report pattern (`lab/bin/sanitize.sh`).
+
+| Build | CMake | Libraries | Build | CTest | Report lines |
+|---|---|---|---|---|---|
+| Debug | `-DCMAKE_BUILD_TYPE=Debug` | release | 0 warnings | 144 passed, 150 skipped, 0 failed | 0 |
+| ASan+UBSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address+undefined` | asan | 0 warnings | the same | 0 |
+| TSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=thread` | tsan | 0 warnings | the same | 0 |
+| MSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=memory`, the libc++ 22.1.8 at `~/opt/libcxx-msan-gcc` | msan | 0 warnings | the same | 0 |
+
+- Options as in M1: ASan with `ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1`
+  and `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1`; TSan and MSan with the runtime defaults.
+- Each run takes about 32 s.
+- Instrumentation, as checked: the test binary of each build defines the runtime's symbols
+  (`nm`: 324 `__asan_`, 173 `__tsan_`, 64 `__msan_`), and the MSan binary loads `libc++` and
+  `libc++abi` from `~/opt/libcxx-msan-gcc/lib`. The libraries are instrumented as listed above.
+- Declared gaps that apply: OpenSSL's assembly (the msan OpenSSL has none, the others keep it
+  uninstrumented); UBSan's function check in OpenSSL (above); OpenSSL under TSan, still declared
+  although this run used a TSan-built OpenSSL and passed (above).
+- A stress run of the same four builds at the same time, each with `ctest -V -j 16`, also passed
+  with 0 report lines (`stress-*-4e814f2.ctest.log`).
+- Before the exclusion, the ASan+UBSan run at d71ae06 failed 75 entries on OpenSSL's reports
+  (logs kept as `asan-d71ae06*.ctest.log` in `~/lab/p3/m2a-check/`); Debug, TSan and MSan at
+  d71ae06 passed with 0 report lines.
+
+Log sha256:
+
+    ebc6e0485f0e2272cb738a2966097d8011e1ef20ddc00e2c23ae1bfa4e334305  debug-4e814f2.build.log
+    a237856262984b1563c61c683516a1d399b69f215d807d8c3f133ab15ad96288  debug-4e814f2.ctest.log
+    f4fa84aae2d04e6a22cc0b7402301b028e61311b03cbad7787824963ff76191f  asan-4e814f2.build.log
+    0d34865b2a022232a25fe8b3028cc91b468cbf32d051770cbf24618e180bad37  asan-4e814f2.ctest.log
+    0460ce8b9c69e772c874613481e5a7c7ae005048b555d7cb80423ad8b92b8909  tsan-4e814f2.build.log
+    47c6020a0a076dce4a097d47bbddba66eb32a8c8def661a77873de6e3d02b862  tsan-4e814f2.ctest.log
+    85f7f0eb2ceea5bf0495ec650562a4271da7f1e94b733e345d09ea9ef751b4a8  msan-4e814f2.build.log
+    f93c76c9ccd086a4be7bfdb15fb94896feecc509b0a2e75118369d56b3d84f57  msan-4e814f2.ctest.log
+    5eacfaacd4d4d2244dba15840cd6d1b08de58ffb81ccff61bfa4c9f00f85ed7b  stress-debug-4e814f2.ctest.log
+    eed98c87e2b4a6d7999e0e61c254995af586a12de5810886b8d5dcbdc905d1f6  stress-asan-4e814f2.ctest.log
+    870634f4f9ca00a2ef3c18b195c477c44a66422780123e022e67607ffbd337bd  stress-tsan-4e814f2.ctest.log
+    be0d1799bd7627206bb8e7952878c5d41de1d66373cbe6aa0efe34ab32bf3f24  stress-msan-4e814f2.ctest.log
+
+### Not in M2a
+
+- Relay dispatch and stub mode, with the pass-through routing by SNI and ALPN (HC20's other
+  half) and the relay copy of rule E: M2b.
+- The io_uring backend: M2b.
+- IOCP: M6. On W the third-party libraries are not built yet.
+- `opgen` and `ophold`; the sanitizer driver and the records (M7).
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
   added `papers/one-port/bench/oneport_record.py` to it.
 - The Papers repo's submodule pointer for `papers/one-port` (the coordinator's commit).
-- The readings of "Where the frozen text was read one way" (M1), for the revision log of
-  hypotheses.md if Alex or the coordinator agree.
+- M1's readings are in the revision log of hypotheses.md (c8a0525). M2a's readings ("Readings of
+  the frozen text in M2a") wait for a revision-log entry if Alex or the coordinator agree.
 
 ## What M1 starts from
 
@@ -726,3 +1080,28 @@ Each item may need a revision-log entry of hypotheses.md. The frozen text is not
   - then the recorded ClientHello of I18, from that OpenSSL with the settings of I24, replacing
     the synthetic one of `opcase`.
 - Nothing blocks M2 beyond these prerequisites.
+
+## What M2b starts from
+
+- The handlers are backend-neutral above the socket: the protocol steps (`apps.cpp`, `h2.cpp`)
+  take bytes and append output, and TLS reads and writes through the worker's BIO, never a
+  socket. What is epoll's is the read (`read_into`), the send and the EPOLLOUT queue (`emit`,
+  `flush`) in `handlers.cpp`. io_uring needs its own forms of those three: a receive into a
+  provided buffer, a send, and the queue's wait for writability, with the same rule that a
+  connection reads nothing while its queue holds bytes.
+- io_uring, as M1 listed it: the multishot accept; replay into provided buffers; peek by
+  `IORING_OP_POLL_ADD` with `POLLRDHUP` and a synchronous `MSG_PEEK`; the check of 1(b) as a
+  non-waiting reap where a receive is posted with a buffer; the RK4 pin test; the counters of
+  `io_uring_enter` calls and submissions by opcode.
+- Relay and stub mode:
+  - the front's loopback connection to the backend chosen by class, the replayed bytes first,
+    then the copy both ways, user-space with `RELAY_BUF` or `splice`, both as flag values
+    (rule E);
+  - pass-through routing by SNI and ALPN with `bench/server/clienthello.hpp`, reassembling up
+    to B_CH: HC20's other half;
+  - stub mode (I18): the TLS stub reads one record and writes the 13-byte body; the recorded
+    ClientHello is what opgen will send to it.
+  The pending entries `case.*.epoll.relay.*` and `case.*.io_uring.*` (150) then become run
+  entries.
+- On L everything M2b needs is installed: OpenSSL 3.5.9 and nghttp2 1.70.0 in four flavours in
+  `~/opt`, the test certificate, the recorded ClientHello. Nothing blocks M2b.
