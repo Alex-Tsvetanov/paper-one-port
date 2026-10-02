@@ -331,7 +331,8 @@ Tools 18.6.2, Ninja) at 45023e9 had no warnings, and 29 of 29 CTest entries pass
 | 35f4ffa | feat: opcase, the case generator: the 25 hard cases as scripts with their frozen outcomes |
 | 1521c10 | test: the hard-case suite (B1, B2) and the server's functional tests on epoll |
 
-This file is committed after them. Each commit builds alone on L (Debug, clang 22.1.8, Ninja)
+This file is committed after them, then 857fa60 (test: the structural test of I21 checks its own
+pattern before it scans) and an amendment of this file. Each of the seven commits builds alone on L (Debug, clang 22.1.8, Ninja)
 with no warning and passes its own suite (38, 49, 54, 54, 57, 57 and 275 CTest entries); the
 logs are in `~/lab/p3/m1-check/commits/<sha>/`. Nothing is pushed to origin; the `lab` remote has
 every commit.
@@ -589,10 +590,16 @@ Log sha256:
 
 Also on W, as a compile check before M6 (as in M0):
 - a Debug build with MSVC 19.51.36246.0 (Build Tools 18.6.2, Ninja), out of tree in a scratch
-  directory, of the tree that became 1521c10 (before the split of `server.cpp`), built with no
-  warning, so the compile-time checks of the table also hold under MSVC;
+  directory, of 857fa60, built with no warning, so
+  the compile-time checks of the table also hold under MSVC;
 - 96 CTest entries: 46 passed (14 flags, 9 `loop.IOCP`, 16 pure, 1 structure, 4 cli, 2 gate),
   and 50 IOCP case entries were skipped as pending M6.
+
+The structural test checks its own pattern. Before scanning, `tests/check_mode_readers.cmake`
+runs its reader pattern on three lines it must match and five it must not, so a pattern that
+CMake's regex engine reads otherwise cannot pass with nothing found. Checked by hand once: a copy
+of `bench/` with a planted `config.mode` read in `handlers.cpp` fails it. After that commit,
+`structure.mode_readers` passed again in the four build trees on L.
 
 ### Where the frozen text was read one way
 
