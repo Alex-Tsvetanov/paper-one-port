@@ -1,6 +1,6 @@
 # The test suite: one CTest entry per (group, case), as in P1's suite.
-add_executable(oneport_tests unit_tests.cpp)
-target_link_libraries(oneport_tests PRIVATE oneport_config oneport_loop)
+add_executable(oneport_tests unit_tests.cpp detect_tests.cpp test_support.hpp)
+target_link_libraries(oneport_tests PRIVATE oneport_config oneport_loop oneport_server)
 oneport_warnings(oneport_tests)
 
 set(ONEPORT_FLAG_TESTS
@@ -19,6 +19,15 @@ foreach(_backend IN LISTS ONEPORT_BACKENDS)
         add_test(NAME loop.${_backend}.${_test} COMMAND oneport_tests loop ${_backend} ${_test})
         set_tests_properties(loop.${_backend}.${_test} PROPERTIES TIMEOUT 60 LABELS "loop;${_backend}")
     endforeach()
+endforeach()
+
+# The detection table: pure, on every platform.
+set(ONEPORT_PURE_TESTS
+    detect.corpus_splits detect.first_bytes detect.order detect.hc16 detect.http1_methods detect.tls detect.mqtt
+    detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets)
+foreach(_test IN LISTS ONEPORT_PURE_TESTS)
+    add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+    set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)
 endforeach()
 
 # The binary's command line: its exit code and output, through run_expect.cmake. The arm uses

@@ -1,13 +1,15 @@
-// Unit tests of oneport, one test per process:
+// The oneport test suite, one test per process:
 //
-//   oneport_tests flags <case>            the flag parser (bench/server/config.cpp)
-//   oneport_tests loop <backend> <case>   the event loop (bench/loop) on one compiled backend
+//   oneport_tests flags <case>              the flag parser (bench/server/config.cpp)
+//   oneport_tests loop <backend> <case>     the event loop (bench/loop) on one compiled backend
+//   oneport_tests test <name>               detect.* (tests/*_tests.cpp)
 //
 // Exit 0 and "PASS: ..." on success; exit 1 and "FAIL: <file>:<line>: <reason>" on a failed check;
 // exit 2 on a usage error. The flag tests pass an explicit platform to the parser, so they run
 // alike on every host.
 #include "config.hpp"
 #include "oneport/loop.hpp"
+#include "test_support.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -34,19 +36,7 @@ namespace
 	using Clock = std::chrono::steady_clock;
 	using oneport::Platform;
 
-	/// nullopt: the test passed; otherwise where and why it failed.
-	using Result = std::optional<std::string>;
-
-#define CHECK(cond, msg)                                                       \
-	do                                                                         \
-	{                                                                          \
-		if (!(cond))                                                           \
-		{                                                                      \
-			std::ostringstream check_msg_;                                     \
-			check_msg_ << __FILE__ << ":" << __LINE__ << ": " << msg;          \
-			return Result(check_msg_.str());                                   \
-		}                                                                      \
-	} while (false)
+	using oneport::test::Result;
 
 	// ---- flags ----
 
@@ -576,7 +566,10 @@ namespace
 
 	int usage_error(const char* what)
 	{
-		std::fprintf(stderr, "oneport_tests: %s\nusage: oneport_tests flags <case> | oneport_tests loop <backend> <case>\n", what);
+		std::fprintf(stderr,
+		             "oneport_tests: %s\nusage: oneport_tests flags <case> | loop <backend> <case> | test <name>"
+		             "\n",
+		             what);
 		return 2;
 	}
 
@@ -588,6 +581,29 @@ int main(int argc, char** argv)
 	std::map<std::string, std::function<Result()>> tests;
 	std::string name;
 	std::string test_case;
+	if (a.size() == 2 && a[0] == "test")
+	{
+		oneport::test::Registry registry;
+		oneport::test::register_detect_tests(registry);
+		const auto it = registry.find(a[1]);
+		if (it == registry.end()) return usage_error("no such test");
+		Result r;
+		try
+		{
+			r = it->second();
+		}
+		catch (const std::exception& e)
+		{
+			r = std::string("unexpected exception: ") + e.what();
+		}
+		if (r)
+		{
+			std::printf("FAIL: %s: %s\n", std::string(a[1]).c_str(), r->c_str());
+			return 1;
+		}
+		std::printf("PASS: %s\n", std::string(a[1]).c_str());
+		return 0;
+	}
 	if (a.size() == 2 && a[0] == "flags")
 	{
 		tests = flag_tests();
