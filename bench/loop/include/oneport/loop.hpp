@@ -10,14 +10,21 @@
 //
 // P1's wake path, its task queue and its seeded defect are P1's experiment and are not here.
 // The wait bound is an argument of each wait, because the server bounds each pass by its
-// earliest deadline (proposal I13). Sockets, receives and the deadline queue come with M1.
+// earliest deadline (proposal I13). M1 adds socket registration and event output on epoll; the
+// server (bench/server) keeps the deadline queue and the sockets' state.
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
+
+#if defined(__linux__)
+#include <sys/epoll.h>
+#endif
 
 namespace oneport::loop
 {
@@ -30,6 +37,12 @@ namespace oneport::loop
 	class EpollLoop
 	{
 	public:
+		/// The most events one wait returns. A design choice of M1: the 64 connection slots per
+		/// server core of WL1 (hypotheses.md, section 3), so one wait can report every slot.
+		static constexpr std::size_t kMaxEvents = 64;
+		/// The tag of the stop eventfd; registrations must use other tags.
+		static constexpr std::uint64_t kStopTag = ~std::uint64_t{0};
+
 		/// Throws std::system_error when a setup call fails.
 		EpollLoop();
 		~EpollLoop();
@@ -40,8 +53,13 @@ namespace oneport::loop
 		void start();
 		/// One wait on the worker thread. Returns at once after stop(). Throws
 		/// std::invalid_argument for a negative bound, std::logic_error before start() and
-		/// std::system_error when the wait fails.
-		void wait(Bound bound);
+		/// std::system_error when the wait fails. Returns the events of the registered
+		/// descriptors (never the stop eventfd's), valid until the next wait.
+		std::span<const epoll_event> wait(Bound bound);
+		/// Registers `fd` for `events` with `tag` as its event data. Throws std::system_error.
+		void add(int fd, std::uint32_t events, std::uint64_t tag);
+		/// Changes a registration. Throws std::system_error.
+		void modify(int fd, std::uint32_t events, std::uint64_t tag);
 		/// Any thread, any time, more than once. Ends a blocked wait and every later one.
 		void stop() noexcept;
 		bool stopped() const noexcept { return stop_.load(std::memory_order_acquire); }
@@ -57,6 +75,7 @@ namespace oneport::loop
 		std::atomic<std::uint64_t> passes_{0};
 		int epoll_fd_ = -1;
 		int stop_fd_ = -1;
+		std::array<epoll_event, kMaxEvents> events_{};
 	};
 
 	class UringLoop
