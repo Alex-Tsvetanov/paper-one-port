@@ -21,6 +21,7 @@ namespace oneport::test
 	using Registry = std::map<std::string, std::function<Result()>, std::less<>>;
 
 	void register_detect_tests(Registry& r);
+	void register_http_tests(Registry& r);
 
 }  // namespace oneport::test
 

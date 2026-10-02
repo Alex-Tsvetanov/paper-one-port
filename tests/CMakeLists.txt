@@ -1,5 +1,5 @@
 # The test suite: one CTest entry per (group, case), as in P1's suite.
-add_executable(oneport_tests unit_tests.cpp detect_tests.cpp test_support.hpp)
+add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp test_support.hpp)
 target_link_libraries(oneport_tests PRIVATE oneport_config oneport_loop oneport_server)
 oneport_warnings(oneport_tests)
 
@@ -21,10 +21,11 @@ foreach(_backend IN LISTS ONEPORT_BACKENDS)
     endforeach()
 endforeach()
 
-# The detection table: pure, on every platform.
+# The detection table and the HTTP/1.1 parser: pure, on every platform.
 set(ONEPORT_PURE_TESTS
     detect.corpus_splits detect.first_bytes detect.order detect.hc16 detect.http1_methods detect.tls detect.mqtt
-    detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets)
+    detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets
+    http.valid http.grammar http.bad_request http.incomplete http.responses)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
     set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)

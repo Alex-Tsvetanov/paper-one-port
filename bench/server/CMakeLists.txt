@@ -5,7 +5,7 @@ oneport_warnings(oneport_config)
 
 # The detection table is header-only and pure (detect.hpp); detect_checks.cpp compiles the
 # compile-time checks of its corpus (detect_corpus.hpp), so a table that breaks one does not build.
-add_library(oneport_server STATIC detect.hpp detect_corpus.hpp detect_checks.cpp)
+add_library(oneport_server STATIC detect.hpp detect_corpus.hpp detect_checks.cpp http1.hpp)
 target_include_directories(oneport_server PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(oneport_server PUBLIC oneport_config)
 oneport_warnings(oneport_server)

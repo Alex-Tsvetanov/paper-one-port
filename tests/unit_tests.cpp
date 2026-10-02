@@ -2,7 +2,7 @@
 //
 //   oneport_tests flags <case>              the flag parser (bench/server/config.cpp)
 //   oneport_tests loop <backend> <case>     the event loop (bench/loop) on one compiled backend
-//   oneport_tests test <name>               detect.* (tests/*_tests.cpp)
+//   oneport_tests test <name>               detect.*, http.* (tests/*_tests.cpp)
 //
 // Exit 0 and "PASS: ..." on success; exit 1 and "FAIL: <file>:<line>: <reason>" on a failed check;
 // exit 2 on a usage error. The flag tests pass an explicit platform to the parser, so they run
@@ -585,6 +585,7 @@ int main(int argc, char** argv)
 	{
 		oneport::test::Registry registry;
 		oneport::test::register_detect_tests(registry);
+		oneport::test::register_http_tests(registry);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");
 		Result r;
