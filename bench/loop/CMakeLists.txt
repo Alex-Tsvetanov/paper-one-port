@@ -1,0 +1,10 @@
+# The event loop, derived from paper-wake-defect loop/ at commit 0af1ac4, same author.
+add_library(oneport_loop STATIC src/common.cpp src/common.hpp include/oneport/loop.hpp)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(oneport_loop PRIVATE src/epoll.cpp src/uring.cpp src/linux_fd.hpp)
+else()
+    target_sources(oneport_loop PRIVATE src/iocp.cpp)
+endif()
+target_include_directories(oneport_loop PUBLIC include)
+target_link_libraries(oneport_loop PUBLIC Threads::Threads)
+oneport_warnings(oneport_loop)
