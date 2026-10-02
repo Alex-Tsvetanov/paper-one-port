@@ -585,5 +585,6 @@ The MINOR findings, N4 to N15, are text and small design fixes for the same revi
 one `opcase` option, and N13 adds one short pilot.
 
 The core of section 5 is sound: the two one-sided tests, the dual rule, Holm on TOST p-values,
-the R_C rule, the sign-test grid, and D9 for all three families. It needs no third audit once
-these fixes are made.
+the R_C rule, the sign-test grid, and D9 for all three families. That machinery needs no third
+audit. The texts that fix N1 (the freeze order) and N3 (B3's statistic) should get a short check
+before the freeze, since each changes what is pre-registered.
