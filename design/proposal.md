@@ -623,7 +623,7 @@ WL6. Server CPU per connection under hand-off: the CPU time of the front and the
 together, at an open-loop rate, divided by the connections completed. The rate of each M2 cell
 is `RATE_FRAC` × the smaller of its two arms' median closed-loop connections per second, each
 measured in 6 development sessions of the cell on the frozen binary, after the pilot entry and
-before any M2 session, and recorded in the revision log (rule E1, E4). The relay is not
+before any M2 session, and recorded in the revision log as `M2_RATE` (rule E1, E4). The relay is not
 assumed to be the slower arm: in M2's TLS cells the in-process arm terminates TLS on one core,
 while the relay arm's backend terminates it on two (audit F11). Both arms use the hand-off
 placement (LB2); in the in-process arm, CPUs 10 to 13 stay idle.
@@ -1009,10 +1009,11 @@ ST13. Sizing R_C from an A/A pilot. The pilot only sizes R; it sets no margin.
      port with the PROXY setting on, which dedicated mode keeps (I20). Each run waits for
      T_hdr = 3 s in the deadline queue of I13, the queue T_fb uses in one-port mode. The statistic
      is each run's lateness: the time from the deadline to the start of the loop pass that handled
-     it, from the counters of I29. G for the host is the smallest whole number of milliseconds
-     above the largest lateness of all the host's runs, so it is above their 99th percentile. If
-     G is not below T_fb, HC7 is not run on that host, and the paper says why. 128 runs per
-     backend is a design choice, the number of the server's runs per timer case on L in 9.2.
+     it, from the counters of I29. G for the host (`G_L`, `G_W`) is the smallest whole number of
+     milliseconds above the largest lateness of all the host's runs, so it is above their 99th
+     percentile. If G is not below T_fb, HC7 is not run on that host, and the paper says why.
+     128 runs per backend is a design choice, the number of the server's runs per timer case on
+     L in 9.2.
    - Split part. On each backend of the host, HC2's HTTP/1.1 script split after its first byte,
      against the dedicated HTTP/1.1 port, 16 replicates at each tested gap of 5, 10, 20, 50 and
      100 ms. The gaps are a design choice, a 1-2-5 series; 16 is the replicate count of the hard
@@ -1027,7 +1028,8 @@ ST13. Sizing R_C from an A/A pilot. The pilot only sizes R; it sets no margin.
    frozen code. It needs both hosts' pilots, since R_C and m_C span L and W. It records:
    `CODE_FREEZE`; `ANALYSIS_COMMIT`; the sha256 of the pilot's archive; the pilot's invalid
    windows and reruns; each cell's Power_c at every candidate and its R_c; the resolved list;
-   R_C; m_C; the joint powers of step 7; λ for each C3 cell; G for each host; and `GAP_SPLIT`.
+   R_C; m_C; the joint powers of step 7; λ for each C3 cell; `G_L` and `G_W`; `GAP_SPLIT`; and,
+   named again, the IOCP receive form of rule E.
    Nothing in it is chosen: every value follows from the rules above.
 Appendix A checks the rule of steps 2 to 6 on synthetic data.
 

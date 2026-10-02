@@ -2,7 +2,8 @@
 
 Status: DRAFT, to be frozen after a consistency check.
 
-Written on 2026-10-02 from `design/proposal.md` at commit d570dd6. That text applies the first
+Written on 2026-10-02 from `design/proposal.md` as revised that day after the second audit. That
+text applies the first
 audit (`design/proposal-audit.md`), the second audit (`design/proposal-audit-2.md`), and the
 decisions of Alex and of the coordinator of 2026-10-02. It is to be frozen before any code of the
 server exists. The commit that freezes it changes the status line and nothing else. After the
@@ -689,6 +690,7 @@ named, and is never chosen after data that could favour a value.
 
 | Name | Rule |
 |---|---|
+| `CODE_FREEZE` and `ANALYSIS_COMMIT`, named again | section 8 steps 2 and 3 |
 | The pilot archive's sha256, and its invalid windows and reruns | section 8 step 4 |
 | Power_c(R) for every cost cell and candidate, and each resolved cell's R_c | 4.6 steps 2 to 5 |
 | The resolved list | 4.6 step 5 |
@@ -698,7 +700,7 @@ named, and is never chosen after data that could favour a value.
 | λ for each C3 cell | WL2, from the C1 pilot sessions |
 | `G_L`, `G_W` | per host, the smallest whole number of milliseconds above the largest lateness of the timer part over all the host's backends, so above its 99th percentile. If it is not below T_fb, HC7 is not run on that host, and the paper says why |
 | `GAP_SPLIT` | the smallest tested gap at which every replicate on every backend of L and W shows the split read; if none does, 100 ms, and HC2, HC3 and HC10 report the share of their replicates that split |
-| The IOCP receive form | rule E, before the W pilot |
+| The IOCP receive form, named again | rule E; recorded when it is made, before the W pilot |
 
 ### 9.3 After the pilot entry, before the runs that use them (section 8 step 7)
 
