@@ -44,10 +44,10 @@ stays as it is:
 powercfg /duplicatescheme 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
     (prints the new plan's GUID: <G>; recorded in the lab journal)
 powercfg /changename <G> "oneport W windows"
-powercfg /setacvalueindex <G> SUB_PROCESSOR PERFBOOSTMODE 0      (boost off)
+powercfg /setacvalueindex <G> SUB_PROCESSOR be337238-0d82-4146-a960-4f3749d470c7 0   (performance boost mode: 0 Disabled)
 powercfg /setacvalueindex <G> SUB_PROCESSOR PROCTHROTTLEMIN 100  (minimum processor state 100%)
 powercfg /setacvalueindex <G> SUB_PROCESSOR PROCTHROTTLEMAX 100  (maximum processor state 100%)
-powercfg /setacvalueindex <G> SUB_PROCESSOR CPMINCORES 100       (no core parking)
+powercfg /setacvalueindex <G> SUB_PROCESSOR 0cc5b647-c1df-4637-891a-dec35c318583 100 (core parking min cores 100%: no parking)
 powercfg /setactive <G>
 powercfg /getactivescheme
 powercfg /QH SCHEME_CURRENT SUB_PROCESSOR                        (read back; recorded)
@@ -55,6 +55,11 @@ powercfg /QH SCHEME_CURRENT SUB_PROCESSOR                        (read back; rec
 
 After the windows: `powercfg /setactive 00acab9f-6807-4927-af55-c72a4c589dad` restores the plan
 read in section 1.
+
+The aliases were checked on W (read-only): `powercfg /ALIASES` lists `SUB_PROCESSOR`,
+`PROCTHROTTLEMIN` and `PROCTHROTTLEMAX`; boost mode and core parking are hidden settings, whose
+aliases `PERFBOOSTMODE` and `CPMINCORES` only `powercfg /ALIASESH` lists, so the commands above name
+them by GUID. Their values are read back with `powercfg /QH`, which shows hidden settings.
 
 - Idle states stay on (processor idle disable 0), as on L, where pin.sh sets the governor and
   boost, not idle states. Open for Alex.

@@ -133,7 +133,9 @@ What was built, beside the shared detection, timers, handlers and output:
 - **Close and stop**: closing a socket cancels its operations, whose completions still arrive, so
   a closed connection keeps its OVERLAPPEDs, buffers and queue until the last (`finalize`), as on
   io_uring. At stop every connection is closed, every AcceptEx cancelled (`CancelIoEx`), and the
-  completions drained (at most 5 s).
+  completions drained (at most 5 s). A worker that reaches the 5 s limit reports an error; on that
+  error path only, the worker's destructor then frees its AcceptEx requests while a cancelled one
+  might still complete. No test reached the limit.
 - **Server and binary** (`server_win.cpp`, `main.cpp`): Winsock 2.2 per server; listeners on
   127.0.0.1 with `SO_EXCLUSIVEADDRUSE` (Windows' `SO_REUSEADDR` would let another socket take the
   port) and backlog `SOMAXCONN` (I5). The binary prints its listening lines and runs until Ctrl+C,
@@ -143,7 +145,9 @@ What was built, beside the shared detection, timers, handlers and output:
 - Counters on IOCP (I29): `accept_calls` (AcceptEx calls), `recv_calls` (synchronous `recv`s and
   posted `WSARecv`s), `peek_calls`, `zero_byte_recv_calls`, `send_calls` (synchronous `send`s and
   the queue's `WSASend`s), `check_calls`, `gqcs_calls`, `peek_to_replay`, `out_waits`, and the byte
-  counters as on Linux.
+  counters as on Linux. `accept_calls` includes the N_ACCEPTEX requests posted at start, before
+  any connection: 64 per listener, so 64 in one-port mode and 384 in dedicated and stub mode. That
+  is a constant offset per server start, which per-connection operation counts (WL5) must subtract.
 - The connection state is 544 bytes on W (`sizeof`, MSVC 19.51.36246, Release layout, read from the
   ASan binary's start line; 568 in the Debug build, whose standard containers are larger); on L it
   was 368 bytes in M2b. It adds three OVERLAPPED blocks and two vectors on Windows.
@@ -335,6 +339,17 @@ Each is a reading of the frozen text met while building IOCP; none changes a har
 
 ## Open for the coordinator
 
+- **Rule E's posted form and "no data buffer while no byte has arrived".** Section 2.1 states, as a
+  design property, "no data buffer while no byte has arrived, on every backend", and B2(d) tests
+  it. Rule E's posted form holds the handler's buffer from accept by construction; only the
+  proposal (I15) carries the caveat that the paper then reports the buffer it holds. So this is a
+  tension between the frozen 2.1 and B2(d) and a rule-E option the frozen binary must carry, not
+  an audit detail (reading 7). The 50 IOCP case entries run the default zero-byte form only. If
+  rule E chooses the posted form before the W pilot, B1 and B2(d) will not have been checked on
+  the measured form: the W record's suite then needs the case entries under the posted form too
+  (a second CTest dimension, or the form as an override), with B2(d)'s "no buffer while silent"
+  read per I15 for that form. The server tests already run both forms (`iocp.receive_forms`,
+  `iocp.check_byte_wins.*`, `iocp.stop_with_pending`).
 - **More than one worker on IOCP is not built.** Proposal I4 has "one completion port, shared by
   the worker threads, with AcceptEx requests posted on the socket". A socket is associated with one
   port, so with a shared port any thread may dequeue any connection's completion, which the
