@@ -27,6 +27,8 @@
 #include "worker.hpp"
 
 #include <fstream>
+#include <random>
+#include <utility>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -80,6 +82,32 @@ namespace oneport::server
 			return fd;
 		}
 
+		/// The kernel's ephemeral port range (net.ipv4.ip_local_port_range); its default if unreadable.
+		std::pair<std::uint32_t, std::uint32_t> ephemeral_range()
+		{
+			std::ifstream f("/proc/sys/net/ipv4/ip_local_port_range");
+			std::uint32_t low = 0;
+			std::uint32_t high = 0;
+			if (f >> low >> high && low > 0 && low <= high) return {low, high};
+			return {32768, 60999};
+		}
+
+		/// Whether nothing holds `port` on 127.0.0.1: a bind without SO_REUSEPORT succeeds.
+		bool port_free(std::uint16_t port)
+		{
+			const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+			if (fd < 0) return false;
+			const int one = 1;
+			::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+			sockaddr_in a{};
+			a.sin_family = AF_INET;
+			a.sin_port = htons(port);
+			a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+			const bool ok = ::bind(fd, reinterpret_cast<const sockaddr*>(&a), sizeof(a)) == 0;
+			::close(fd);
+			return ok;
+		}
+
 		std::uint16_t bound_port(int fd)
 		{
 			sockaddr_in a{};
@@ -125,7 +153,39 @@ namespace oneport::server
 				}
 				return out;
 			}
-			// A test convenience, not a value of the design: try up to 100 free first ports.
+			// A test convenience, not a value of the design: a run of free consecutive ports below
+			// the ephemeral range, where no client's connect takes a port, so neither the clients'
+			// connections nor their TIME-WAIT sockets can hold one; from a random first port, at
+			// most 200 tries. With SO_REUSEPORT each port is probed first without it, so a group
+			// of another process is never joined by chance.
+			const std::uint32_t low = ephemeral_range().first;
+			const std::uint32_t first_port = 10000;
+			if (low > first_port + n)
+			{
+				std::mt19937 pick(std::random_device{}());
+				std::uniform_int_distribution<std::uint32_t> base_of(first_port, static_cast<std::uint32_t>(low - n));
+				for (int attempt = 0; attempt < 200; ++attempt)
+				{
+					const std::uint32_t base = base_of(pick);
+					std::vector<int> out;
+					bool ok = true;
+					for (std::size_t i = 0; i < n && ok; ++i)
+					{
+						const auto port = static_cast<std::uint16_t>(base + i);
+						if (reuseport && !port_free(port))
+						{
+							ok = false;
+							break;
+						}
+						const int fd = open_listener(port, reuseport, backlog);
+						if (fd < 0) ok = false;
+						else out.push_back(fd);
+					}
+					if (ok) return out;
+					for (const int f : out) ::close(f);
+				}
+			}
+			// No room below the ephemeral range: a first port the kernel picks, and the ports after it.
 			for (int attempt = 0; attempt < 100; ++attempt)
 			{
 				std::vector<int> out;
@@ -136,12 +196,13 @@ namespace oneport::server
 				bool ok = true;
 				for (std::size_t i = 1; i < n && ok; ++i)
 				{
-					if (static_cast<std::uint32_t>(base) + i > 65535)
+					const std::uint32_t port = static_cast<std::uint32_t>(base) + static_cast<std::uint32_t>(i);
+					if (port > 65535 || (reuseport && !port_free(static_cast<std::uint16_t>(port))))
 					{
 						ok = false;
 						break;
 					}
-					const int fd = open_listener(static_cast<std::uint16_t>(base + i), reuseport, backlog);
+					const int fd = open_listener(static_cast<std::uint16_t>(port), reuseport, backlog);
 					if (fd < 0) ok = false;
 					else out.push_back(fd);
 				}
