@@ -7,6 +7,8 @@
 # clang 22's -fsanitize=function (part of -fsanitize=undefined for C) reports every such call.
 # It is OpenSSL's code, not oneport's, so only that check and only in that file is left out;
 # every other UBSan check stays on in all of OpenSSL, and oneport's own code keeps the function
-# check. Declared in bench/coverage.json.
+# check. Declared in bench/coverage.json. OpenSSL's Makefile compiles the file by the relative
+# path crypto/stack/stack.c, which the first pattern matches; the second covers an absolute path.
 [function]
+src:crypto/stack/stack.c
 src:*/crypto/stack/stack.c
