@@ -11,8 +11,8 @@ has run.
 | M0 | Foundations | done, 2026-10-02 (below) |
 | M1 | epoll server with the detection table, the HTTP/1.1 handler and the 25-case generator as a deterministic test suite under every sanitizer | done, 2026-10-02 (below) |
 | M2a | h2c, TLS, PROXY, SSH, MQTT and SMTP handlers on epoll in-process; the pinned OpenSSL and nghttp2; the recorded ClientHello; every hard case full on epoll in-process | done, 2026-10-02 (below) |
-| M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | next |
-| M3 | Harness and A/A-noise engineering, in dedicated mode only | |
+| M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | done, 2026-10-02 (below) |
+| M3 | Harness and A/A-noise engineering, in dedicated mode only | next |
 | M4 | Competitors | |
 | M5 | Iterate until it wins | |
 | M6 | Windows | |
@@ -1021,13 +1021,345 @@ Log sha256:
 - IOCP: M6. On W the third-party libraries are not built yet.
 - `opgen` and `ophold`; the sanitizer driver and the records (M7).
 
+## M2b, 2026-10-02
+
+### Step 0: M2a's readings in the revision log
+
+30b5be4 appends one entry to the revision log of `hypotheses.md`, "Readings fixed during
+engineering (M2a), before the code freeze": M2a's six readings, one line each with why it follows
+from the frozen text, and the coordinator's three decisions (UBSan's function check off for
+OpenSSL alone in the ASan+UBSan build, declared in `bench/coverage.json`; the live OpenSSL client
+of the TLS hard cases, its ClientHello checked against the recording; TLS transcripts compared
+after decryption). Nothing above the log changed (`git diff` showed additions after line 1055
+only). No reading was found to contradict the frozen text: HC1 to HC3 say "the transcript", and
+"the byte transcript" is 1(c)'s, for the fallback only; HC13 and HC19 name only a class; the gap
+list of section 11 feeds `bench/coverage.json` and is not closed.
+
+### Commits (papers/one-port)
+
+| Commit | Message |
+|---|---|
+| 30b5be4 | docs: hypotheses.md revision log, the readings fixed during engineering (M2a), before the code freeze, and the coordinator's three decisions |
+| feaaadf | feat: the io_uring loop submits and reaps the server's operations: multishot accept, receive into a buffer or a provided buffer, poll, connect, splice and cancel; provided-buffer rings; the non-waiting reap of 1(b); io_uring_enter calls and submissions by opcode |
+| 107237b | test: the io_uring peek path's kernel behaviour pinned before use (RK4): a poll re-armed after an undecided peek does not complete at once, the low-water mark completes it, a half-close completes it above the mark; and buffer select, ENOBUFS, EOF and multishot accept |
+| f3c83ce | feat: the server on io_uring (multishot accept, receives into provided buffers, the peek path's polls and the non-waiting reap of 1(b)), relay dispatch to a backend with both relay copies and pass-through routing by SNI and ALPN, stub mode, and --relay-port |
+| 3cd91c4 | test: the suite on both Linux backends: every hard case in both detection modes with in-process and relay dispatch (HC20 routed by its SNI), the server and handler tests on io_uring, and relay, pass-through, stub-mode and binary relay tests |
+| 1535db1 | chore: .clangd at the repository root: C++23 and, per source directory, the include directories its CMake target uses |
+| ee569f6 | fix: a server without --port takes a run of free consecutive ports below the ephemeral range, probing each without SO_REUSEPORT, so tests in parallel neither run out of ports nor join another process's group |
+| affccf0 | test: the case suite keeps a server only once it has started, so a server that cannot start fails its variant instead of leaving a null entry |
+| 0290a2d | docs: bench/coverage.json, the io_uring MSan gap names the code that unpoisons each receive's completion and the tests that check res against the bytes used |
+
+Then 89a96c5 (docs: the second revision-log entry, M2b's readings) and this file. Each code commit
+was built alone on L (Debug, clang 22.1.8, Ninja) from a fresh clone of the `lab` remote and passed
+its own suite with no warning and no failure (logs in `~/lab/p3/m2b-check/commits/<sha>/`): feaaadf
+294 CTest entries (144 run, 150 pending), 107237b 296 (146 run, 150 pending), f3c83ce 294 (144 run,
+150 pending), 3cd91c4 339, ee569f6 339 and affccf0 339 (all run). The other commits change no
+compiled file.
+Nothing is pushed to origin; the `lab` remote has every commit.
+
+### The io_uring peek path, pinned before use (RK4)
+
+Proposal I11 rests io_uring's peek on `IORING_OP_POLL_ADD` completing only at `SO_RCVLOWAT`,
+which the audit derived from the source, and RK4 asks for a test before use. 107237b adds it,
+`server.kernel_rcvlowat_uring`, on the extended loop of feaaadf and before any server code used
+the poll. On a loopback pair: 10 queued bytes complete a poll for `POLLIN | POLLRDHUP` at once,
+with `POLLIN`, and a `MSG_PEEK` sees them; with the mark set to 30, as an undecided peek sets it,
+a poll armed again does not complete within a 200 ms bounded wait; 20 bytes complete nothing in
+another 200 ms; the 30th byte completes it with `POLLIN` and without `POLLRDHUP`; with the mark at
+100, a half-close completes a new poll with `POLLRDHUP`; after a reset of the mark to 1 the reader
+gets the 30 bytes, then the EOF. It passed on L (kernel 7.2.3-arch1-2), and 20 times in a row
+(`ctest --repeat until-fail:20`), before the backend was built; it passes in every build below.
+So io_uring keeps the low-water mark, and RK4's fallback (IOCP's switch to replay) is not needed.
+
+The same commit pins what the backend's receives rest on (`server.kernel_uring_recv_select`): a
+receive that selects a provided buffer completes nothing until data arrives and then names the
+buffer, whose bytes are the ones sent; with the ring empty it fails with `ENOBUFS` and the bytes
+stay queued for the next receive; at EOF it returns 0 and names no buffer; a multishot accept
+completes once per connection with `IORING_CQE_F_MORE`. The provided-buffer ring registered
+under L's `RLIMIT_MEMLOCK` of 8192 kB.
+
+### What M2b built
+
+**The loop** (`bench/loop`, feaaadf). `UringLoop` queues submissions in the shared ring and
+`wait()` submits them with its wait in one `io_uring_enter`; it reaps every completion into a
+buffer the worker reads. Added: multishot accept, receive into a buffer or into a provided buffer
+(`IOSQE_BUFFER_SELECT`), single-shot poll, connect, splice, cancel; provided-buffer rings
+(`IORING_REGISTER_PBUF_RING`); `reap_now()`, the non-waiting reap of 1(b) (`io_uring_enter` with
+`GETEVENTS` and no minimum, which runs the ring's deferred task work); `drain()` for stop; the
+counters of I29 (`io_uring_enter` calls, submissions by opcode). The ring is created with
+`SUBMIT_ALL` and a completion queue of its own size, and flushes the kernel's overflow list if it
+is ever used.
+
+**The server on io_uring** (`bench/server/uring.cpp`, f3c83ce). The detection, timers, handlers
+and output are the epoll worker's code; what differs is how bytes reach it.
+- Accept: one multishot accept per listener and worker (I4), armed again when a completion comes
+  without `IORING_CQE_F_MORE`.
+- Replay: a receive into a buffer the kernel selects from the worker's provided-buffer ring when
+  data arrives, so a pending receive holds no buffer (I15); once the connection holds a buffer,
+  into the room after its bytes. Each buffer the ring gives a connection is replaced at once from
+  the pool, so the ring holds a fixed count.
+- Peek: a poll for `POLLIN | POLLRDHUP`, then the synchronous `MSG_PEEK` of the epoll worker;
+  an undecided peek sets `SO_RCVLOWAT` and polls again (I11, pinned above).
+- The check of 1(b): in replay, the non-waiting reap; every completion it reaps is handled then,
+  and if this connection's receive was among them its bytes (or its end) decide it. In peek, the
+  one-byte `MSG_PEEK`, as on epoll.
+- Handlers: receives as in replay, in both detection modes and in dedicated mode.
+- Output: the synchronous `send` of the epoll worker; what the socket does not take waits in the
+  connection's queue for a `POLLOUT` poll.
+- A closed connection cancels what it has in flight and keeps its buffers until the last
+  completion arrives; only then is its slot reused. At stop every operation is cancelled and
+  drained, then the ring's buffers return to the pool.
+- MemorySanitizer: each receive's completion unpoisons exactly its `res` bytes at the buffer it
+  names (the provided buffer by its id, the room after the connection's bytes, or pass-through's
+  ClientHello storage); `bench/coverage.json` says so (0290a2d). No check is disabled.
+
+**Relay dispatch** (`bench/server/relay.cpp`, f3c83ce), on both backends. A connection classified
+on a one-port listener with `--dispatch relay`, or dispatched to the fallback at T_fb, goes to the
+backend port of its class: `--relay-port` names the backend's first port, and its six listeners
+follow in the order of I20. The front connects, sends the bytes replay read, then copies both
+ways.
+- The backends (I18): a server in dedicated mode (M2's), or in stub mode (M3's and B3's). Stub
+  mode is the dedicated layout with one difference, marked on its listeners in `listeners.cpp`:
+  its TLS port reads one whole TLS record (a 5-byte header, content type 22, major version 3, a
+  length of at most 2^14, then that many bytes), writes the 13-byte body of I26 and closes; it
+  never handshakes. Its other five ports run the handlers of I26.
+- The relay copy, both built in as flag values (rule E): `--relay-copy user-space` receives into
+  buffers of `RELAY_BUF` bytes per direction and sends from them; `--relay-copy splice` moves
+  bytes through a pipe per direction with `splice(2)` on epoll and `IORING_OP_SPLICE` (after a
+  poll, `SPLICE_F_NONBLOCK`) on io_uring. The bytes replay read are sent from user space first in
+  both.
+- Ends: a direction's end is passed on as a half-close (the destination's writing shut down), and
+  the connection closes when both directions have ended; an error closes both, and a reset on one
+  side closes the other by reset.
+- Pass-through (I17, I22): a TLS connection is classified at byte 6, as in-process, and then waits
+  for its whole ClientHello. The records are reassembled by `bench/server/clienthello.hpp` up to
+  B_CH message bytes; in replay they are held as received, in the receive buffer, or once they
+  outgrow it in storage of their own; in peek they stay in the socket and `SO_RCVLOWAT` waits for
+  the record bytes the reassembly needs next (the reader now reports that count). The route
+  table: SNI oneport.test, with no ALPN or an ALPN list that offers http/1.1 or h2, goes to the
+  backend's TLS port; any other ClientHello, a malformed one, one longer than B_CH, or an end
+  before it is whole, is closed and counted `route_rejected`.
+- PROXY: the front consumes the header (I9) and does not pass it on; the backend runs with
+  `--proxy off`, and the source the server records is the front's.
+- Timers: the detection timers of section 1 until dispatch, as in-process; none after it.
+- Counters: `relayed`, `routed_by_sni`, `route_rejected`, `relay_connect_errors`,
+  `connect_calls`, `splice_calls`, `bytes_spliced`, `shutdown_calls`, and `out_waits` (output that
+  waited for writability, on every path).
+
+**Flags.** `--relay-port` (1 to 65535) is the one new flag; `--mode one-port --dispatch relay`
+without it is refused at parse time (exit 2). Dedicated and stub mode accept `--dispatch relay` and
+relay nothing, as M0's rule for flags that do not apply has it. `not_served()` now names IOCP alone.
+
+**The connection state** is 368 bytes (`sizeof`, L, clang 22.1.8; M2a's was 352): it gained its
+slot, the io_uring bookkeeping and a pointer to the relay's state. The relay's state, 128 bytes,
+is made at dispatch, so a pending connection holds none of it.
+
+**Ports in tests** (ee569f6). A server started without `--port` (the tests) took a free run of
+consecutive ports from the kernel's ephemeral range. With four sanitizer builds running the
+larger suite at once, the clients' connections and TIME-WAIT sockets held enough of that range
+that runs failed to start ("no run of free consecutive ports"), and the case harness then crashed
+on a null server (affccf0 fixes the harness). It now picks a random run below the ephemeral range
+(10000 to 32767 on L), where no client's connect takes a port, and probes each port without
+`SO_REUSEPORT` first, so a reuseport group of another test process is never joined by chance. A
+server with `--port` is unchanged.
+
+### I29: bytes copied in user space, the rule
+
+Settled for every mode and both backends, and applied where they share code:
+
+> A payload byte is counted in `bytes_copied` each time the server's own code moves it from one
+> user-space place to another (a memmove, a memcpy, a vector's insert or assign): a receive
+> buffer's compaction (an incomplete tail moved to the start); output that the socket did not
+> take, copied into the connection's queue; output appended behind a queue that holds bytes; a
+> pass-through ClientHello moved from the receive buffer into storage of its own. A byte that a
+> system call moves is counted only by the boundary counters, by direction: `bytes_received` and
+> `bytes_peeked` in, `bytes_sent` out. Producing a byte is not a copy: a handler writing its
+> reply, OpenSSL writing records or plaintext, nghttp2 writing frames; nor are a library's own
+> internal copies.
+>
+> Rule E's relay copy maps onto the counters so. The user-space option receives into a buffer
+> and sends from the same bytes: each relayed byte crosses the boundary twice, once in and once
+> out, and is copied in user space zero times (a pass-through ClientHello moved as above
+> excepted). The splice option moves the bytes inside the kernel: they count in `bytes_spliced`
+> and in neither of the above, except the bytes replay had read before the dispatch, which are
+> sent from user space.
+
+What changed: M2a counted the compaction only; the queue's copies (in `emit`) now count too,
+for every mode at once, since dedicated, one-port and stub mode run the same `emit`. The
+`relay.exchanges.*` tests check the mapping: the front's `bytes_copied` is 0 with either copy, the
+user-space relay's boundary counters hold every relayed byte, and splice's `bytes_spliced` holds
+the 2 MB upload and the pipelined responses. "Payload bytes ... copied in user space" is a frozen
+definition (section 2.1), so the rule is also a line of the revision log (89a96c5, item 7).
+
+### Design choices of M2b
+
+Every number here is a design choice of M2b, not a frozen value.
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| Submission and completion entries | 256 and 4096 | `loop.hpp` | a full submission queue is submitted early, never refused; 4096 completions hold a pass of WL1's 64 connections or of B3's batches without the kernel's overflow list |
+| Provided buffers in the ring | 128 per worker, 4096 bytes each | `worker.hpp` `kRingBuffers` | twice WL1's 64 connection slots per server core; a receive that finds the ring empty fails with ENOBUFS and is posted again (`recv_retries`); each buffer taken is replaced at once, so the ring's buffers are a fixed count allocated at start |
+| `RELAY_BUF` | 4096 bytes per direction | `worker.hpp` `kRelayBuf` | the handlers' receive buffer (I27): in relay mode replay reads into the buffer the relay sends from; one pool for both directions. Recorded in the revision log at the code freeze (section 9.1) |
+| Splice request | 65536 bytes | `kSpliceChunk` | the default pipe capacity, 16 pages of 4096 bytes on L |
+| Pass-through hold | at most 6 × B_CH record bytes | `kHelloWireMax` | every record carries at least one handshake byte behind its 5-byte header, so a ClientHello of at most B_CH message bytes fits |
+| Pass-through route table | SNI oneport.test; no ALPN, or http/1.1 or h2 offered | `relay.cpp` | the one name and the two protocols the frozen settings serve (I24); M3's TLS route |
+| Stub TLS port | one record of content type 22, version 3.x, length at most 2^14; then the 13-byte body; close | `apps.cpp` `stub_tls` | I18's "reads one whole TLS record ... writes the fixed 13-byte body ... closes"; the record checks are the detector's |
+| Stub's other ports | the handlers of I26 | `listeners.cpp`, `handlers.cpp` | "the least work that completes an exchange" (I18) for those classes |
+| Relay's ends | half-close passed on; both ended: close; error: both closed; reset: the other side reset | `relay.cpp` | see the readings below |
+| TCP_NODELAY | on both relayed sockets | `relay.cpp` | nginx's stream module sets it by default, for client and proxied connections (`tcp_nodelay on`), so a write is passed on at once |
+| PROXY in relay | consumed by the front, not passed on | `relay.cpp` | I17 has the front write "any replayed bytes"; see the readings |
+| Output on io_uring | synchronous `send`, `POLLOUT` poll for the queue | `handlers.cpp` | one output path and one count on both backends; `IORING_OP_SEND` is an M5 option |
+| Peer address on io_uring | `getpeername` only when a test hook is set | `uring.cpp` | a multishot accept gives none per connection; the server needs none, the tests key their reports by it |
+| Stop | every operation cancelled, then drained for at most 5 s | `uring.cpp` | far above a cancellation's cost; a worker that reaches it reports an error |
+| io_uring check of 1(b) when the receive found no buffer | the byte wins | `worker.cpp` | `ENOBUFS` means data arrived; the receive posted again brings it, and the bytes decide one pass later |
+| Ports without `--port` | a random run below the ephemeral range, 200 tries, then the kernel's | `server.cpp` | a test convenience (above) |
+
+### Readings of the frozen text in M2b
+
+Each is in the second revision-log entry of `hypotheses.md` (89a96c5); none changes a hard
+case's outcome.
+1. Relay's "relays both ways" (section 2.1; proposal I17 adds "until one side closes") is read per
+   direction: one side's end is passed on as a half-close and the other direction goes on; the
+   connection closes when both have ended, or at an error. Why: HC1's h2c client shuts down writing before it reads
+   ("Closes first: client" in WL1), so closing both at the first end would lose the response the
+   frozen outcome requires ("the transcript equals the dedicated port's").
+2. PROXY in relay: the front consumes the header (proposal I9: "the header is consumed exactly") and
+   writes the bytes after it, so the backend runs without PROXY and the source the server records
+   (HC9) is the front's. Why: section 2.1 has the front write "any replayed bytes", and the header
+   is not application data.
+3. B_CH bounds the reassembled ClientHello message, and the records that carry it are held as
+   received: in replay at most the message plus 5 bytes per record, in peek nothing (B2 d). Why:
+   section 1 defines B_CH as "bytes for a ClientHello reassembled in pass-through", and 2.1's bound
+   "the partial ClientHello, at most B_CH" is of the ClientHello, not of its record headers;
+   bounding the wire bytes would refuse a 16380-byte ClientHello in one record, which the text
+   accepts.
+4. No timer bounds the wait for the whole ClientHello in pass-through. Why: 1(d) closes at T_dec
+   only "a connection with at least one byte that no matcher has decided", and the TLS matcher
+   decides at byte 6, as in-process, where the TLS handler too waits for the rest without a timer.
+   A connection whose ClientHello has no route is closed and counted apart (`route_rejected`); its
+   detection outcome stays "classified".
+5. Stub mode's ports for h2c, MQTT, SSH and SMTP run the handlers of I26, "the least work that
+   completes an exchange" for those classes; section 2.1 spells out only HTTP/1.1 and TLS.
+6. "With in-process and relay dispatch where it applies" (Appendix A) is read as every case in
+   relay too, with the relay's backend a server in dedicated mode (M2's backend, PROXY off), and
+   HC20's relay outcome is "pass-through: routed by its SNI": the route is by SNI to the backend's
+   TLS port, reassembled from both records, and the transcript through the terminating backend
+   equals the dedicated port's.
+7. I29's "payload bytes copied in user space": the rule above.
+
+### The suite on L at affccf0
+
+339 CTest entries in every build; all run and all pass. None is pending on L any more.
+
+| Group | Entries | Result |
+|---|---|---|
+| `flags.*` | 14 | pass |
+| `loop.{epoll,io_uring}.*` | 18 | pass |
+| `detect.*`, `http.*`, `apps.*`, `clienthello.*` (pure) | 25 | pass |
+| `structure.mode_readers` | 1 | pass |
+| `server.*.{epoll,io_uring}` (keep-alive, dedicated ports and PROXY, the peek drip, the check of 1(b) with a byte in the pass of the expiry, two workers shared and reuseport, the flag matrix, stop with a pending connection, the binary) | 32 | pass |
+| `server.kernel_rcvlowat_et`, `server.kernel_rcvlowat_uring`, `server.kernel_uring_recv_select`, `server.not_served` | 4 | pass |
+| `handlers.*.{epoll,io_uring}` (TLS, ALPN h2, refusals, the live ClientHello, h2c, MQTT, SSH timing, SMTP, backpressure), and `handlers.tls_context` | 19 | pass |
+| `relay.*.{epoll,io_uring}` (exchanges with each copy and detection mode, a refused backend, pass-through in each detection mode, stub mode, the front's flag matrix, the binary as backend and front) | 20 | pass |
+| `case.HCnn.{epoll,io_uring}.{inproc,relay}.{replay,peek}` | 200 | pass, every case full |
+| `cli.*` | 4 | pass |
+| `gate.*` | 2 | pass |
+
+The hard cases: 164 variants per entry, each run 16 times, on 8 entries per case (2 backends,
+2 dispatch modes, 2 detection modes); every variant passes in full on every entry. The 150 entries
+M2a left pending (`case.*.epoll.relay.*` and `case.*.io_uring.*`) run. In relay entries every
+connection the front classifies or sends to the fallback must also report one route, by class to
+its class's backend port, or for TLS by SNI to the TLS port (HC13, HC19, HC20, and the TLS openings
+of HC1 to HC3), and in replay hold at most the ClientHello and its record headers while it waits;
+HC20's ClientHello is reassembled from 2 records. A few results on io_uring, from the server
+tests: in `server.check_byte_wins.replay.io_uring` the byte sent in the pass of the expiry is
+found by the non-waiting reap (one check, which found the byte; no fallback); in
+`server.peek_lowat.peek.io_uring` the peek path wakes exactly twice (16 bytes, then the 24th),
+with `SO_RCVLOWAT` set once and reset once.
+
+`cli.not_served_io_uring`, `cli.not_served_relay` and `cli.not_served_stub` are gone (all three are
+served); `cli.relay_needs_port` checks the new refusal. The server, handler and relay tests carry
+their backend as the last part of the name.
+
+### Sanitizer checks on L (development checks, not records)
+
+Fresh clone at affccf0 in `~/lab/p3/m2b-check/final2/`, clang 22.1.8, Ninja, `ctest -V -j 8`,
+the four builds at once (`~/lab/p3/sancheck.sh`); each links the OpenSSL and nghttp2 of its
+flavour (`ONEPORT_OPENSSL_USED`, `ONEPORT_NGHTTP2_USED`, read from each build's cache). "Report
+lines" counts the lines of the ctest log that match the lab's shared report pattern.
+
+| Build | CMake | Libraries | Build | CTest | Report lines |
+|---|---|---|---|---|---|
+| Debug | `-DCMAKE_BUILD_TYPE=Debug` | release | 0 warnings | 339 passed, 0 skipped, 0 failed | 0 |
+| ASan+UBSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address+undefined` | asan | 0 warnings | the same | 0 |
+| TSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=thread` | tsan | 0 warnings | the same | 0 |
+| MSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=memory`, the libc++ 22.1.8 at `~/opt/libcxx-msan-gcc` | msan | 0 warnings | the same | 0 |
+
+- Options as in M1 and M2a: ASan with `ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1`
+  and `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1`; TSan and MSan with the runtime defaults.
+- Each run takes about 95 s of ctest time.
+- Instrumentation, as checked: the test binary of each build defines the runtime's symbols (`nm`:
+  316 `__asan_`, 173 `__tsan_`, 63 `__msan_`), and the MSan binary loads `libc++` and `libc++abi`
+  from `~/opt/libcxx-msan-gcc/lib`.
+- io_uring runs under every sanitizer, MSan included, as proposal Z6 asks of P3's L records. The
+  MSan blind spot is declared in `bench/coverage.json` (0290a2d names the code). A negative check
+  shows the mitigation does the work: in a scratch copy (`~/lab/p3/m2b-check/msan-negative/`, not
+  committed) with the unpoisoning of receive completions in `bench/server/uring.cpp` turned into a
+  no-op, the MSan build reports a use of uninitialized value in `detect::classify`, reached from
+  the io_uring completion path, on `server.http_keepalive.oneport_replay.io_uring` (2 report lines),
+  while the same test on epoll passes with 0. With the unpoisoning, 0.
+- TSan runs two workers on the shared listener and on SO_REUSEPORT, on both backends, and two
+  workers in the relay's front.
+- Declared gaps that apply: as in M2a (OpenSSL's assembly; UBSan's function check in OpenSSL;
+  OpenSSL under TSan, still declared although these runs used a TSan-built OpenSSL and passed),
+  and the io_uring MSan blind spot above.
+
+The first attempt, at 3cd91c4 (`~/lab/p3/m2b-check/final/`), did not pass, and its logs are
+kept. The suite is larger than M2a's (relay gives a connection a second socket pair, and every
+server, handler and case test now runs on two backends), and four builds at `-j 8` at once took
+enough of L's ephemeral ports that servers failed to start ("no run of free consecutive ports on
+127.0.0.1"); the case harness then called a member of a null server. Every report line of that
+attempt is that call: in ASan+UBSan 114 lines, 57 of UBSan's "member call on null pointer" at
+`tests/case_tests.cpp` lines 131 and 140 and their 57 summaries; in TSan 156 and in MSan 122
+lines, the SEGV of the same call in `Running::stop_and_check` (`tests/harness.hpp` line 182) and
+their summaries. None is in the server's code. ee569f6 and affccf0 fix the cause and the harness. One more failure
+of that attempt is not explained: in its Debug build `handlers.output_backpressure.epoll` failed
+in 0.41 s with "one-port replay: 0 bytes for 200000 responses". It did not recur in the four
+builds of the second attempt, nor in 40 runs of that test, 4 at a time, beside the case suite at
+`-j 12` on the development tree. It is recorded here as seen once, cause not established.
+
+Also on W, as a compile check before M6 (as in M0 to M2a): a Debug build of 0290a2d with MSVC
+19.51.36246.0 (Build Tools 18, Ninja), out of tree in a scratch directory, had no warning; 105
+CTest entries, 55 passed and the 50 IOCP case entries were skipped as pending M6.
+
+Log sha256:
+
+    9addc8b63ee479aeadc8659bc915a5e55b0630d1a8e16308a168c71629b399ab  debug-affccf0.build.log
+    1c6a0eb85629cf82b72b99296d40a2127c2e7c02e8c51290f4abf5ab9c526b36  debug-affccf0.ctest.log
+    06777f2ebd7fb13c6161aa71a85c092d2d24ec99350a0afdb7fd55e6f665883e  asan-affccf0.build.log
+    a7d492b0fa7f97bb0cfc75270507898cdb70051ef736612a13c32ce1a4ca0035  asan-affccf0.ctest.log
+    d5acca4ac6cce55aa3a0c14082a178ccda4c0d7e291575576d205eee011577c8  tsan-affccf0.build.log
+    cd046831192a604d49b1d6d65212c993e310e20d1d04d4106eddae2fa0798803  tsan-affccf0.ctest.log
+    cab1a12fb0245462e29889598a0e13cbaa6d79f97f40df4b3d4a8bdb3b937664  msan-affccf0.build.log
+    a66eb0480a332be7d4909e4efcf882eb794e7a35d38d6abcb15a8c8ceb28aca8  msan-affccf0.ctest.log
+
+(The run was started with the tag "TAG" by mistake; the eight logs were renamed to the commit
+afterwards, unchanged.)
+
+### Not in M2b
+
+- IOCP: M6.
+- `opgen`, `ophold`, the harnesses, the sanitizer driver and the records (M3, M7).
+- Rule E's choices (default detection mode, relay copy): after the pilot entry; both options of
+  each are flag values.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
   added `papers/one-port/bench/oneport_record.py` to it.
 - The Papers repo's submodule pointer for `papers/one-port` (the coordinator's commit).
-- M1's readings are in the revision log of hypotheses.md (c8a0525). M2a's readings ("Readings of
-  the frozen text in M2a") wait for a revision-log entry if Alex or the coordinator agree.
+- The readings of the frozen text are in the revision log of hypotheses.md: M1's (c8a0525), M2a's
+  with the coordinator's three decisions (30b5be4), and M2b's with the rule of I29 (89a96c5).
 
 ## What M1 starts from
 
@@ -1115,3 +1447,29 @@ Log sha256:
   three and apply it.
 - On L everything M2b needs is installed: OpenSSL 3.5.9 and nghttp2 1.70.0 in four flavours in
   `~/opt`, the test certificate, the recorded ClientHello. Nothing blocks M2b.
+
+## What M3 starts from
+
+- The binary serves every Linux arm: `--mode one-port`, `dedicated` or `stub`; `--detect replay` or
+  `peek`; `--dispatch inproc` or `relay` (with `--relay-port` and `--relay-copy`); `--backend
+  epoll` or `io_uring`. With `--port` its listeners take fixed consecutive ports; it prints one
+  "listening" line per port and the connection state's size, and its counters (I29, now with
+  io_uring's `io_uring_enter` calls and submissions by opcode, the relay's, and `out_waits`) at
+  SIGTERM. M3's A/A work runs dedicated mode only, on both backends.
+- `opgen` is M3's to write (I30): the exchanges of WL1 to WL3 per protocol, with the same OpenSSL
+  build and settings (`bench/tls`), static-table h2 frames, `IP_BIND_ADDRESS_NO_PORT` and one block
+  of `K_SRC` addresses of 127.0.0.0/8 per window. `K_SRC` is set from its development runs (M0's
+  note). For M3's stub exchange the recorded ClientHello (`opcase::recorded_client_hello()`,
+  `tests/fixtures/tls/clienthello.hex`) is what `opgen` sends; stub mode answers one record with
+  the 13-byte body and closes.
+- `ophold` (B3's kernel baseline) and the per-connection decision record of the binary that WL8
+  needs against a server in its own process (M1's note) are still to build.
+- Engineering options left for M5, not results: io_uring's output is a synchronous `send`
+  (`IORING_OP_SEND` is the alternative); `RELAY_BUF` is 4096 bytes, to be reported beside each
+  proxy's default; whether `IORING_OP_SPLICE` runs in the kernel's worker threads on L was not
+  measured, only tested to work.
+- For the coordinator: the seven readings of M2b are in the second revision-log entry; reading 4
+  (no timer on pass-through's wait for the whole ClientHello) leaves a relayed TLS connection with
+  a partial ClientHello open until its peer ends it, as in-process TLS is. B3's partial-ClientHello
+  windows close every connection by reset at 30 s, so they are not affected.
+- Nothing blocks M3.
