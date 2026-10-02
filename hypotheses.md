@@ -295,10 +295,13 @@ Merged caches. The kernel may merge a cache with others of the same size (mm/sla
 50 to 52 and 155 to 230 at v7.2), and "skbuff_fclone_cache" carries none of the flags that
 prevent it (skbuff.c lines 5208 to 5212). `/proc/slabinfo` exists only in a kernel built with
 `CONFIG_SLUB_DEBUG` (mm/slab_common.c lines 1097 to 1231). Before the code freeze, L's
-`/proc/slabinfo` and `/sys/kernel/slab/` are read for the three names (mm/slub.c lines 9156 to
-9160 and 9641 to 9722 at v7.2). A cache merged with others is read under the name that
-`/proc/slabinfo` lists for the shared cache, the whole growth of that cache is subtracted, and the
-caches merged with it are named in the revision log (9.1) and in the paper.
+`/sys/kernel/slab/` is read for the three names (mm/slub.c lines 9156 to 9160 and 9641 to 9722 at
+v7.2). A cache is merged with others when `/sys/kernel/slab/<name>` is a link to a directory
+whose `aliases` count is above 0. The other links to that directory are the caches merged with
+it, and one of their names is the one under which `/proc/slabinfo` lists the shared cache; the
+merged name itself may not appear there. For a merged cache, the whole growth of the shared cache
+is subtracted, and the caches merged with it are named in the revision log (9.1) and in the
+paper.
 
 A system's footprint per pending connection is T = U + Kq + (Ks - `K_BASE`): user memory, receive
 queue, and the kernel slab the system adds beyond a bare held socket. That last term holds the

@@ -738,16 +738,22 @@ server reads them, the first biases Q upward, in the server's favour, and the se
 where the server leaves them queued and the competitor reads them, both directions reverse. In the
 silent case nothing is queued and neither applies.
 
-Merged caches. The kernel may merge a cache with others of the same size (mm/slab_common.c lines
-50 to 52 and 155 to 230 at v7.2), and "skbuff_fclone_cache" carries none of the flags that
-prevent it (skbuff.c lines 5208 to 5212). `/proc/slabinfo` exists only in a kernel built with
+Merged caches. The kernel may merge a cache with others of the same size (mm/slab_common.c lines 50
+to 52 and 155 to 230 at v7.2), and "skbuff_fclone_cache" carries none of the flags that prevent it
+(skbuff.c lines 5208 to 5212). `/proc/slabinfo` exists only in a kernel built with
 `CONFIG_SLUB_DEBUG` (mm/slab_common.c lines 1097 to 1231). Before the code freeze, L's
-`/proc/slabinfo` and `/sys/kernel/slab/` are read for the three names (mm/slub.c lines 9156 to
-9160 and 9641 to 9722 at v7.2). A cache merged with others is read under the name that
-`/proc/slabinfo` lists for the shared cache, the whole growth of that cache is subtracted, and the
-caches merged with it are named in the revision log of `hypotheses.md` at the code freeze (E3)
-and in the paper. Whether L's kernel has `/proc/slabinfo` at all is not yet read ("Sources
-added", the list of items not verified); B3 as frozen depends on it.
+`/sys/kernel/slab/` is read for the three names (mm/slub.c lines 9156 to 9160 and 9641 to 9722 at
+v7.2). A cache is merged with others when `/sys/kernel/slab/<name>` is a link to a directory whose
+`aliases` count is above 0: a mergeable cache gets a directory with a unique name and a link under
+its own name, and each cache merged into it adds a link (lines 9652 to 9683 and 9708 to 9722). The
+other links to that directory are the caches merged with it, and one of their names is the one under
+which `/proc/slabinfo` lists the shared cache: the file walks the list of caches that `create_cache`
+adds to, printing each one's own name, and a merged cache only adds a link and a reference
+(mm/slab_common.c lines 232 to 289 and 1113 to 1153). So the merged name itself may not appear
+there. For a merged cache, the whole growth of the shared cache is subtracted, and the caches merged
+with it are named in the revision log of `hypotheses.md` at the code freeze (E3) and in the paper.
+Whether L's kernel has `/proc/slabinfo` at all is not yet read ("Sources added", the list of items
+not verified); B3 as frozen depends on it.
 
 A system's footprint per pending connection is T = U + Kq + (Ks - `K_BASE`) (audit 2 N3): user
 memory, the receive queue, and the kernel slab the system adds beyond a bare held socket. The last
@@ -1842,22 +1848,27 @@ All read on 2026-10-02.
   - Linux v7.2 sources, https://raw.githubusercontent.com/torvalds/linux/v7.2/ (tag v7.2, commit
     8d3ae59288f1e7d58d76558a6ee96d533bc5019f): `net/core/skbuff.c` (`SKB_SMALL_HEAD_SIZE` and
     `SKB_SMALL_HEAD_CACHE_SIZE`, lines 106 to 116; `kmalloc_reserve`, lines 606 to 649, with the
-    small-head cache at lines 613 to 625 and the kmalloc fallback at lines 627 to 646;
-    `__alloc_skb` taking the struct from "skbuff_fclone_cache" for `SKB_ALLOC_FCLONE`, lines 684
-    to 685; `kfree_skbmem`, which frees a fast-clone pair only when both halves are freed, lines
-    1139 to 1167; "skbuff_ext_cache", line 5176; `skb_init` creating "skbuff_head_cache" with
-    `SLAB_NO_MERGE`, "skbuff_fclone_cache" without it, and "skbuff_small_head" with a usercopy
-    region, lines 5186 to 5225); `include/linux/skbuff.h` (`SKB_TRUESIZE`, lines 273 to 275;
-    `struct sk_buff_fclones`, lines 1395 to 1401); `include/net/sock.h` (`skb_set_owner_r`, lines
-    2474 to 2481); `net/ipv4/tcp.c` (`tcp_stream_alloc_skb`, lines 926 to 935; its call with
-    `sk->sk_allocation`, line 1256); `net/core/sock.c` (`sk_allocation` = `GFP_KERNEL`, line
-    3750); `include/linux/slab.h` (`KMALLOC_NOT_NORMAL_BITS`, lines 745 to 748); `mm/slab_common.c`
-    (`SLAB_NEVER_MERGE`, lines 50 to 52; the merge rules, lines 155 to 230; `/proc/slabinfo`
-    under `CONFIG_SLUB_DEBUG`, lines 1097 to 1231, with mode 0400 at line 1098 and its creation
-    at line 1226); `mm/slub.c` (the `aliases` attribute, lines 9156 to 9160; the sysfs names and
-    links of merged caches, lines 9641 to 9722); `include/net/tcp.h` (`MAX_TCP_HEADER`, line 70).
-    A search of every `kmem_cache_create` and `KMEM_CACHE` under `net/` and `include/net/` at the
-    tag found no other cache that holds skb structs or heads.
+    small-head cache at lines 613 to 625 and the kmalloc fallback at lines 627 to 646; `__alloc_skb`
+    taking the struct from "skbuff_fclone_cache" for `SKB_ALLOC_FCLONE`, lines 684 to 685;
+    `kfree_skbmem`, which frees a fast-clone pair only when both halves are freed, lines 1139 to
+    1167; "skbuff_ext_cache", line 5176; the merge flag `FLAG_SKB_NO_MERGE`, which is
+    `SLAB_NO_MERGE` unless the kernel is built with `CONFIG_SLUB_TINY`, lines 5186 to 5194;
+    `skb_init` creating "skbuff_head_cache" with that flag (lines 5198 to 5205),
+    "skbuff_fclone_cache" without it (lines 5208 to 5212), and "skbuff_small_head" with a usercopy
+    region (lines 5217 to 5223), lines 5196 to 5225); `include/linux/skbuff.h` (`SKB_TRUESIZE`,
+    lines 273 to 275; `struct sk_buff_fclones`, lines 1395 to 1401); `include/net/sock.h`
+    (`skb_set_owner_r`, lines 2474 to 2481); `net/ipv4/tcp.c` (`tcp_stream_alloc_skb`, lines 926 to
+    935; its call with `sk->sk_allocation`, line 1256); `net/core/sock.c` (`sk_allocation` =
+    `GFP_KERNEL`, line 3750); `include/linux/slab.h` (`KMALLOC_NOT_NORMAL_BITS`, lines 745 to 748);
+    `mm/slab_common.c` (`SLAB_NEVER_MERGE`, lines 50 to 52; the merge rules, lines 155 to 230;
+    `create_cache`, which adds a cache to the list, and `__kmem_cache_alias`, which only adds a link
+    and a reference, lines 232 to 289; `/proc/slabinfo` under `CONFIG_SLUB_DEBUG`, lines 1097 to
+    1231, walking that list and printing each cache's name at lines 1113 to 1153, with mode 0400 at
+    line 1098 and its creation at line 1226); `mm/slub.c` (the `aliases` attribute, lines 9156 to
+    9160; the sysfs names and links of merged caches, lines 9641 to 9722, the unique name and first
+    link at lines 9652 to 9683); `include/net/tcp.h` (`MAX_TCP_HEADER`, line 70). A search of every
+    `kmem_cache_create` and `KMEM_CACHE` under `net/` and `include/net/` at the tag found no other
+    cache that holds skb structs or heads.
   - slabinfo(5), man-pages 6.19: the columns `pagesperslab` and `num_slabs`; "Only root can read"
     the file; `Slab` in `/proc/meminfo` shows the memory of these caches.
     https://man7.org/linux/man-pages/man5/slabinfo.5.html
