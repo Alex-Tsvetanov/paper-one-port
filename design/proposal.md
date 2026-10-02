@@ -439,7 +439,7 @@ run.
 | caddy-l4 (2.7) | yes | yes | yes | yes | yes | cfg (regexp matcher) | no: closed at `matching_timeout` |
 | sslh-ev (2.8) | yes (http probe) | as HTTP | yes | not verified | yes | cfg (regex probe) | yes: `on-timeout` |
 | Netty (2.15) | example (`PortUnificationServerHandler`) | yes | yes (`SniHandler`) | yes | code | code | no |
-| Jetty (2.16) | yes | yes (upgrade from HTTP/1) | yes (2-byte sniff) | yes | no | no | no: idle timeout closes |
+| Jetty (2.16) | yes | yes (upgrade from HTTP/1) | record only (2-byte sniff), no SNI | yes | no | no | no: idle timeout closes |
 | cmux (2.10) | yes | yes | record header only, no SNI | no | cfg (`PrefixMatcher`) | code | yes, by inference: `Any()` with `SetReadTimeout` |
 | hyper-util (2.12) | yes | yes | no | no | no | no | no |
 
@@ -497,7 +497,11 @@ after a settling time, two parts are sampled:
 - user memory: the growth of `VmRSS` of all server-side processes, divided by `N_PEND`;
 - kernel memory: the mean over the server-side sockets of the `r` (rmem_alloc) and `f`
   (fwd_alloc) fields of `ss -tm` (ss(8)).
-The total is their sum. Every system's detection timeout is set to 60 s for these runs, a
+The total is their sum. "Pending" means the client's bytes are still incomplete, whatever the
+system has decided from them so far. Jetty and cmux classify TLS from the record header (A4), so
+for them a partial ClientHello waits in their TLS engine, and that memory is what is measured;
+the same holds for the server in in-process mode, whose OpenSSL session waits for the rest.
+Every system's detection timeout is set to 60 s for these runs, a
 design choice, so that nothing expires during sampling. `N_PEND` is proposed as 10,000 (Q10).
 The open-file limit on L is read at the freeze and must exceed twice `N_PEND`.
 
@@ -672,7 +676,8 @@ superiority, null "the ratio is at least 1.00", both computations. The server ru
 mode against the proxies and in in-process mode against the libraries, in its default
 detection mode. Cells:
 - the silent case, against all nine competitors;
-- the partial-ClientHello case, against the eight that serve TLS (all but hyper-util);
+- the partial-ClientHello case, against the eight that serve TLS (all but hyper-util), with
+  "pending" as WL7 defines it;
 - each on the server's two Linux backends, epoll and io_uring.
 m_B = (9 + 8) × 2 = 34 cells. The competitors are Linux programs, so B3 runs on L only.
 
@@ -814,10 +819,12 @@ Z6. Declared gaps for `bench/coverage.json`:
   Unlike P2's binaries, P3's L records must run io_uring.
 - **Competitor binaries and runtimes** (nginx, HAProxy, Envoy, caddy-l4, sslh-ev, the JVM, the Go
   runtime, Rust's standard library and tokio): not first-party; pinned, not instrumented.
-- **The harnesses** (Java, Go, Rust) are first-party but not C++: none of the three sanitizers
-  applies to the Java harnesses; the Go harness runs its tests with `-race`, and its ASan and MSan
-  gaps are declared, as P2 declared its Go and Rust arms' MSan gap; the Rust harness's gaps are
-  declared, since the stable toolchain has no sanitizers.
+- **The harnesses** (Java, Go, Rust) are first-party but not C++. The Go and Rust harnesses get
+  ASan+UBSan and TSan records, built the way P2's records built its Go and Rust arms
+  (`papers/typed-routing/hypotheses-round2.md`, section 1: ASan and TSan covered every arm, and
+  only MSan left out the FFI arms). Only their MSan gap is declared, the gap rule D5 names as its
+  example. None of the three sanitizers applies to the Java harnesses; that gap is declared
+  whole.
 - **Windows:** only ASan is required (D5).
 
 ## 8. Lab
@@ -1022,3 +1029,7 @@ All read on 2026-10-02.
 ## Revision log
 
 - 2026-10-02: first version, for review.
+- 2026-10-02, review fixes: Z6 now gives the Go and Rust harnesses ASan and TSan records, as P2
+  did for its Go and Rust arms, and declares only their MSan gap; WL7 and B3 define "pending" for
+  the partial-ClientHello case, so all eight TLS-serving competitors apply and m_B stays 34; A4
+  shows Jetty's TLS detection as record only, without SNI.
