@@ -4,6 +4,7 @@
 # sanitizer flags). Linux and clang only.
 #
 #   bench/third_party/build_deps.sh [release|asan|tsan|msan ...]     (default: all four)
+#   ONEPORT_LIBS="openssl" bench/third_party/build_deps.sh asan        (one library; default both)
 #
 # Versions, URLs and sha256 come from bench/cmake/pins.cmake, the one source of them. The archive
 # is downloaded into $ONEPORT_OPT/src (default ~/opt/src) if absent, and the build stops unless its
@@ -142,8 +143,13 @@ step() {  # step LIB FLAVOUR: one build with its log and done file
 
 flavours=("$@")
 [ ${#flavours[@]} -gt 0 ] || flavours=(release asan tsan msan)
+libs=${ONEPORT_LIBS:-"nghttp2 openssl"}
 for f in "${flavours[@]}"; do
     openssl_flags "$f" >/dev/null
-    step nghttp2 "$f"
-    step openssl "$f"
+    for lib in $libs; do
+        case $lib in
+            nghttp2 | openssl) step "$lib" "$f" ;;
+            *) echo "build_deps: unknown library $lib" >&2; exit 2 ;;
+        esac
+    done
 done
