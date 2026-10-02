@@ -10,8 +10,11 @@
 //
 // P1's wake path, its task queue and its seeded defect are P1's experiment and are not here.
 // The wait bound is an argument of each wait, because the server bounds each pass by its
-// earliest deadline (proposal I13). M1 adds socket registration and event output on epoll; the
-// server (bench/server) keeps the deadline queue and the sockets' state.
+// earliest deadline (proposal I13). M1 adds socket registration and event output on epoll; M2b
+// adds io_uring's submissions (multishot accept, receive into a buffer or a provided buffer,
+// poll, connect, splice, cancel), its provided-buffer rings, the non-waiting reap of
+// hypotheses.md 1(b), and its counters. The server (bench/server) keeps the deadline queue and
+// the sockets' state.
 #pragma once
 
 #include <array>
@@ -21,6 +24,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 #if defined(__linux__)
 #include <sys/epoll.h>
@@ -78,9 +82,29 @@ namespace oneport::loop
 		std::array<epoll_event, kMaxEvents> events_{};
 	};
 
+	/// One io_uring completion, copied out of the shared ring (its bytes unpoisoned for
+	/// MemorySanitizer as they are read, proposal Z6).
+	struct Completion
+	{
+		std::uint64_t user_data = 0;
+		std::int32_t res = 0;
+		std::uint32_t flags = 0;
+	};
+
 	class UringLoop
 	{
 	public:
+		/// The ring's sizes. Design choices of M2b: 256 submission entries, which the worker
+		/// submits before it waits (a full queue is submitted early, never refused); 4096
+		/// completion entries, so a pass of WL1's 64 connections, or of B3's batches, fits without
+		/// the kernel's overflow list (which is flushed if it is ever used).
+		static constexpr unsigned kSqEntries = 256;
+		static constexpr unsigned kCqEntries = 4096;
+		/// The user_data of the stop poll; submissions must use other values.
+		static constexpr std::uint64_t kStopTag = ~std::uint64_t{0};
+		/// The submissions counted by opcode (I29), indexed by IORING_OP_*.
+		static constexpr std::size_t kOpcodes = 80;
+
 		/// As EpollLoop. Also throws std::system_error when the kernel refuses the ring or lacks
 		/// a required feature (extended wait argument, single mmap, no-drop completions).
 		UringLoop();
@@ -91,11 +115,55 @@ namespace oneport::loop
 		/// Worker thread, once, before the first wait: enables the ring, which makes the caller
 		/// its single issuer, and arms the stop poll.
 		void start();
-		/// One wait, then the completions are reaped. As EpollLoop::wait.
-		void wait(Bound bound);
+		/// One pass's wait: submits every queued submission, waits for a completion or the bound,
+		/// and reaps every completion. As EpollLoop::wait otherwise. The completions (never the
+		/// stop poll's) are valid until the next wait() or drain().
+		std::span<const Completion> wait(Bound bound);
+		/// The non-waiting reap of hypotheses.md 1(b): submits what is queued, runs the ring's
+		/// deferred task work without waiting, and reaps what has completed. Not a pass. Its
+		/// completions are valid until the next reap_now().
+		std::span<const Completion> reap_now();
+		/// After stop(): waits at most `bound` for completions (cancelled operations finishing),
+		/// as wait() would before stop(). Not a pass. Shares wait()'s result buffer.
+		std::span<const Completion> drain(std::chrono::nanoseconds bound);
 		void stop() noexcept;
 		bool stopped() const noexcept { return stop_.load(std::memory_order_acquire); }
 		std::uint64_t passes() const noexcept { return passes_.load(std::memory_order_relaxed); }
+
+		// ---- Submissions: worker thread only. Each queues one entry; wait() submits them. ----
+
+		/// A multishot accept (I4): one completion per connection, res the new descriptor
+		/// (non-blocking, close-on-exec), flagged IORING_CQE_F_MORE while it stays armed.
+		void accept_multishot(int fd, std::uint64_t user_data);
+		/// A receive of at most `len` bytes into `buf`.
+		void recv(int fd, void* buf, std::uint32_t len, std::uint64_t user_data);
+		/// A receive into a buffer the kernel takes from provided-buffer group `group` when data
+		/// arrives (IOSQE_BUFFER_SELECT), so the pending receive holds no buffer (I11, I15). The
+		/// completion names the buffer: IORING_CQE_F_BUFFER and its id above
+		/// IORING_CQE_BUFFER_SHIFT.
+		void recv_select(int fd, std::uint16_t group, std::uint64_t user_data);
+		/// A single-shot IORING_OP_POLL_ADD for `events` (poll(2) bits); res is the ready mask.
+		void poll(int fd, std::uint32_t events, std::uint64_t user_data);
+		/// IORING_OP_CONNECT. `addr` must stay valid until the next wait() submits it.
+		void connect(int fd, const void* addr, std::uint32_t addr_len, std::uint64_t user_data);
+		/// IORING_OP_SPLICE of at most `len` bytes from `fd_in` to `fd_out`, neither with an
+		/// offset, with splice(2) `flags`.
+		void splice(int fd_in, int fd_out, std::uint32_t len, std::uint32_t flags, std::uint64_t user_data);
+		/// IORING_OP_ASYNC_CANCEL of the operation submitted with `target`.
+		void cancel(std::uint64_t target, std::uint64_t user_data);
+
+		// ---- Provided buffers (IORING_REGISTER_PBUF_RING) ----
+
+		/// Registers a ring of `entries` (a power of two) provided buffers as group `group`.
+		/// Throws std::system_error when the kernel refuses it.
+		void add_buffer_ring(std::uint16_t group, unsigned entries);
+		/// Adds one buffer to group `group` and publishes it to the kernel.
+		void provide(std::uint16_t group, void* addr, std::uint32_t len, std::uint16_t bid);
+
+		// ---- Counters (proposal I29) ----
+
+		std::uint64_t enter_calls() const noexcept { return enter_calls_; }
+		const std::array<std::uint64_t, kOpcodes>& submissions() const noexcept { return by_opcode_; }
 
 		static constexpr const char* name = "io_uring";
 		static constexpr const char* wait_method = "io_uring_enter(getevents, ext_arg; single_issuer, defer_taskrun)";
@@ -111,6 +179,7 @@ namespace oneport::loop
 			std::size_t sqes_size = 0;
 			unsigned* sq_head = nullptr;
 			unsigned* sq_tail = nullptr;
+			unsigned* sq_flags = nullptr;
 			unsigned* sq_array = nullptr;
 			unsigned sq_mask = 0;
 			unsigned sq_entries = 0;
@@ -120,17 +189,36 @@ namespace oneport::loop
 			void* cqes = nullptr;
 		};
 
+		struct BufferRing
+		{
+			std::uint16_t group = 0;
+			void* map = nullptr;
+			std::size_t map_size = 0;
+			unsigned entries = 0;
+			std::uint16_t tail = 0;
+		};
+
 		void arm_stop_poll();
-		void submit();
-		void reap();
-		void* next_sqe();
+		/// Publishes the queued entries; returns how many the kernel has not consumed yet.
+		unsigned publish() noexcept;
+		/// io_uring_enter with what is queued; `min_complete` and `ts` as the wait needs.
+		int enter(unsigned min_complete, bool getevents, const void* ts);
+		void submit_now();
+		void reap(std::vector<Completion>& out);
+		void* next_sqe(std::uint8_t opcode);
+		BufferRing& buffer_ring(std::uint16_t group);
 
 		std::atomic<bool> stop_{false};
 		std::atomic<bool> started_{false};
 		std::atomic<std::uint64_t> passes_{0};
 		Ring ring_;
-		unsigned sq_pending_ = 0;  // SQEs written but not yet submitted; worker only
+		unsigned sq_local_tail_ = 0;  // entries written; published to the kernel by publish()
 		int stop_fd_ = -1;
+		std::vector<Completion> done_;     // wait() and drain()
+		std::vector<Completion> reaped_;   // reap_now()
+		std::vector<BufferRing> buffer_rings_;
+		std::uint64_t enter_calls_ = 0;
+		std::array<std::uint64_t, kOpcodes> by_opcode_{};
 	};
 
 #elif defined(_WIN32)
