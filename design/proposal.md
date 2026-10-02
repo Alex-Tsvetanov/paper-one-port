@@ -1,8 +1,9 @@
 # P3 design proposal: one listener for client-first TCP protocols
 
 Status: proposal, revised after the first audit (commit 83c4710, `design/proposal-audit.md`), the
-second audit (commit 49993f5, `design/proposal-audit-2.md`) and the freeze check of
-`hypotheses.md` (commit 56f90bd, `design/freeze-check.md`). Not frozen. Written 2026-10-02.
+second audit (commit 49993f5, `design/proposal-audit-2.md`), the freeze check of
+`hypotheses.md` (commit 56f90bd, `design/freeze-check.md`) and the last check before its freeze
+(the revision log). Not frozen. Written 2026-10-02.
 Nothing in this file is a result. Alex's decisions of 2026-10-02 and the defaults of the first
 audit's question table are applied (section 11.1). Section 5 and every decision it depends on
 become `hypotheses.md`. The order of freezes and runs is fixed (I31 E4): `hypotheses.md` is
@@ -676,7 +677,14 @@ reason (audit 2 N15):
     is 80,000 bytes over `N_PEND`, above the 1 kB unit in which `/proc` reports `VmRSS` and
     `Slab` (proc_pid_status(5), proc_meminfo(5));
   - the host's TIME-WAIT count (`ss`) at either sample differs from the baseline's (audit 2 N8);
-  - fewer than `N_PEND` of the system's accepted sockets are established at either sample.
+  - fewer than `N_PEND` of the system's accepted sockets are established at either sample;
+  - at the baseline or either sample, an skb cache or the shared cache of a merged skb cache
+    cannot be found or read, or that shared cache's co-tenants differ from the baseline's. At the
+    baseline and at each sample the run script records the co-tenants present (the names linked
+    to the shared cache's directory in `/sys/kernel/slab/`) and the shared cache's counts (its
+    `/proc/slabinfo` line, and its `slabs` and `objects`). A set of co-tenants that differs from
+    the one named below is recorded in the revision log of `hypotheses.md` when it is first seen
+    and named in the paper; it does not by itself make a window invalid.
 - Closing, to t = 30 s: `opcase` closes every connection by reset (`SO_LINGER` on, with a zero
   timeout), so neither end enters TIME-WAIT.
 
@@ -741,19 +749,61 @@ silent case nothing is queued and neither applies.
 Merged caches. The kernel may merge a cache with others of the same size (mm/slab_common.c lines 50
 to 52 and 155 to 230 at v7.2), and "skbuff_fclone_cache" carries none of the flags that prevent it
 (skbuff.c lines 5208 to 5212). `/proc/slabinfo` exists only in a kernel built with
-`CONFIG_SLUB_DEBUG` (mm/slab_common.c lines 1097 to 1231). Before the code freeze, L's
-`/sys/kernel/slab/` is read for the three names (mm/slub.c lines 9156 to 9160 and 9641 to 9722 at
-v7.2). A cache is merged with others when `/sys/kernel/slab/<name>` is a link to a directory whose
-`aliases` count is above 0: a mergeable cache gets a directory with a unique name and a link under
-its own name, and each cache merged into it adds a link (lines 9652 to 9683 and 9708 to 9722). The
-other links to that directory are the caches merged with it, and one of their names is the one under
-which `/proc/slabinfo` lists the shared cache: the file walks the list of caches that `create_cache`
-adds to, printing each one's own name, and a merged cache only adds a link and a reference
-(mm/slab_common.c lines 232 to 289 and 1113 to 1153). So the merged name itself may not appear
-there. For a merged cache, the whole growth of the shared cache is subtracted, and the caches merged
-with it are named in the revision log of `hypotheses.md` at the code freeze (E3) and in the paper.
-Whether L's kernel has `/proc/slabinfo` at all is not yet read ("Sources added", the list of items
-not verified); B3 as frozen depends on it.
+`CONFIG_SLUB_DEBUG` (mm/slab_common.c lines 1097 to 1231). A cache is merged with others when
+`/sys/kernel/slab/<name>` is a link to a directory whose `aliases` count is above 0 (mm/slub.c
+lines 9156 to 9160 and 9641 to 9722 at v7.2): a mergeable cache gets a directory with a unique
+name and a link under its own name, and each cache merged into it adds a link (lines 9652 to 9683
+and 9708 to 9722). The other links to that directory name the caches merged with it, its
+co-tenants, and one of their names is the one under which `/proc/slabinfo` lists the shared
+cache: the file walks the list of caches that `create_cache` adds to, printing each one's own
+name, and a merged cache only adds a link and a reference (mm/slab_common.c lines 232 to 289 and
+1113 to 1153). So the merged name itself may not appear there. For a merged cache, the whole
+growth of the shared cache is subtracted, and its co-tenants are named in the paper. L's caches
+are read again at the code freeze and recorded in the revision log of `hypotheses.md` (E3); a
+difference from the reading below is handled by this rule.
+
+L, as read on 2026-10-02 (as root through L's passwordless sudo, read-only): kernel
+7.2.3-arch1-2, built with `CONFIG_SLUB_DEBUG` and `CONFIG_SLAB_MERGE_DEFAULT` and without
+`CONFIG_SLUB_DEBUG_ON`, booted without `slab_nomerge`. `/proc/slabinfo` exists and lists
+"skbuff_head_cache" and "skbuff_small_head" under their own names, so neither is merged.
+"skbuff_fclone_cache" is merged: `/sys/kernel/slab/skbuff_fclone_cache` is a link to `:0000512`,
+whose co-tenants are "pool_workqueue" and "sgpool-16", and `/proc/slabinfo` lists that cache only
+as "pool_workqueue". ("skbuff_ext_cache" is merged into `:0000192`; it is not subtracted, so this
+changes nothing.) L is not rebooted and its boot parameters do not change, so `slab_nomerge` is
+not an option. Nor can the fast clones leave the subtraction: on loopback the sender's TCP
+transmit skbs come from the fast-clone cache, and their clones wait in the receiver's queue
+(freeze check FC1). So on L the fast-clone growth is read as the growth of the shared cache. At
+each reading the run script finds it by following the link `/sys/kernel/slab/skbuff_fclone_cache`
+(`:0000512` on 2026-10-02), reads its size from the `/proc/slabinfo` line that carries one of the
+names linked to it ("pool_workqueue" on 2026-10-02), and records its `slabs` and `objects` from
+`/sys/kernel/slab/` beside it.
+
+The co-tenants' growth. "pool_workqueue" holds the per-pool queues of kernel workqueues,
+allocated only when a workqueue is created, or when its attributes or the CPUs it may use change
+(kernel/workqueue.c at v7.2: the cache, line 7995; its two allocation sites, lines 5313 and 5628,
+reached from `__alloc_workqueue`, `apply_wqattrs_prepare` and `unbound_wq_update_pwq` at lines
+5424, 5434, 5578 and 5897). "sgpool-16" holds chained scatter-gather lists, allocated only
+through `sg_alloc_table_chained` (lib/sg_pool.c lines 17 to 23, 62 to 67, 112 to 138 and 146 to
+158 at v7.2). Neither is a socket or an skb. Their growth over the baseline is subtracted with the
+fast clones'. That lowers the window's Ks, and so its W, by that growth per pending connection;
+their shrinkage raises it. So co-tenant growth in the competitor's windows lowers Q, against the
+server, and in the server's windows raises Q, in the server's favour. Growth equal in both arms
+leaves D unchanged and, as an amount removed from both, moves Q away from 1, the mirror of
+`K_BASE`, which pulls Q toward 1 (below). `K_BASE` takes the same correction and still cancels.
+- Growth that the host causes, not the system under test, favours neither arm systematically.
+  Every session runs X Y Y X, the arm that is X is drawn per session (ST1), and B3's sessions run
+  in one shuffled order (ST9). So each arm has one outer and one inner window in every session,
+  either arm opens a session with probability 1/2, and a drift that is linear within a session
+  falls on both arms alike.
+- Growth that a system itself causes goes with its arm in every session, and randomization does
+  not remove it. Three things bound it, and none of them is a test. Each window's processes start
+  and pass the probe before the baseline (the phases above), so what they allocate at start
+  cancels. The co-tenants are neither sockets nor skbs, so a system adds to them only by making
+  the kernel allocate workqueue pools or scatter-gather lists during the window. And the shared
+  cache's growth is recorded at every sample (the sample phase above) and reported per arm beside
+  every B3 cell (B3). In the silent case no system leaves a byte queued, so there that growth is
+  the co-tenants' growth plus any skbs in flight at the sample: a direct reading, per system, of
+  what the subtraction removes beyond queued skbs.
 
 A system's footprint per pending connection is T = U + Kq + (Ks - `K_BASE`) (audit 2 N3): user
 memory, the receive queue, and the kernel slab the system adds beyond a bare held socket. The last
@@ -768,8 +818,9 @@ W = T + `K_BASE` = U + Kq + Ks is the counted footprint per pending connection: 
 readings see, with each queued skb counted once, except as named above. It is the footprint of
 each system as configured, not of its detection design alone (audit F10). It is no longer called
 whole-system (freeze check FC1): outside it, and said in the paper, are the `f` field, reserved
-and unused (above); kernel memory outside `Slab` that no receive queue is charged for; and the
-skb-cache memory of the second residual; and the first residual can count bytes twice. The
+and unused (above); kernel memory outside `Slab` that no receive queue is charged for; the
+skb-cache memory of the second residual; and the co-tenants' growth of a merged skb cache; and the
+first residual can count bytes twice. The
 client ends of the loopback connections are in Ks for every system alike. B3 tests the ratio of
 two systems' W (B3).
 
@@ -939,8 +990,10 @@ host. Seeds:
 - resampling: `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`, `SEED_BOOT_S`, one generator per
   family. Each cell of the family's list (B3's descriptive cells after its Holm cells) draws its
   resamples once, in the family's order, whether or not it is in Holm. Every other interval, those
-  of 5.7, draws from `SEED_BOOT_S`, bullet by bullet in the order of 5.7; the cost cells not
-  resolved and B3's descriptive cells keep their family's draws and draw nothing more. Within a
+  of 5.7 and then those of the analyses clustered by lab job of ST11, draws from `SEED_BOOT_S`,
+  bullet by bullet in the order of 5.7, ST11's analyses last; the bullets of the cost cells not
+  resolved and of B3's descriptive cells draw nothing, since those intervals come from their
+  family's draws. Within a
   bullet the cells follow the cost family's order of ST13 step 3 (hypothesis, host, backend,
   protocol), then the system in the order of section 6; a case, variant or form that the bullet
   names comes after the protocol, in the order the bullet names it; within a cell, the metrics
@@ -965,7 +1018,7 @@ ST10. A window is invalid, and is listed with its reason, if:
   server defect, whatever the window: it is reported as a failure of B1, in the way 5.8 reports
   B1 failures, and not only as a reason to run the session again (audit 2 N7);
 - in a B3 or `ophold` window, any rule of WL7's sample phase (the settling check, the TIME-WAIT
-  count, the established count);
+  count, the established count, the skb caches and the merged cache's co-tenants);
 - in hand-off cells, a backend core was more than 90% busy, a design choice by analogy with the
   generator rule, not a rule of `t1.py` (audit F27);
 - in an open-loop window, fewer than 99% of the exchanges due in it completed (WL2; audit F11);
@@ -1194,7 +1247,9 @@ and Alex's margin of 1.10 are unchanged by that correction.
   computation (ST8). A cell passes only if it passes under both. A cell with fewer than 16 valid
   sessions enters with p = 1. At R = 16 the D9 condition holds: 2^-16 = 1.53e-5 < 0.025/18.
 - Reported beside each cell, deciding nothing: both footprints W and their parts U, Kq and
-  Ks - `K_BASE`; the skb caches' growth subtracted from each Ks; `f`; `K_BASE`; the difference
+  Ks - `K_BASE`; the skb caches' growth subtracted from each Ks, and within it, per arm, the
+  median growth of a merged cache's shared cache, with its co-tenants named (WL7); `f`; `K_BASE`;
+  the difference
   D = W_comp - W_srv, which equals T_comp - T_srv, in bytes per pending connection, with its 95%
   BCa interval; the median Q with its 95% BCa interval and with the interval at the level Holm
   used for the cell (ST12's rule, on B3's BCa ranks); the sign-test count; and the server's
@@ -1872,12 +1927,24 @@ All read on 2026-10-02.
   - slabinfo(5), man-pages 6.19: the columns `pagesperslab` and `num_slabs`; "Only root can read"
     the file; `Slab` in `/proc/meminfo` shows the memory of these caches.
     https://man7.org/linux/man-pages/man5/slabinfo.5.html
+- Added for the merged skb cache on L, read on 2026-10-02:
+  - L itself, as root through its passwordless sudo, read-only: the kernel release
+    (7.2.3-arch1-2); its configuration (`CONFIG_SLUB_DEBUG=y`, `CONFIG_SLUB_DEBUG_ON` not set,
+    `CONFIG_SLAB_MERGE_DEFAULT=y`); the boot command line (no `slab_nomerge`); `/proc/slabinfo`
+    (version 2.1, with lines for "skbuff_head_cache", "skbuff_small_head" and "pool_workqueue");
+    and `/sys/kernel/slab/` (`skbuff_fclone_cache` a link to `:0000512`, shared with
+    `pool_workqueue` and `sgpool-16`, with `slabs` and `objects` readable as root;
+    `skbuff_ext_cache` a link to `:0000192`) (WL7).
+  - Linux v7.2 sources (URL and commit above): `kernel/workqueue.c` ("the per-pool workqueue",
+    line 264; the cache "pool_workqueue", line 7995; its allocation sites, lines 5313 and 5628,
+    reached at lines 5424 and 5434 in `apply_wqattrs_prepare`, line 5578 in
+    `unbound_wq_update_pwq` and line 5897 in `__alloc_workqueue`); `lib/sg_pool.c` (the names
+    "sgpool-8" and "sgpool-16", lines 17 to 23; `sg_pool_alloc`, lines 62 to 67;
+    `sg_alloc_table_chained`, lines 112 to 138; the caches and their mempools, lines 146 to 158).
 - Not verified, to be read at the freeze: HAProxy 3.4.6 `cpu-map` text; OpenSSL's Windows build
   notes on NASM; sslh's PROXY support for incoming connections; the Winsock `listen` text on
   `SOMAXCONN`; which JDK release is the latest LTS (Oracle's support roadmap page refused the
-  fetch); which receive allocator Netty's native epoll transport uses by default. To be read on L
-  before the hypotheses freeze, since B3 depends on it: whether L's kernel has `/proc/slabinfo`
-  (`CONFIG_SLUB_DEBUG`), and under which names it lists the three skb caches (WL7).
+  fetch); which receive allocator Netty's native epoll transport uses by default.
 
 ## Appendix A. Synthetic check of the R rule (ST13)
 
@@ -1923,6 +1990,15 @@ so most cells run with more power than their own R_c gives.
 - 2026-10-02, revision after the freeze check of `hypotheses.md` (`design/freeze-check.md`,
   commit 56f90bd) and the coordinator's decisions of the same day: see the last section. The same
   changes are made in `hypotheses.md`, which stays a draft.
+- 2026-10-02, the last check before the freeze, with L's slab caches read that day as root: on L
+  "skbuff_fclone_cache" is merged into `:0000512` with "pool_workqueue" and "sgpool-16", so the
+  fast-clone growth is read as that shared cache's growth, from its `/proc/slabinfo` line
+  "pool_workqueue"; the co-tenants' growth is subtracted too, with its direction, why paired
+  randomized sessions keep host-caused growth from favouring an arm, and what bounds growth a
+  system causes; a validity rule records the co-tenants and the shared cache's counts at the
+  baseline and at each sample; the shared cache's growth is reported per arm (WL7, ST10, B3,
+  "Sources added"). The L item leaves the list not verified. ST9 places ST11's analyses after
+  5.7 and states which bullets draw nothing. The same text is in `hypotheses.md`.
 
 ## Revision log (audit 83c4710)
 
