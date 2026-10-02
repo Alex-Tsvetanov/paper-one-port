@@ -1956,8 +1956,9 @@ scaled to the one-sided 80% upper bound s_U, both computations of ST12 at [0.98,
 B = 10,000 BCa resamples and the sign test, α/36, `N_SIM` = 1,000 runs per candidate, target 0.80.
 "True power" is the pass rate of 1,000 fresh normal samples of size R at the true σ, analysed the
 same way. Eight pilots per σ. numpy 2.5.0, Python 3.14.5, `statistics.NormalDist` for Φ, master
-seed 43. The script ran in the coordinator's scratch directory and is not committed; its logic is
-fully given here and in ST13.
+seed 43. The script is committed as `analysis/appendix_a_r_rule.py`; run again with the same
+versions on 2026-10-02, it printed this table and the counts below exactly (`design/status.md`).
+Its logic is also given here and in ST13.
 
 True power by R:
 
@@ -1999,6 +2000,10 @@ so most cells run with more power than their own R_c gives.
   baseline and at each sample; the shared cache's growth is reported per arm (WL7, ST10, B3,
   "Sources added"). The L item leaves the list not verified. ST9 places ST11's analyses after
   5.7 and states which bullets draw nothing. The same text is in `hypotheses.md`.
+- 2026-10-02, engineering M0: the Appendix A script is committed as
+  `analysis/appendix_a_r_rule.py` (the two scratch files of the design merged, numerical code
+  unchanged), and Appendix A says so. Run again, it reproduces Appendix A's table and counts
+  exactly (`design/status.md`). This closes the item audit 2 N5 deferred.
 
 ## Revision log (audit 83c4710)
 
