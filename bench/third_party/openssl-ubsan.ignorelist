@@ -1,14 +1,20 @@
-# A clang sanitizer special-case list for OpenSSL's ASan+UBSan flavour (build_deps.sh asan).
+# A clang sanitizer special-case list for OpenSSL's ASan+UBSan flavour (build_deps.sh asan). It
+# is passed only to OpenSSL's Configure, so "src:*" below means every source file of OpenSSL and
+# nothing else.
 #
-# OpenSSL 3.5.9 frees a stack's elements by calling each typed free function through the generic
-# pointer type OPENSSL_sk_freefunc, void (*)(void *): crypto/stack/stack.c line 440,
-# `func((char *)st->data[i]);`, reached for example from crypto/property/property_parse.c line 400,
-# `sk_OSSL_PROPERTY_DEFINITION_pop_free(sk, &pd_free);` with pd_free(OSSL_PROPERTY_DEFINITION *).
-# clang 22's -fsanitize=function (part of -fsanitize=undefined for C) reports every such call.
-# It is OpenSSL's code, not oneport's, so only that check and only in that file is left out;
-# every other UBSan check stays on in all of OpenSSL, and oneport's own code keeps the function
-# check. Declared in bench/coverage.json. OpenSSL's Makefile compiles the file by the relative
-# path crypto/stack/stack.c, which the first pattern matches; the second covers an absolute path.
+# OpenSSL calls typed functions through generic function-pointer types by design, in macros of
+# its public headers: DEFINE_STACK_OF (safestack.h) casts each typed free, compare and copy
+# function to OPENSSL_sk_freefunc, OPENSSL_sk_compfunc and OPENSSL_sk_copyfunc; IMPLEMENT_PEM_read
+# (pem.h) casts d2i_X509 and its kin to d2i_of_void; DEFINE_LHASH_OF does the same for hash,
+# compare and doall callbacks. clang 22's -fsanitize=function, part of -fsanitize=undefined for
+# C, reports each such call. M2a's development checks on L met two of them, one per run, since
+# UBSan stops at the first report:
+#   crypto/stack/stack.c line 440, OPENSSL_sk_pop_free calling pd_free(OSSL_PROPERTY_DEFINITION *)
+#     through OPENSSL_sk_freefunc (from crypto/property/property_parse.c line 400);
+#   crypto/pem/pem_oth.c line 31, PEM_ASN1_read_bio calling d2i_X509 through d2i_of_void (from
+#     PEM_read_bio_X509).
+# The sites are as many as the uses of those macros, so the function check is left out of all of
+# OpenSSL. Every other UBSan check stays on in all of OpenSSL; oneport's own code and nghttp2 keep
+# the function check. Declared in bench/coverage.json.
 [function]
-src:crypto/stack/stack.c
-src:*/crypto/stack/stack.c
+src:*
