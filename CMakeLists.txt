@@ -1,6 +1,5 @@
 # P3: oneport, the paper's own one-port server (design/proposal.md, section 2), the case generator
-# opcase (bench/cases) and the tests. The load generator opgen and the holder ophold join this
-# project in later milestones.
+# opcase and the holder ophold (bench/cases), the load generator opgen (bench/gen), and the tests.
 #
 #   -DONEPORT_SANITIZER=...    address+undefined, thread or memory with clang on Linux;
 #                              address with MSVC on Windows (hypotheses.md, section 11)
@@ -129,6 +128,7 @@ endif()
 add_subdirectory(bench/loop)
 add_subdirectory(bench/server)
 add_subdirectory(bench/cases)
+add_subdirectory(bench/gen)
 message(STATUS "oneport: backends ${ONEPORT_BACKENDS}")
 
 enable_testing()
