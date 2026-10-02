@@ -31,3 +31,15 @@ if(TARGET oneport_tls)
     target_link_libraries(record_clienthello PRIVATE oneport_tls)
     oneport_warnings(record_clienthello)
 endif()
+
+# The programs of the windows (Linux): opcase's WL7 openings and probe, and ophold, the holder
+# that measures the kernel's per-socket baseline (WL7, K_BASE).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(opcase_bin opcase_main.cpp)
+    set_target_properties(opcase_bin PROPERTIES OUTPUT_NAME opcase)
+    target_link_libraries(opcase_bin PRIVATE opcase)
+    oneport_warnings(opcase_bin)
+    add_executable(ophold ophold.cpp)
+    target_link_libraries(ophold PRIVATE Threads::Threads)
+    oneport_warnings(ophold)
+endif()
