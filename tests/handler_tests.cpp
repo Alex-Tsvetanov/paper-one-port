@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -26,6 +27,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -377,18 +379,29 @@ namespace oneport::test
 						addr.sin_port = htons(port_for(srv, a, detect::Proto::http1));
 						addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 						CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "connect");
+						sockaddr_in local{};
+						socklen_t local_len = sizeof(local);
+						::getsockname(fd, reinterpret_cast<sockaddr*>(&local), &local_len);
+						const std::uint16_t local_port = ntohs(local.sin_port);
+						struct stat st0{};
+						::fstat(fd, &st0);  // the socket's inode: whether fd still names this socket at the end
 						std::atomic<bool> written{false};
-						std::thread writer([fd, kRequests, &written] {
+						std::size_t sent = 0;
+						int send_errno = 0;
+						std::thread writer([fd, kRequests, &written, &sent, &send_errno] {
 							Bytes all;
 							for (int i = 0; i < kRequests - 1; ++i) all.insert(all.end(), kGetKeepAlive.begin(), kGetKeepAlive.end());
 							const Bytes last = opcase::http_get();
 							all.insert(all.end(), last.begin(), last.end());
-							std::size_t done = 0;
-							while (done < all.size())
+							while (sent < all.size())
 							{
-								const ssize_t w = ::send(fd, all.data() + done, all.size() - done, MSG_NOSIGNAL);
-								if (w <= 0) break;
-								done += static_cast<std::size_t>(w);
+								const ssize_t w = ::send(fd, all.data() + sent, all.size() - sent, MSG_NOSIGNAL);
+								if (w <= 0)
+								{
+									send_errno = w < 0 ? errno : 0;
+									break;
+								}
+								sent += static_cast<std::size_t>(w);
 							}
 							written.store(true);
 						});
@@ -397,18 +410,49 @@ namespace oneport::test
 						for (int i = 0; i < 1000 && !written.load(); ++i) std::this_thread::sleep_for(10ms);
 						Bytes in;
 						std::array<std::byte, 65536> buf{};
+						int recv_errno = 0;
+						bool recv_eof = false;
 						for (;;)
 						{
 							pollfd p{fd, POLLIN, 0};
 							if (::poll(&p, 1, 10000) <= 0) break;
 							const ssize_t n = ::recv(fd, buf.data(), buf.size(), 0);
-							if (n <= 0) break;
+							if (n <= 0)
+							{
+								recv_eof = n == 0;
+								recv_errno = n < 0 ? errno : 0;
+								break;
+							}
 							in.insert(in.end(), buf.begin(), buf.begin() + n);
 						}
 						writer.join();
+						struct stat st1{};
+						::fstat(fd, &st1);
+						sockaddr_in now_local{};
+						socklen_t now_len = sizeof(now_local);
+						::getsockname(fd, reinterpret_cast<sockaddr*>(&now_local), &now_len);
 						::close(fd);
 						got = count(in, "Hello, World!");
-						CHECK(in.size() == static_cast<std::size_t>(kRequests) * http1::kResponse200.size(), a.name << ": " << in.size() << " bytes for " << kRequests << " responses");
+						if (in.size() != static_cast<std::size_t>(kRequests) * http1::kResponse200.size())
+						{
+							// The server's side of the failure (M2b saw one such run, design/status.md):
+							// whether it saw this connection, how detection ended, and its counters.
+							std::vector<server::DetectionReport> reps;
+							const bool seen = srv.collector.wait_close(local_port, 2000ms, reps);
+							srv.server->stop();
+							const server::Counters c = srv.server->totals();
+							const auto err = srv.server->error();
+							CHECK(false, a.name << ": " << in.size() << " bytes for " << kRequests << " responses; client local port " << local_port
+							                    << " (at the end the descriptor names " << (st1.st_ino == st0.st_ino ? "the same socket" : "another socket")
+							                    << ", local port " << ntohs(now_local.sin_port) << ", server port " << port_for(srv, a, detect::Proto::http1) << ")"
+							                    << ", sent " << sent << " bytes (errno " << send_errno << "), receive end "
+							                    << (recv_eof ? "EOF" : "error") << " (errno " << recv_errno << "); server saw the port closed: " << seen
+							                    << ", detection reports " << reps.size()
+							                    << (reps.empty() ? std::string() : std::string(", outcome ") + std::string(server::name(reps[0].outcome)))
+							                    << "; accepted " << c.accepted << ", closed " << c.closed << ", accept errors " << c.accept_errors
+							                    << ", classified " << c.outcomes[static_cast<std::size_t>(server::Outcome::classified)] << ", bytes received "
+							                    << c.bytes_received << ", sent " << c.bytes_sent << "; worker error: " << (err ? *err : std::string("none")));
+						}
 					}
 					else
 					{
