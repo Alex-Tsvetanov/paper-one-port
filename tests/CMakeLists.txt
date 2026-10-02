@@ -46,7 +46,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(ONEPORT_SERVER_TESTS
         server.http_keepalive.oneport_replay server.http_keepalive.oneport_peek server.http_keepalive.dedicated
         server.dedicated_ports server.dedicated_proxy server.peek_lowat.peek server.peek_lowat.replay
-        server.kernel_rcvlowat_et server.check_byte_wins.replay server.check_byte_wins.peek
+        server.kernel_rcvlowat_et server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.check_byte_wins.replay server.check_byte_wins.peek
         server.two_workers.shared_replay server.two_workers.shared_peek server.two_workers.reuseport_replay
         server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending server.not_served)
     foreach(_test IN LISTS ONEPORT_SERVER_TESTS)

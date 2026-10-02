@@ -11,6 +11,7 @@
 #include "cases.hpp"
 #include "harness.hpp"
 #include "http1.hpp"
+#include "oneport/loop.hpp"
 #include "script.hpp"
 
 #include <array>
@@ -23,6 +24,7 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <linux/io_uring.h>
 #include <linux/sockios.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -226,6 +228,189 @@ namespace oneport::test
 			::close(s);
 			::close(c);
 			::close(l);
+			return std::nullopt;
+		}
+
+		/// A connected pair over loopback: the client `c` (blocking, TCP_NODELAY) and the server's
+		/// accepted socket `s` (non-blocking). Closes all three on scope exit.
+		struct Pair
+		{
+			int l = -1;
+			int c = -1;
+			int s = -1;
+			Pair()
+			{
+				l = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				sockaddr_in addr{};
+				addr.sin_family = AF_INET;
+				addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+				if (::bind(l, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(l, 8) != 0) return;
+				socklen_t n = sizeof(addr);
+				::getsockname(l, reinterpret_cast<sockaddr*>(&addr), &n);
+				port = ntohs(addr.sin_port);
+				c = connect_client();
+				s = ::accept4(l, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+			}
+			~Pair()
+			{
+				for (const int fd : {s, c, l})
+				{
+					if (fd >= 0) ::close(fd);
+				}
+			}
+			Pair(const Pair&) = delete;
+			Pair& operator=(const Pair&) = delete;
+			int connect_client() const
+			{
+				const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				const int one = 1;
+				::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+				sockaddr_in addr{};
+				addr.sin_family = AF_INET;
+				addr.sin_port = htons(port);
+				addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+				if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0)
+				{
+					::close(fd);
+					return -1;
+				}
+				return fd;
+			}
+			bool ok() const { return l >= 0 && c >= 0 && s >= 0; }
+			std::uint16_t port = 0;
+		};
+
+		/// The completions of `ring` with user_data `ud` within `bound`, waiting pass by pass.
+		std::vector<loop::Completion> completions_of(loop::UringLoop& ring, std::uint64_t ud, std::chrono::milliseconds bound, std::size_t want = 1)
+		{
+			std::vector<loop::Completion> got;
+			const auto until = std::chrono::steady_clock::now() + bound;
+			while (got.size() < want)
+			{
+				const auto now = std::chrono::steady_clock::now();
+				if (now >= until) break;
+				for (const loop::Completion& x : ring.wait(std::chrono::duration_cast<std::chrono::nanoseconds>(until - now)))
+				{
+					if (x.user_data == ud) got.push_back(x);
+				}
+			}
+			return got;
+		}
+
+		/// The io_uring peek path's kernel behaviour, pinned on L's kernel before the backend uses
+		/// it (proposal I11 and RK4): an IORING_OP_POLL_ADD for POLLIN | POLLRDHUP on a TCP socket
+		/// completes at once when bytes are queued and SO_RCVLOWAT is at or below them; after an
+		/// undecided peek sets the mark above the queued bytes, a poll armed again does not
+		/// complete at once, bytes that stay below the mark complete nothing, reaching the mark
+		/// completes it with POLLIN, and a half-close completes it with POLLRDHUP whatever the mark.
+		/// If this test fails, io_uring takes IOCP's rule (RK4): an undecided peek switches the
+		/// connection to replay.
+		Result kernel_rcvlowat_uring()
+		{
+			Pair p;
+			CHECK(p.ok(), "a loopback pair");
+			loop::UringLoop ring;
+			ring.start();
+			auto lowat = [&p](int v) { return ::setsockopt(p.s, SOL_SOCKET, SO_RCVLOWAT, &v, sizeof(v)) == 0; };
+			auto peeked = [&p] {
+				std::array<char, 128> buf{};
+				return ::recv(p.s, buf.data(), buf.size(), MSG_PEEK | MSG_DONTWAIT);
+			};
+			const std::array<char, 10> ten{};
+			constexpr std::uint32_t kMask = POLLIN | POLLRDHUP;
+			CHECK(::send(p.c, ten.data(), ten.size(), 0) == 10, "send");
+			ring.poll(p.s, kMask, 1);
+			auto got = completions_of(ring, 1, 1000ms);
+			CHECK(got.size() == 1 && (got[0].res & POLLIN) != 0, "10 queued bytes complete the first poll with POLLIN");
+			CHECK(peeked() == 10, "the peek sees the 10 bytes");
+			// The peek is undecided: the mark goes above the queued bytes and the poll is armed again.
+			CHECK(lowat(30), "SO_RCVLOWAT 30");
+			ring.poll(p.s, kMask, 2);
+			CHECK(completions_of(ring, 2, 200ms).empty(), "the poll armed again after an undecided peek completed at once (the mark is above the queued bytes)");
+			CHECK(::send(p.c, ten.data(), ten.size(), 0) == 10, "send");
+			CHECK(completions_of(ring, 2, 200ms).empty(), "20 bytes below a mark of 30 completed the poll");
+			CHECK(::send(p.c, ten.data(), ten.size(), 0) == 10, "send");
+			got = completions_of(ring, 2, 1000ms);
+			CHECK(got.size() == 1 && (got[0].res & POLLIN) != 0 && (got[0].res & POLLRDHUP) == 0, "30 bytes reach the mark: POLLIN, no POLLRDHUP");
+			CHECK(peeked() == 30, "the peek sees the 30 bytes");
+			// A half-close is reported above the mark.
+			CHECK(lowat(100), "SO_RCVLOWAT 100");
+			ring.poll(p.s, kMask, 3);
+			CHECK(completions_of(ring, 3, 100ms).empty(), "30 bytes below a mark of 100 completed the poll");
+			::shutdown(p.c, SHUT_WR);
+			got = completions_of(ring, 3, 1000ms);
+			CHECK(got.size() == 1 && (got[0].res & POLLRDHUP) != 0, "a half-close completes the poll with POLLRDHUP above the mark");
+			// Reset before the handler reads, as the server does: the bytes, then EOF.
+			CHECK(lowat(1), "SO_RCVLOWAT 1");
+			std::array<char, 128> buf{};
+			CHECK(::recv(p.s, buf.data(), buf.size(), MSG_DONTWAIT) == 30, "the handler reads the 30 bytes");
+			CHECK(::recv(p.s, buf.data(), buf.size(), MSG_DONTWAIT) == 0, "then the EOF");
+			CHECK(ring.submissions()[IORING_OP_POLL_ADD] >= 4, "the polls are counted by opcode");
+			return std::nullopt;
+		}
+
+		/// The rest of the io_uring behaviour the backend rests on, pinned on L's kernel: a receive
+		/// that selects a provided buffer holds none until data arrives, and then names it; with
+		/// the ring empty it fails with ENOBUFS and the bytes stay queued; at EOF it returns 0
+		/// without consuming a buffer (pinned as observed); a multishot accept completes once per
+		/// connection, flagged IORING_CQE_F_MORE.
+		Result kernel_uring_recv_select()
+		{
+			Pair p;
+			CHECK(p.ok(), "a loopback pair");
+			loop::UringLoop ring;
+			ring.start();
+			constexpr std::uint16_t kGroup = 1;
+			ring.add_buffer_ring(kGroup, 4);
+			std::array<std::array<char, 64>, 2> bufs{};
+			ring.provide(kGroup, bufs[0].data(), 64, 0);
+			ring.provide(kGroup, bufs[1].data(), 64, 1);
+			auto bid_of = [](const loop::Completion& x) { return static_cast<int>(x.flags >> IORING_CQE_BUFFER_SHIFT); };
+			ring.recv_select(p.s, kGroup, 1);
+			CHECK(completions_of(ring, 1, 100ms).empty(), "a receive completed with no data");
+			const std::string first = "0123456789";
+			CHECK(::send(p.c, first.data(), first.size(), 0) == 10, "send");
+			auto got = completions_of(ring, 1, 1000ms);
+			CHECK(got.size() == 1 && got[0].res == 10 && (got[0].flags & IORING_CQE_F_BUFFER) != 0, "10 bytes in a selected buffer");
+			const int b0 = bid_of(got[0]);
+			CHECK(b0 == 0 || b0 == 1, "the buffer id is one provided");
+			CHECK(std::string(bufs[static_cast<std::size_t>(b0)].data(), 10) == first, "the bytes are in the buffer the completion names");
+			ring.recv_select(p.s, kGroup, 2);
+			CHECK(::send(p.c, "abcde", 5, 0) == 5, "send");
+			got = completions_of(ring, 2, 1000ms);
+			CHECK(got.size() == 1 && got[0].res == 5 && (got[0].flags & IORING_CQE_F_BUFFER) != 0 && bid_of(got[0]) == 1 - b0, "5 bytes in the other buffer");
+			// The ring is empty.
+			ring.recv_select(p.s, kGroup, 3);
+			CHECK(::send(p.c, "xyz", 3, 0) == 3, "send");
+			got = completions_of(ring, 3, 1000ms);
+			CHECK(got.size() == 1 && got[0].res == -ENOBUFS && (got[0].flags & IORING_CQE_F_BUFFER) == 0, "an empty ring fails the receive with ENOBUFS (res " << (got.empty() ? 0 : got[0].res) << ")");
+			ring.provide(kGroup, bufs[0].data(), 64, 0);
+			ring.recv_select(p.s, kGroup, 4);
+			got = completions_of(ring, 4, 1000ms);
+			CHECK(got.size() == 1 && got[0].res == 3 && bid_of(got[0]) == 0, "the 3 bytes stayed queued for the next receive");
+			// EOF.
+			ring.provide(kGroup, bufs[1].data(), 64, 1);
+			ring.recv_select(p.s, kGroup, 5);
+			::shutdown(p.c, SHUT_WR);
+			got = completions_of(ring, 5, 1000ms);
+			CHECK(got.size() == 1 && got[0].res == 0, "EOF completes the receive with 0");
+			CHECK((got[0].flags & IORING_CQE_F_BUFFER) == 0, "at EOF the completion named a buffer: the backend would have to give it back (pinned: none)");
+			// Multishot accept.
+			ring.accept_multishot(p.l, 9);
+			const int c1 = p.connect_client();
+			const int c2 = p.connect_client();
+			got = completions_of(ring, 9, 1000ms, 2);
+			for (const int fd : {c1, c2})
+			{
+				if (fd >= 0) ::close(fd);
+			}
+			CHECK(got.size() == 2, "two connections, two accept completions");
+			for (const loop::Completion& x : got)
+			{
+				CHECK(x.res >= 0 && (x.flags & IORING_CQE_F_MORE) != 0, "an accept completion with a descriptor, still armed");
+				::close(x.res);
+			}
+			CHECK(ring.enter_calls() > 0 && ring.submissions()[IORING_OP_RECV] == 5 && ring.submissions()[IORING_OP_ACCEPT] == 1, "the counters");
 			return std::nullopt;
 		}
 
@@ -508,6 +693,8 @@ namespace oneport::test
 		r["server.peek_lowat.peek"] = [] { return peek_lowat(Detect::peek); };
 		r["server.peek_lowat.replay"] = [] { return peek_lowat(Detect::replay); };
 		r["server.kernel_rcvlowat_et"] = kernel_rcvlowat_et;
+		r["server.kernel_rcvlowat_uring"] = kernel_rcvlowat_uring;
+		r["server.kernel_uring_recv_select"] = kernel_uring_recv_select;
 		r["server.check_byte_wins.replay"] = [] { return check_byte_wins(Detect::replay); };
 		r["server.check_byte_wins.peek"] = [] { return check_byte_wins(Detect::peek); };
 		r["server.two_workers.shared_replay"] = [] { return two_workers(Listener::shared, Detect::replay); };
