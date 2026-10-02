@@ -32,7 +32,7 @@
 // Nothing received is printed beyond counts and printable first lines.
 #include "test_support.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "apps.hpp"
 #include "cases.hpp"
@@ -356,7 +356,13 @@ namespace oneport::test
 			}
 			if (v.expect == Expect::classified) CHECK(r.end_pass == r.last_read_pass, "classified in pass " << r.end_pass << ", not in the pass of its byte (B2 c)");
 			// B2 (d): user-space payload while pending, and no buffer without a byte.
+#if defined(_WIN32)
+			// IOCP: after an undecided peek switched the connection to replay (I11), replay's bound
+			// applies to it (design/status-m6.md, readings).
+			const std::uint32_t bound = (detect == Detect::replay || r.replayed) ? server::kRecvBuf : 0;
+#else
 			const std::uint32_t bound = detect == Detect::replay ? server::kRecvBuf : 0;
+#endif
 			CHECK(r.max_user_bytes <= bound, "held " << r.max_user_bytes << " payload bytes in user space while pending; the bound is " << bound << " (B2 d)");
 			CHECK(!r.buffer_while_silent, "held a data buffer while no byte had arrived (B2 d)");
 			// The timers start at accept, or when the PROXY header is complete.
@@ -381,7 +387,11 @@ namespace oneport::test
 	int run_case(int hc, std::string_view backend_name, std::string_view dispatch_name, std::string_view mode_name)
 	{
 		const Detect detect = mode_name == "peek" ? Detect::peek : Detect::replay;
+#if defined(_WIN32)
+		const Backend backend = Backend::iocp;  // the one backend Windows compiles
+#else
 		const Backend backend = backend_name == "io_uring" ? Backend::io_uring : Backend::epoll;
+#endif
 		const Dispatch dispatch = dispatch_name == "relay" ? Dispatch::relay : Dispatch::inproc;
 		const std::string label = std::string(backend_name) + " " + std::string(dispatch_name) + " " + std::string(mode_name);
 		const opcase::SuiteParams p;

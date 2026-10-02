@@ -4,7 +4,20 @@
 // the only times checked are timer bounds and "nothing before the client spoke".
 #include "test_support.hpp"
 
-#if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
+#if (defined(__linux__) || defined(_WIN32)) && defined(ONEPORT_HAVE_TLS)
+
+#if defined(_WIN32)
+// Winsock before OpenSSL's headers and anything else that may include windows.h. On Windows the
+// tests run on IOCP (M6a).
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 
 #include "apps.hpp"
 #include "cases.hpp"
@@ -22,12 +35,14 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__)
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include <openssl/ssl.h>
 
@@ -369,6 +384,48 @@ namespace oneport::test
 					std::size_t got = 0;
 					if (!over_tls)
 					{
+#if defined(_WIN32)
+						// The same client on Winsock: the server's queue waits for its overlapped WSASend.
+						const SOCKET fd = ::WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+						CHECK(fd != INVALID_SOCKET, "socket");
+						const int small = 4096;
+						::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&small), sizeof(small));
+						sockaddr_in addr{};
+						addr.sin_family = AF_INET;
+						addr.sin_port = htons(port_for(srv, a, detect::Proto::http1));
+						addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+						CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "connect");
+						std::atomic<bool> written{false};
+						std::thread writer([fd, kRequests, &written] {
+							Bytes all;
+							for (int i = 0; i < kRequests - 1; ++i) all.insert(all.end(), kGetKeepAlive.begin(), kGetKeepAlive.end());
+							const Bytes last = opcase::http_get();
+							all.insert(all.end(), last.begin(), last.end());
+							std::size_t done = 0;
+							while (done < all.size())
+							{
+								const int w = ::send(fd, reinterpret_cast<const char*>(all.data() + done), static_cast<int>(std::min<std::size_t>(all.size() - done, std::size_t{1} << 30)), 0);
+								if (w <= 0) break;
+								done += static_cast<std::size_t>(w);
+							}
+							written.store(true);
+						});
+						for (int i = 0; i < 1000 && !written.load(); ++i) std::this_thread::sleep_for(10ms);
+						Bytes in;
+						std::array<std::byte, 65536> buf{};
+						for (;;)
+						{
+							WSAPOLLFD p{fd, POLLRDNORM, 0};
+							if (::WSAPoll(&p, 1, 10000) <= 0) break;
+							const int n = ::recv(fd, reinterpret_cast<char*>(buf.data()), static_cast<int>(buf.size()), 0);
+							if (n <= 0) break;
+							in.insert(in.end(), buf.begin(), buf.begin() + n);
+						}
+						writer.join();
+						::closesocket(fd);
+						got = count(in, "Hello, World!");
+						CHECK(in.size() == static_cast<std::size_t>(kRequests) * http1::kResponse200.size(), a.name << ": " << in.size() << " bytes for " << kRequests << " responses");
+#else
 						const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 						const int small = 4096;
 						::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &small, sizeof(small));
@@ -409,6 +466,7 @@ namespace oneport::test
 						::close(fd);
 						got = count(in, "Hello, World!");
 						CHECK(in.size() == static_cast<std::size_t>(kRequests) * http1::kResponse200.size(), a.name << ": " << in.size() << " bytes for " << kRequests << " responses");
+#endif
 					}
 					else
 					{
@@ -434,7 +492,11 @@ namespace oneport::test
 	{
 		r["handlers.tls_context"] = tls_context;  // the context alone: no backend
 		// Over sockets: once per Linux backend, named with it last.
+#if defined(_WIN32)
+		for (const Backend b : {Backend::iocp})
+#else
 		for (const Backend b : {Backend::epoll, Backend::io_uring})
+#endif
 		{
 			const std::string s = "." + std::string(token(b));
 			auto on = [b](Result (*fn)()) {

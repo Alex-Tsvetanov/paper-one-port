@@ -615,11 +615,19 @@ int main(int argc, char** argv)
 	if (a.size() == 5 && a[0] == "case")
 	{
 		const int hc = std::atoi(std::string(a[1]).c_str());
+#if defined(_WIN32)
+		// IOCP, in-process: relay dispatch is Linux only (hypotheses.md, section 2.1).
+		if (hc < 1 || hc > 25 || a[2] != "IOCP" || a[3] != "inproc" || (a[4] != "replay" && a[4] != "peek"))
+		{
+			return usage_error("bad case arguments");
+		}
+#else
 		if (hc < 1 || hc > 25 || (a[2] != "epoll" && a[2] != "io_uring") || (a[3] != "inproc" && a[3] != "relay") ||
 		    (a[4] != "replay" && a[4] != "peek"))
 		{
 			return usage_error("bad case arguments");
 		}
+#endif
 		return oneport::test::run_case(hc, a[2], a[3], a[4]);
 	}
 	if ((a.size() == 2 || a.size() == 3) && a[0] == "test")
@@ -632,6 +640,9 @@ int main(int argc, char** argv)
 		oneport::test::register_clienthello_tests(registry);
 		oneport::test::register_handler_tests(registry);
 		oneport::test::register_relay_tests(registry);
+#if defined(_WIN32)
+		oneport::test::register_iocp_tests(registry);
+#endif
 		if (a.size() == 3) oneport::test::binary_path() = std::string(a[2]);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");
