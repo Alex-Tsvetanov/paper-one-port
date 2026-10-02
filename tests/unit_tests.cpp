@@ -147,7 +147,7 @@ namespace
 			{"--detect", "Replay"},    {"--detect", "peeking"},    {"--dispatch", "in-process"}, {"--dispatch", "Relay"},
 			{"--backend", "iocp"},     {"--backend", "uring"},     {"--backend", "IO_URING"},    {"--backend", "Epoll"},
 			{"--iocp-receive", "zero"}, {"--relay-copy", "user"},  {"--proxy", "yes"},           {"--fallback", "smtp"},
-			{"--fallback", "ssh"},     {"--listener", "reuse"},
+			{"--fallback", "ssh"},     {"--listener", "reuse"},       {"--iocp-accept", "with-buffer"},
 		};
 		for (const auto& [flag, value] : wrong)
 		{
@@ -201,6 +201,7 @@ namespace
 		                         "dispatch inproc\n"
 		                         "backend epoll\n"
 		                         "iocp-receive zero-byte\n"
+		                         "iocp-accept no-buffer\n"
 		                         "relay-copy user-space\n"
 		                         "proxy off\n"
 		                         "fallback none\n"
@@ -218,12 +219,12 @@ namespace
 
 	Result flags_options()
 	{
-		const Args a = with(base(), {"--iocp-receive", "posted", "--relay-copy", "splice", "--proxy", "on", "--fallback", "SMTP",
+		const Args a = with(base(), {"--iocp-receive", "posted", "--iocp-accept", "buffer", "--relay-copy", "splice", "--proxy", "on", "--fallback", "SMTP",
 		                             "--listener", "reuseport", "--workers", "2", "--port", "8080", "--relay-port", "9000",
 		                             "--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "250"});
 		const auto r = parse(a, Platform::Linux);
 		CHECK(r.has_value(), "every option parses: " << r.error());
-		for (const char* line : {"iocp-receive posted", "relay-copy splice", "proxy on", "fallback SMTP", "listener reuseport", "workers 2",
+		for (const char* line : {"iocp-receive posted", "iocp-accept buffer", "relay-copy splice", "proxy on", "fallback SMTP", "listener reuseport", "workers 2",
 		                         "port 8080", "relay-port 9000", "t-fb-ms 60000", "t-dec-ms 60000", "t-hdr-ms 250"})
 		{
 			CHECK(has_line(r->config, line), "describe echoes '" << line << "'");
@@ -281,6 +282,10 @@ namespace
 			      "reuseport on " << b << " parses");
 		}
 		CHECK(parse(with(base("IOCP"), {"--iocp-receive", "posted"}), Platform::Windows).has_value(), "the posted form on IOCP parses");
+		CHECK(parse(with(base("IOCP"), {"--iocp-accept", "buffer"}), Platform::Windows).has_value(), "AcceptEx with a receive buffer on IOCP parses");
+		CHECK(refused_with(with(base("IOCP"), {"--iocp-accept", "buffer", "--fallback", "SMTP"}), Platform::Windows,
+		                   "--iocp-accept buffer needs --fallback none"),
+		      "AcceptEx with a receive buffer is refused with a fallback (proposal I5)");
 		return std::nullopt;
 	}
 
@@ -318,7 +323,7 @@ namespace
 		const auto mixed = parse(with(base(), {"--help"}), Platform::Linux);
 		CHECK(mixed.has_value() && mixed->kind == oneport::Command::help, "--help after an arm is a help command");
 		const std::string text = oneport::usage();
-		for (const char* f : {"--mode", "--detect", "--dispatch", "--backend", "--iocp-receive", "--relay-copy", "--proxy", "--fallback",
+		for (const char* f : {"--mode", "--detect", "--dispatch", "--backend", "--iocp-receive", "--iocp-accept", "--relay-copy", "--proxy", "--fallback",
 		                      "--listener", "--workers", "--port", "--relay-port", "--t-fb-ms", "--t-dec-ms", "--t-hdr-ms", "--print-config",
 		                      "--help"})
 		{

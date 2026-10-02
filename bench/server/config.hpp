@@ -58,6 +58,16 @@ namespace oneport
 		posted,
 	};
 
+	/// The AcceptEx form on IOCP (hypotheses.md, section 10; proposal I5): AcceptEx with no receive
+	/// buffer (dwReceiveDataLength = 0), the default, or with a receive buffer, which completes
+	/// only once data arrives and gives the first bytes at accept time. The receive buffer applies
+	/// to one-port listeners only and is refused with a fallback (I5). Added in M6a.
+	enum class IocpAccept
+	{
+		no_buffer,
+		buffer,
+	};
+
 	/// Rule E's relay copy: user-space buffers of RELAY_BUF bytes per direction, or splice.
 	enum class RelayCopy
 	{
@@ -109,6 +119,7 @@ namespace oneport
 		Dispatch dispatch{};
 		Backend backend{};
 		IocpReceive iocp_receive = IocpReceive::zero_byte;
+		IocpAccept iocp_accept = IocpAccept::no_buffer;
 		RelayCopy relay_copy = RelayCopy::user_space;
 		Proxy proxy = Proxy::off;
 		Fallback fallback = Fallback::none;
