@@ -1,7 +1,7 @@
 # The test suite: one CTest entry per (group, case), as in P1's suite. Every entry also runs in each
 # sanitizer build (hypotheses.md, section 11).
 add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp apps_tests.cpp clienthello_tests.cpp server_tests.cpp handler_tests.cpp
-               case_tests.cpp test_support.hpp harness.hpp)
+               relay_tests.cpp case_tests.cpp test_support.hpp harness.hpp)
 target_link_libraries(oneport_tests PRIVATE oneport_server oneport_loop opcase)
 oneport_warnings(oneport_tests)
 
@@ -41,34 +41,54 @@ add_test(NAME structure.mode_readers
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_mode_readers.cmake)
 set_tests_properties(structure.mode_readers PROPERTIES TIMEOUT 60 LABELS structure)
 
-# The server on epoll and the hard cases: Linux. Elsewhere every case is pending (IOCP is M6).
+# The server, its handlers, relay dispatch and the hard cases: Linux, on both backends (each test
+# named with its backend last). Elsewhere every case is pending (IOCP is M6).
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(ONEPORT_SERVER_TESTS
         server.http_keepalive.oneport_replay server.http_keepalive.oneport_peek server.http_keepalive.dedicated
         server.dedicated_ports server.dedicated_proxy server.peek_lowat.peek server.peek_lowat.replay
-        server.kernel_rcvlowat_et server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.check_byte_wins.replay server.check_byte_wins.peek
+        server.check_byte_wins.replay server.check_byte_wins.peek
         server.two_workers.shared_replay server.two_workers.shared_peek server.two_workers.reuseport_replay
-        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending server.not_served)
-    foreach(_test IN LISTS ONEPORT_SERVER_TESTS)
+        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending)
+    # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
+    set(ONEPORT_HANDLER_TESTS
+        handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
+        handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
+    # Relay dispatch, pass-through and stub mode (proposal I17, I18).
+    set(ONEPORT_RELAY_TESTS
+        relay.exchanges.user_space.replay relay.exchanges.user_space.peek relay.exchanges.splice.replay
+        relay.exchanges.splice.peek relay.refused relay.pass_through.replay relay.pass_through.peek relay.stub relay.matrix)
+    foreach(_backend IN LISTS ONEPORT_BACKENDS)
+        foreach(_test IN LISTS ONEPORT_SERVER_TESTS)
+            add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
+            set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "server;${_backend}")
+        endforeach()
+        add_test(NAME server.binary_smoke.${_backend} COMMAND oneport_tests test server.binary_smoke.${_backend} $<TARGET_FILE:oneport>)
+        set_tests_properties(server.binary_smoke.${_backend} PROPERTIES TIMEOUT 120 LABELS "server;${_backend}")
+        foreach(_test IN LISTS ONEPORT_HANDLER_TESTS)
+            add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
+            set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "handlers;${_backend}")
+        endforeach()
+        foreach(_test IN LISTS ONEPORT_RELAY_TESTS)
+            add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
+            set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "relay;${_backend}")
+        endforeach()
+        add_test(NAME relay.binary.${_backend} COMMAND oneport_tests test relay.binary.${_backend} $<TARGET_FILE:oneport>)
+        set_tests_properties(relay.binary.${_backend} PROPERTIES TIMEOUT 120 LABELS "relay;${_backend}")
+    endforeach()
+    # Once: the kernel behaviour the peek paths rest on, the TLS context, and what is not served.
+    foreach(_test server.kernel_rcvlowat_et server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.not_served)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
         set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS server)
     endforeach()
-    add_test(NAME server.binary_smoke COMMAND oneport_tests test server.binary_smoke $<TARGET_FILE:oneport>)
-    set_tests_properties(server.binary_smoke PROPERTIES TIMEOUT 120 LABELS server)
-    # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
-    set(ONEPORT_HANDLER_TESTS
-        handlers.tls_context handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
-        handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
-    foreach(_test IN LISTS ONEPORT_HANDLER_TESTS)
-        add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
-        set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS handlers)
-    endforeach()
+    add_test(NAME handlers.tls_context COMMAND oneport_tests test handlers.tls_context)
+    set_tests_properties(handlers.tls_context PROPERTIES TIMEOUT 300 LABELS handlers)
 endif()
 
-# The 25 hard cases of hypotheses.md, Appendix A. How much of each frozen outcome an entry checks,
-# by label: full, or partial (the detection checked, the rest of the outcome pending). On epoll
-# with in-process dispatch every case is full since M2a. Every case also has entries for the
-# dispatch modes and backends not served yet, marked pending with the reason.
+# The 25 hard cases of hypotheses.md, Appendix A, on every backend, in both detection modes, with
+# in-process and relay dispatch (section 5.2, B1). How much of each frozen outcome an entry
+# checks, by label: full, or partial (the detection checked, the rest of the outcome pending).
+# Every case is full on Linux since M2b. On Windows the IOCP entries are pending (M6).
 set(_partial_cases)
 foreach(_n RANGE 1 25)
     if(_n LESS 10)
@@ -82,14 +102,12 @@ foreach(_n RANGE 1 25)
     endif()
     foreach(_mode replay peek)
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-            add_test(NAME case.${_id}.epoll.inproc.${_mode} COMMAND oneport_tests case ${_n} ${_mode})
-            set_tests_properties(case.${_id}.epoll.inproc.${_mode} PROPERTIES TIMEOUT 600 LABELS "case;epoll;${_coverage}")
-            add_test(NAME case.${_id}.epoll.relay.${_mode} COMMAND oneport_tests pending ${_id}.epoll.relay.${_mode} pending M2b: relay dispatch)
-            set_tests_properties(case.${_id}.epoll.relay.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
-            foreach(_dispatch inproc relay)
-                add_test(NAME case.${_id}.io_uring.${_dispatch}.${_mode}
-                         COMMAND oneport_tests pending ${_id}.io_uring.${_dispatch}.${_mode} pending M2b: the io_uring backend)
-                set_tests_properties(case.${_id}.io_uring.${_dispatch}.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
+            foreach(_backend IN LISTS ONEPORT_BACKENDS)
+                foreach(_dispatch inproc relay)
+                    set(_name case.${_id}.${_backend}.${_dispatch}.${_mode})
+                    add_test(NAME ${_name} COMMAND oneport_tests case ${_n} ${_backend} ${_dispatch} ${_mode})
+                    set_tests_properties(${_name} PROPERTIES TIMEOUT 900 LABELS "case;${_backend};${_dispatch};${_coverage}")
+                endforeach()
             endforeach()
         elseif(WIN32)
             add_test(NAME case.${_id}.IOCP.inproc.${_mode} COMMAND oneport_tests pending ${_id}.IOCP.inproc.${_mode} pending M6: the IOCP backend)

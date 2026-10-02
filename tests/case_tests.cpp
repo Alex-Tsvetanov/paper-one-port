@@ -1,5 +1,6 @@
 // The hard cases (hypotheses.md, Appendix A) as a deterministic suite: B1's conformance table and
-// B2's bounds (section 5.2), on epoll, in-process dispatch, in one detection mode per CTest entry.
+// B2's bounds (section 5.2), per CTest entry on one backend (epoll or io_uring), one dispatch mode
+// (in-process, or relay to a backend server in dedicated mode) and one detection mode.
 //
 // For each variant of a case: the script runs `replicates` times against a one-port server with
 // the variant's listener setup; each run's outcome, transcript and server report are checked
@@ -18,6 +19,14 @@
 // decryption, with what the handshake negotiated (design/status.md, M2a readings). Each dedicated
 // transcript is also checked against what its handler sends (I26), so the two cannot agree on a
 // wrong exchange.
+//
+// Relay dispatch (proposal I17): the one-port server relays to a server in dedicated mode on the
+// same backend, with PROXY off (the front consumes the header, design/status.md M2b). The
+// reference transcript is the same script against a dedicated server with the variant's PROXY
+// setting, so it is the client's view of the dedicated port either way. Every connection the
+// front classifies, or dispatches to the fallback, must report one route: by class to the
+// backend port of its class, or for TLS by its ClientHello's SNI (pass-through; HC20's "routed by
+// its SNI"), holding in replay no more than the ClientHello's records and in peek nothing.
 //
 // Output: one line per variant (PASS, or PASS-PARTIAL with a part pending), then a summary.
 // Nothing received is printed beyond counts and printable first lines.
@@ -72,7 +81,15 @@ namespace oneport::test
 		class Servers
 		{
 		public:
-			Servers(Detect detect, const opcase::SuiteParams& p) : detect_(detect), p_(p) {}
+			Servers(Detect detect, const opcase::SuiteParams& p, Backend backend, Dispatch dispatch)
+				: detect_(detect), p_(p), backend_(backend), dispatch_(dispatch)
+			{
+			}
+
+			bool relays() const { return dispatch_ == Dispatch::relay; }
+
+			/// The relay's backend: a server in dedicated mode with PROXY off.
+			Running& relay_backend() { return dedicated(false); }
 
 			Running& one_port(Setup s)
 			{
@@ -83,6 +100,11 @@ namespace oneport::test
 					a.mode = Mode::one_port;
 					a.proxy = proxy_of(s) ? Proxy::on : Proxy::off;
 					a.fallback = fallback_of(s) ? Fallback::smtp : Fallback::none;
+					if (relays())
+					{
+						a.dispatch = Dispatch::relay;
+						a.relay_port = relay_backend().port(0);
+					}
 					slot = std::make_unique<Running>(a);
 				}
 				return *slot;
@@ -101,12 +123,17 @@ namespace oneport::test
 				return *slot;
 			}
 
-			/// Stops every server and checks each (harness.hpp).
+			/// Stops every server and checks each (harness.hpp); the fronts first, then their backend.
 			Result stop_and_check()
 			{
 				for (auto& [s, r] : one_port_)
 				{
 					if (auto bad = r->stop_and_check()) return "one-port server (" + std::string(opcase::name(s)) + "): " + *bad;
+					if (relays())
+					{
+						const server::Counters t = r->server->totals();
+						CHECK(t.relay_connect_errors == 0, "one-port server (" << opcase::name(s) << "): " << t.relay_connect_errors << " connects to the backend failed");
+					}
 				}
 				for (auto& [proxy, r] : dedicated_)
 				{
@@ -120,6 +147,7 @@ namespace oneport::test
 			{
 				ServerArgs a;
 				a.detect = detect_;
+				a.backend = backend_;
 				a.t_fb = p_.t_fb;
 				a.t_dec = p_.t_dec;
 				a.t_hdr = p_.t_hdr;
@@ -128,17 +156,46 @@ namespace oneport::test
 
 			Detect detect_;
 			opcase::SuiteParams p_;
+			Backend backend_;
+			Dispatch dispatch_;
 			std::map<Setup, std::unique_ptr<Running>> one_port_;
 			std::map<bool, std::unique_ptr<Running>> dedicated_;
 		};
 
 		/// Runs a script against a port and waits for the server to close the connection.
-		Result run_one(Running& srv, const opcase::Script& s, std::uint16_t port, opcase::Transcript& t, std::vector<server::DetectionReport>& reps)
+		Result run_one(Running& srv, const opcase::Script& s, std::uint16_t port, opcase::Transcript& t, std::vector<server::DetectionReport>& reps,
+		               std::vector<server::RelayReport>* relays = nullptr)
 		{
 			t = opcase::run(s, port);
 			CHECK(t.connected, "connect failed");
 			CHECK(!t.timed_out, "the client waited past its limit");
-			CHECK(srv.collector.wait_close(t.local_port, 10000ms, reps), "the server did not close the connection");
+			CHECK(srv.collector.wait_close(t.local_port, 10000ms, reps, relays), "the server did not close the connection");
+			return std::nullopt;
+		}
+
+		/// Relay dispatch: the route of a connection the front classified or sent to the fallback.
+		Result check_route(const Variant& v, Detect detect, const server::DetectionReport& r, const std::vector<server::RelayReport>& relays, Running& backend)
+		{
+			const bool handed = r.outcome == server::Outcome::classified || r.outcome == server::Outcome::fallback;
+			if (!handed)
+			{
+				CHECK(relays.empty(), "a connection whose detection ended was relayed");
+				return std::nullopt;
+			}
+			CHECK(relays.size() == 1, relays.size() << " route reports for one relayed connection");
+			const server::RelayReport& rr = relays[0];
+			const bool tls = r.proto == detect::Proto::tls;
+			CHECK(rr.route == (tls ? server::Route::by_sni : server::Route::by_class),
+			      "routed " << server::name(rr.route) << "; " << (tls ? "TLS passes through by its SNI" : "a class goes to its port"));
+			CHECK(rr.backend_port == backend.port_of(r.proto), "relayed to port " << rr.backend_port << ", not the backend's " << detect::name(r.proto) << " port");
+			if (tls)
+			{
+				CHECK(rr.hello_len > 0 && rr.hello_len <= detect::kBCh && rr.hello_records >= 1, "the ClientHello was not reassembled within B_CH");
+				if (v.id == "HC20") CHECK(rr.hello_records == 2, "HC20's ClientHello came in " << rr.hello_records << " records, not 2");
+				// B2(d) in pass-through: the partial ClientHello's records in replay, nothing in peek.
+				const std::uint32_t bound = detect == Detect::replay ? rr.hello_len + 5 * rr.hello_records : 0;
+				CHECK(rr.held_max <= bound, "held " << rr.held_max << " bytes waiting for the ClientHello; the bound is " << bound << " (B2 d)");
+			}
 			return std::nullopt;
 		}
 
@@ -325,14 +382,17 @@ namespace oneport::test
 
 	}  // namespace
 
-	int run_case(int hc, std::string_view mode_name)
+	int run_case(int hc, std::string_view backend_name, std::string_view dispatch_name, std::string_view mode_name)
 	{
 		const Detect detect = mode_name == "peek" ? Detect::peek : Detect::replay;
+		const Backend backend = backend_name == "io_uring" ? Backend::io_uring : Backend::epoll;
+		const Dispatch dispatch = dispatch_name == "relay" ? Dispatch::relay : Dispatch::inproc;
+		const std::string label = std::string(backend_name) + " " + std::string(dispatch_name) + " " + std::string(mode_name);
 		const opcase::SuiteParams p;
 		char hcid[8];
 		std::snprintf(hcid, sizeof(hcid), "HC%02d", hc);
-		std::printf("%s (%s), epoll, inproc, %s: %u replicates; suite timers %lld ms, GAP_SPLIT stand-in %lld ms, G stand-in %lld ms\n", hcid,
-		            std::string(opcase::title(hc)).c_str(), std::string(mode_name).c_str(), p.replicates, static_cast<long long>(p.t_dec.count()),
+		std::printf("%s (%s), %s: %u replicates; suite timers %lld ms, GAP_SPLIT stand-in %lld ms, G stand-in %lld ms\n", hcid,
+		            std::string(opcase::title(hc)).c_str(), label.c_str(), p.replicates, static_cast<long long>(p.t_dec.count()),
 		            static_cast<long long>(p.gap_split.count()), static_cast<long long>(p.g.count()));
 		std::vector<Variant> vs;
 		try
@@ -344,7 +404,7 @@ namespace oneport::test
 			std::printf("FAIL: %s: building the variants: %s\n", hcid, e.what());
 			return 1;
 		}
-		Servers servers(detect, p);
+		Servers servers(detect, p, backend, dispatch);
 		std::map<Coverage, int> passed;
 		int failed = 0;
 		for (const Variant& v : vs)
@@ -384,8 +444,10 @@ namespace oneport::test
 				{
 					opcase::Transcript t;
 					std::vector<server::DetectionReport> reps;
-					bad = run_one(srv, v.script, srv.port(), t, reps);
+					std::vector<server::RelayReport> relays;
+					bad = run_one(srv, v.script, srv.port(), t, reps, &relays);
 					if (!bad) bad = check_run(v, detect, p, srv, t, reps, v.reply == Reply::dedicated ? &ded : nullptr);
+					if (!bad && servers.relays()) bad = check_route(v, detect, reps[0], relays, servers.relay_backend());
 					if (bad) bad = "replicate " + std::to_string(rep + 1) + ": " + *bad;
 					else if (reps[0].wakeups >= 2) ++split_seen;
 				}
@@ -397,11 +459,11 @@ namespace oneport::test
 			if (bad)
 			{
 				++failed;
-				std::printf("FAIL: %s %s: %s\n", v.id.c_str(), std::string(mode_name).c_str(), bad->c_str());
+				std::printf("FAIL: %s %s: %s\n", v.id.c_str(), label.c_str(), bad->c_str());
 				continue;
 			}
 			++passed[v.coverage];
-			std::printf("%s %s %s: %u/%u", std::string(coverage_word(v.coverage)).c_str(), v.id.c_str(), std::string(mode_name).c_str(), p.replicates, p.replicates);
+			std::printf("%s %s %s: %u/%u", std::string(coverage_word(v.coverage)).c_str(), v.id.c_str(), label.c_str(), p.replicates, p.replicates);
 			if (is_split_case(hc)) std::printf("; detection woke %u of %u times more than once", split_seen, p.replicates);
 			if (!v.pending.empty()) std::printf("; pending: %s", v.pending.c_str());
 			std::printf("\n");
@@ -410,9 +472,9 @@ namespace oneport::test
 		if (end)
 		{
 			++failed;
-			std::printf("FAIL: %s %s: after the runs: %s\n", hcid, std::string(mode_name).c_str(), end->c_str());
+			std::printf("FAIL: %s %s: after the runs: %s\n", hcid, label.c_str(), end->c_str());
 		}
-		std::printf("SUMMARY %s %s: variants %zu; full %d, partial %d; failed %d\n", hcid, std::string(mode_name).c_str(), vs.size(), passed[Coverage::full],
+		std::printf("SUMMARY %s %s: variants %zu; full %d, partial %d; failed %d\n", hcid, label.c_str(), vs.size(), passed[Coverage::full],
 		            passed[Coverage::partial], failed);
 		std::fflush(stdout);
 		return failed == 0 ? 0 : 1;
@@ -426,7 +488,7 @@ namespace oneport::test
 
 namespace oneport::test
 {
-	int run_case(int, std::string_view)
+	int run_case(int, std::string_view, std::string_view, std::string_view)
 	{
 		std::printf("the case suite runs on Linux\n");
 		return 77;

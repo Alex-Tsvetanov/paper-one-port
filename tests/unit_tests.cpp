@@ -2,8 +2,9 @@
 //
 //   oneport_tests flags <case>              the flag parser (bench/server/config.cpp)
 //   oneport_tests loop <backend> <case>     the event loop (bench/loop) on one compiled backend
-//   oneport_tests test <name> [binary]      detect.*, http.*, apps.*, clienthello.*, server.*, handlers.*
-//   oneport_tests case <n> <replay|peek>    hard case n on epoll, in-process (tests/case_tests.cpp)
+//   oneport_tests test <name> [binary]      detect.*, http.*, apps.*, clienthello.*, server.*, handlers.*, relay.*
+//   oneport_tests case <n> <epoll|io_uring> <inproc|relay> <replay|peek>
+//                                           hard case n (tests/case_tests.cpp)
 //   oneport_tests pending <id> <reason>     a case not run yet: prints why, exits kSkip
 //
 // Exit 0 and "PASS: ..." on success; exit 1 and "FAIL: <file>:<line>: <reason>" on a failed check;
@@ -582,7 +583,7 @@ namespace
 	{
 		std::fprintf(stderr,
 		             "oneport_tests: %s\nusage: oneport_tests flags <case> | loop <backend> <case> | test <name> [binary] | "
-		             "case <n> <replay|peek> | pending <id> <reason>\n",
+		             "case <n> <epoll|io_uring> <inproc|relay> <replay|peek> | pending <id> <reason>\n",
 		             what);
 		return 2;
 	}
@@ -606,11 +607,15 @@ int main(int argc, char** argv)
 		std::printf("PENDING: %s: %s\n", std::string(a[1]).c_str(), reason.c_str());
 		return kSkip;
 	}
-	if (a.size() == 3 && a[0] == "case")
+	if (a.size() == 5 && a[0] == "case")
 	{
 		const int hc = std::atoi(std::string(a[1]).c_str());
-		if (hc < 1 || hc > 25 || (a[2] != "replay" && a[2] != "peek")) return usage_error("bad case arguments");
-		return oneport::test::run_case(hc, a[2]);
+		if (hc < 1 || hc > 25 || (a[2] != "epoll" && a[2] != "io_uring") || (a[3] != "inproc" && a[3] != "relay") ||
+		    (a[4] != "replay" && a[4] != "peek"))
+		{
+			return usage_error("bad case arguments");
+		}
+		return oneport::test::run_case(hc, a[2], a[3], a[4]);
 	}
 	if ((a.size() == 2 || a.size() == 3) && a[0] == "test")
 	{
@@ -621,6 +626,7 @@ int main(int argc, char** argv)
 		oneport::test::register_apps_tests(registry);
 		oneport::test::register_clienthello_tests(registry);
 		oneport::test::register_handler_tests(registry);
+		oneport::test::register_relay_tests(registry);
 		if (a.size() == 3) oneport::test::binary_path() = std::string(a[2]);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");

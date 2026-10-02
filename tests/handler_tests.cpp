@@ -422,7 +422,7 @@ namespace oneport::test
 					CHECK(got == static_cast<std::size_t>(kRequests), a.name << (over_tls ? " over TLS" : "") << ": " << got << " of " << kRequests << " responses");
 					if (auto bad = srv.stop_and_check()) return a.name + ": " + *bad;
 					const server::Counters c = srv.server->totals();
-					CHECK(over_tls || c.epoll_ctl_calls > 2, a.name << ": the server never waited for EPOLLOUT");
+					CHECK(over_tls || c.out_waits > 0, a.name << ": the server's output never waited for writability");
 				}
 			}
 			return std::nullopt;
@@ -432,16 +432,27 @@ namespace oneport::test
 
 	void register_handler_tests(Registry& r)
 	{
-		r["handlers.tls_context"] = tls_context;
-		r["handlers.clienthello_live"] = clienthello_live;
-		r["handlers.tls_exchange"] = tls_exchange;
-		r["handlers.tls_h2"] = tls_h2;
-		r["handlers.tls_refusals"] = tls_refusals;
-		r["handlers.h2c_streams"] = h2c_streams;
-		r["handlers.mqtt_session"] = mqtt_session;
-		r["handlers.ssh_banner_timing"] = ssh_banner_timing;
-		r["handlers.smtp_dialogue"] = smtp_dialogue;
-		r["handlers.output_backpressure"] = output_backpressure;
+		r["handlers.tls_context"] = tls_context;  // the context alone: no backend
+		// Over sockets: once per Linux backend, named with it last.
+		for (const Backend b : {Backend::epoll, Backend::io_uring})
+		{
+			const std::string s = "." + std::string(token(b));
+			auto on = [b](Result (*fn)()) {
+				return [b, fn] {
+					suite_backend() = b;
+					return fn();
+				};
+			};
+			r["handlers.clienthello_live" + s] = on(clienthello_live);
+			r["handlers.tls_exchange" + s] = on(tls_exchange);
+			r["handlers.tls_h2" + s] = on(tls_h2);
+			r["handlers.tls_refusals" + s] = on(tls_refusals);
+			r["handlers.h2c_streams" + s] = on(h2c_streams);
+			r["handlers.mqtt_session" + s] = on(mqtt_session);
+			r["handlers.ssh_banner_timing" + s] = on(ssh_banner_timing);
+			r["handlers.smtp_dialogue" + s] = on(smtp_dialogue);
+			r["handlers.output_backpressure" + s] = on(output_backpressure);
+		}
 	}
 
 }  // namespace oneport::test

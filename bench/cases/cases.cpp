@@ -361,9 +361,8 @@ namespace oneport::opcase
 			v.expect = Expect::classified;
 			v.proto = Proto::tls;
 			v.reply = Reply::dedicated;  // in-process the handshake completes, and the exchange is the dedicated port's
-			v.dedicated = Proto::tls;
+			v.dedicated = Proto::tls;   // in relay the route is checked too: by its SNI (tests/case_tests.cpp)
 			v.at = 6;
-			v.pending = "pass-through (routed by its SNI) is the relay's, M2b";
 			return {v};
 		}
 

@@ -632,7 +632,7 @@ namespace oneport::test
 			posix_spawn_file_actions_init(&fa);
 			posix_spawn_file_actions_adddup2(&fa, out[1], 1);
 			posix_spawn_file_actions_addclose(&fa, out[0]);
-			std::vector<std::string> args{path, "--mode", "one-port", "--detect", "peek", "--dispatch", "inproc", "--backend", "epoll"};
+			std::vector<std::string> args{path, "--mode", "one-port", "--detect", "peek", "--dispatch", "inproc", "--backend", std::string(token(suite_backend()))};
 			std::vector<char*> argv;
 			for (auto& s : args) argv.push_back(s.data());
 			argv.push_back(nullptr);
@@ -688,26 +688,37 @@ namespace oneport::test
 
 	void register_server_tests(Registry& r)
 	{
-		r["server.http_keepalive.oneport_replay"] = [] { return http_keepalive(Mode::one_port, Detect::replay); };
-		r["server.http_keepalive.oneport_peek"] = [] { return http_keepalive(Mode::one_port, Detect::peek); };
-		r["server.http_keepalive.dedicated"] = [] { return http_keepalive(Mode::dedicated, Detect::replay); };
-		r["server.dedicated_ports"] = dedicated_ports;
-		r["server.dedicated_proxy"] = dedicated_proxy;
-		r["server.peek_lowat.peek"] = [] { return peek_lowat(Detect::peek); };
-		r["server.peek_lowat.replay"] = [] { return peek_lowat(Detect::replay); };
+		// Once per Linux backend, named with it last; the kernel pins and not_served once.
+		for (const Backend b : {Backend::epoll, Backend::io_uring})
+		{
+			const std::string s = "." + std::string(token(b));
+			auto on = [b](std::function<Result()> fn) {
+				return [b, fn] {
+					suite_backend() = b;
+					return fn();
+				};
+			};
+			r["server.http_keepalive.oneport_replay" + s] = on([] { return http_keepalive(Mode::one_port, Detect::replay); });
+			r["server.http_keepalive.oneport_peek" + s] = on([] { return http_keepalive(Mode::one_port, Detect::peek); });
+			r["server.http_keepalive.dedicated" + s] = on([] { return http_keepalive(Mode::dedicated, Detect::replay); });
+			r["server.dedicated_ports" + s] = on(dedicated_ports);
+			r["server.dedicated_proxy" + s] = on(dedicated_proxy);
+			r["server.peek_lowat.peek" + s] = on([] { return peek_lowat(Detect::peek); });
+			r["server.peek_lowat.replay" + s] = on([] { return peek_lowat(Detect::replay); });
+			r["server.check_byte_wins.replay" + s] = on([] { return check_byte_wins(Detect::replay); });
+			r["server.check_byte_wins.peek" + s] = on([] { return check_byte_wins(Detect::peek); });
+			r["server.two_workers.shared_replay" + s] = on([] { return two_workers(Listener::shared, Detect::replay); });
+			r["server.two_workers.shared_peek" + s] = on([] { return two_workers(Listener::shared, Detect::peek); });
+			r["server.two_workers.reuseport_replay" + s] = on([] { return two_workers(Listener::reuseport, Detect::replay); });
+			r["server.two_workers.reuseport_peek" + s] = on([] { return two_workers(Listener::reuseport, Detect::peek); });
+			r["server.flag_matrix" + s] = on(flag_matrix);
+			r["server.stop_with_pending" + s] = on(stop_with_pending);
+			r["server.binary_smoke" + s] = on(binary_smoke);
+		}
 		r["server.kernel_rcvlowat_et"] = kernel_rcvlowat_et;
 		r["server.kernel_rcvlowat_uring"] = kernel_rcvlowat_uring;
 		r["server.kernel_uring_recv_select"] = kernel_uring_recv_select;
-		r["server.check_byte_wins.replay"] = [] { return check_byte_wins(Detect::replay); };
-		r["server.check_byte_wins.peek"] = [] { return check_byte_wins(Detect::peek); };
-		r["server.two_workers.shared_replay"] = [] { return two_workers(Listener::shared, Detect::replay); };
-		r["server.two_workers.shared_peek"] = [] { return two_workers(Listener::shared, Detect::peek); };
-		r["server.two_workers.reuseport_replay"] = [] { return two_workers(Listener::reuseport, Detect::replay); };
-		r["server.two_workers.reuseport_peek"] = [] { return two_workers(Listener::reuseport, Detect::peek); };
-		r["server.flag_matrix"] = flag_matrix;
-		r["server.stop_with_pending"] = stop_with_pending;
 		r["server.not_served"] = not_served;
-		r["server.binary_smoke"] = binary_smoke;
 	}
 
 }  // namespace oneport::test

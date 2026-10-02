@@ -19,10 +19,22 @@
 namespace oneport::test
 {
 
+	/// The backend a test runs on when it does not name one: each server and handler test is
+	/// registered once per Linux backend (tests/server_tests.cpp), and sets this while it runs.
+	inline Backend& suite_backend()
+	{
+		static Backend b = Backend::epoll;
+		return b;
+	}
+
 	struct ServerArgs
 	{
 		Mode mode = Mode::one_port;
 		Detect detect = Detect::replay;
+		Backend backend = suite_backend();
+		Dispatch dispatch = Dispatch::inproc;
+		RelayCopy relay_copy = RelayCopy::user_space;
+		std::optional<std::uint16_t> relay_port;  // relay: the backend server's first port
 		Proxy proxy = Proxy::off;
 		Fallback fallback = Fallback::none;
 		Listener listener = Listener::shared;
@@ -37,8 +49,10 @@ namespace oneport::test
 		Config c;
 		c.mode = a.mode;
 		c.detect = a.detect;
-		c.dispatch = Dispatch::inproc;
-		c.backend = Backend::epoll;
+		c.dispatch = a.dispatch;
+		c.backend = a.backend;
+		c.relay_copy = a.relay_copy;
+		c.relay_port = a.relay_port;
 		c.proxy = a.proxy;
 		c.fallback = a.fallback;
 		c.listener = a.listener;
@@ -73,8 +87,19 @@ namespace oneport::test
 			self->cv_.notify_all();
 		}
 
+		static void on_relayed(void* ctx, const server::RelayReport& r)
+		{
+			auto* self = static_cast<Collector*>(ctx);
+			{
+				std::lock_guard lock(self->m_);
+				self->relays_[r.peer_port].push_back(r);
+			}
+			self->cv_.notify_all();
+		}
+
 		/// Waits for the server's close of the connection from `port`, and takes its reports.
-		bool wait_close(std::uint16_t port, std::chrono::milliseconds limit, std::vector<server::DetectionReport>& detections)
+		bool wait_close(std::uint16_t port, std::chrono::milliseconds limit, std::vector<server::DetectionReport>& detections,
+		                std::vector<server::RelayReport>* relays = nullptr)
 		{
 			std::unique_lock lock(m_);
 			const bool closed = cv_.wait_for(lock, limit, [&] { return closes_.contains(port); });
@@ -86,6 +111,12 @@ namespace oneport::test
 				detections = std::move(it->second);
 				detections_.erase(it);
 			}
+			auto rt = relays_.find(port);
+			if (rt != relays_.end())
+			{
+				if (relays != nullptr) *relays = std::move(rt->second);
+				relays_.erase(rt);
+			}
 			return true;
 		}
 
@@ -95,6 +126,7 @@ namespace oneport::test
 			h.ctx = this;
 			h.detection = &Collector::on_detection;
 			h.closed = &Collector::on_close;
+			h.relayed = &Collector::on_relayed;
 			return h;
 		}
 
@@ -103,6 +135,7 @@ namespace oneport::test
 		std::condition_variable cv_;
 		std::map<std::uint16_t, std::vector<server::DetectionReport>> detections_;
 		std::map<std::uint16_t, std::vector<server::CloseReport>> closes_;
+		std::map<std::uint16_t, std::vector<server::RelayReport>> relays_;
 	};
 
 	/// A started server with its collector.
@@ -119,6 +152,7 @@ namespace oneport::test
 			o.hooks.ctx = this;
 			o.hooks.detection = [](void* ctx, const server::DetectionReport& r) { Collector::on_detection(&static_cast<Running*>(ctx)->collector, r); };
 			o.hooks.closed = [](void* ctx, const server::CloseReport& r) { Collector::on_close(&static_cast<Running*>(ctx)->collector, r); };
+			o.hooks.relayed = [](void* ctx, const server::RelayReport& r) { Collector::on_relayed(&static_cast<Running*>(ctx)->collector, r); };
 			if (extra.before_expiries != nullptr) o.hooks.before_expiries = &Running::forward_before_expiries;
 			server = std::make_unique<server::Server>(make_config(a), o);
 			server->start();
@@ -152,6 +186,7 @@ namespace oneport::test
 			CHECK(t.accepted == t.closed, "accepted " << t.accepted << ", closed " << t.closed);
 			CHECK(t.conns_open == 0, t.conns_open << " connections left open");
 			CHECK(t.buffers_outstanding == 0, t.buffers_outstanding << " buffers not returned");
+			CHECK(t.relayed + t.relay_connect_errors + t.route_rejected <= t.accepted, "more relay ends than connections");
 			CHECK(t.outcomes[static_cast<std::size_t>(server::Outcome::rejected_budget)] == 0, "a budget was exceeded");
 			if (args.mode == Mode::one_port)
 			{

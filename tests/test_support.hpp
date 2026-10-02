@@ -26,10 +26,11 @@ namespace oneport::test
 	void register_apps_tests(Registry& r);     // pure, every platform
 	void register_clienthello_tests(Registry& r);  // pure, every platform
 	void register_handler_tests(Registry& r);  // Linux with TLS only; empty elsewhere
+	void register_relay_tests(Registry& r);    // Linux with TLS only; empty elsewhere
 
-	/// Runs hard case `hc` on the epoll backend with in-process dispatch in `mode` ("replay" or
-	/// "peek"). Returns the process exit code.
-	int run_case(int hc, std::string_view mode);
+	/// Runs hard case `hc` on `backend` ("epoll" or "io_uring") with `dispatch` ("inproc" or
+	/// "relay") in detection mode `mode` ("replay" or "peek"). Returns the process exit code.
+	int run_case(int hc, std::string_view backend, std::string_view dispatch, std::string_view mode);
 
 	/// The path of the oneport binary, for the binary's smoke test (argv of the test process).
 	inline std::string& binary_path()
