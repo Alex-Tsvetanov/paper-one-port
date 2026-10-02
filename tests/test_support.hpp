@@ -23,6 +23,7 @@ namespace oneport::test
 	void register_detect_tests(Registry& r);
 	void register_http_tests(Registry& r);
 	void register_server_tests(Registry& r);  // Linux only; empty elsewhere
+	void register_clienthello_tests(Registry& r);  // pure, every platform
 
 	/// Runs hard case `hc` on the epoll backend with in-process dispatch in `mode` ("replay" or
 	/// "peek"). Returns the process exit code.

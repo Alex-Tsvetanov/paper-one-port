@@ -37,6 +37,17 @@ namespace oneport::opcase
 	/// `first_record` receives the length of the first record with its header.
 	Bytes client_hello(std::uint8_t record_minor, std::string_view sni, std::size_t split = 0, std::size_t* first_record = nullptr);
 
+	/// The recorded ClientHello: one TLS record as OpenSSL 3.5.9 wrote it with the settings of I24,
+	/// SNI oneport.test and ALPN http/1.1 (tests/fixtures/tls/clienthello.hex).
+	Bytes recorded_client_hello();
+	/// The text of that fixture, embedded at configure time ('#' comment lines and hex).
+	std::string_view recorded_client_hello_hex() noexcept;
+	/// A one-record ClientHello with its legacy_record_version minor byte set to `minor` (HC19).
+	Bytes with_record_version(Bytes one_record, std::uint8_t minor);
+	/// A one-record ClientHello re-fragmented into two records, the first holding `first`
+	/// handshake bytes (HC20). `first_record` receives the first record's length, header included.
+	Bytes fragment_client_hello(const Bytes& one_record, std::size_t first, std::size_t* first_record = nullptr);
+
 	/// MQTT CONNECT at `level` (4: 3.1.1, s3.1; 5: 5.0, s3.1) with a Remaining Length of exactly
 	/// `remaining_length`, minimally encoded (MQTT 5.0 s1.5.5). The payload is a client identifier
 	/// of the length that makes it up; past the 65,535 bytes an identifier can hold, the rest is

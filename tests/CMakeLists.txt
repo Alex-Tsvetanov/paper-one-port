@@ -1,6 +1,6 @@
 # The test suite: one CTest entry per (group, case), as in P1's suite. Every entry also runs in each
 # sanitizer build (hypotheses.md, section 11).
-add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp server_tests.cpp case_tests.cpp
+add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp clienthello_tests.cpp server_tests.cpp case_tests.cpp
                test_support.hpp harness.hpp)
 target_link_libraries(oneport_tests PRIVATE oneport_server oneport_loop opcase)
 oneport_warnings(oneport_tests)
@@ -27,7 +27,8 @@ endforeach()
 set(ONEPORT_PURE_TESTS
     detect.corpus_splits detect.first_bytes detect.order detect.hc16 detect.http1_methods detect.tls detect.mqtt
     detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets
-    http.valid http.grammar http.bad_request http.incomplete http.responses)
+    http.valid http.grammar http.bad_request http.incomplete http.responses
+    clienthello.recorded clienthello.fragments)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
     set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)

@@ -607,6 +607,7 @@ int main(int argc, char** argv)
 		oneport::test::register_detect_tests(registry);
 		oneport::test::register_http_tests(registry);
 		oneport::test::register_server_tests(registry);
+		oneport::test::register_clienthello_tests(registry);
 		if (a.size() == 3) oneport::test::binary_path() = std::string(a[2]);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");

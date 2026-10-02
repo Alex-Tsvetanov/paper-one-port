@@ -162,6 +162,63 @@ namespace oneport::opcase
 		return cat({first, record(record_minor, slice(hs, split, hs.size()))});
 	}
 
+	Bytes recorded_client_hello()
+	{
+		Bytes b;
+		const std::string_view hex = recorded_client_hello_hex();
+		int hi = -1;
+		bool comment = false;
+		for (const char ch : hex)
+		{
+			if (ch == '\n')
+			{
+				comment = false;
+				continue;
+			}
+			if (comment) continue;
+			if (ch == '#')
+			{
+				comment = true;
+				continue;
+			}
+			int v = -1;
+			if (ch >= '0' && ch <= '9') v = ch - '0';
+			else if (ch >= 'a' && ch <= 'f') v = ch - 'a' + 10;
+			else if (ch >= 'A' && ch <= 'F') v = ch - 'A' + 10;
+			else if (ch == ' ' || ch == '\r' || ch == '\t') continue;
+			else throw std::runtime_error("recorded_client_hello: a character that is not hex in tests/fixtures/tls/clienthello.hex");
+			if (hi < 0)
+			{
+				hi = v;
+				continue;
+			}
+			put8(b, static_cast<unsigned>(hi * 16 + v));
+			hi = -1;
+		}
+		if (hi >= 0 || b.size() < 5) throw std::runtime_error("recorded_client_hello: tests/fixtures/tls/clienthello.hex holds no whole record");
+		return b;
+	}
+
+	Bytes with_record_version(Bytes one_record, std::uint8_t minor)
+	{
+		if (one_record.size() < 5) throw std::invalid_argument("with_record_version: no record header");
+		one_record[2] = static_cast<std::byte>(minor);
+		return one_record;
+	}
+
+	Bytes fragment_client_hello(const Bytes& one_record, std::size_t first, std::size_t* first_record)
+	{
+		if (one_record.size() < 5) throw std::invalid_argument("fragment_client_hello: no record header");
+		const std::size_t len = (std::to_integer<std::size_t>(one_record[3]) << 8) | std::to_integer<std::size_t>(one_record[4]);
+		if (len + 5 != one_record.size()) throw std::invalid_argument("fragment_client_hello: not exactly one record");
+		if (first == 0 || first >= len) throw std::invalid_argument("fragment_client_hello: the split must lie inside the handshake bytes");
+		const auto minor = std::to_integer<std::uint8_t>(one_record[2]);
+		const Bytes hs = slice(one_record, 5, one_record.size());
+		Bytes a = record(minor, slice(hs, 0, first));
+		if (first_record != nullptr) *first_record = a.size();
+		return cat({a, record(minor, slice(hs, first, hs.size()))});
+	}
+
 	Bytes mqtt_connect(int level, std::uint32_t remaining_length)
 	{
 		Bytes vh;

@@ -1,0 +1,15 @@
+# The recorded ClientHello of design/proposal.md I18: one TLS record, as an OpenSSL client
+# wrote it with the settings of I24 (bench/tls: TLS 1.3 only, TLS_AES_128_GCM_SHA256,
+# ecdsa_secp256r1_sha256, X25519 only), SNI oneport.test and ALPN http/1.1.
+# Made by bench/cases/record_clienthello.cpp, run on L at 2026-10-02T18:43:42Z, linked against
+# OpenSSL 3.5.9 29 Sep 2026 (bench/cmake/pins.cmake, release flavour).
+# Record bytes: 211; record length field (the ClientHello message with its 4-byte header,
+# the length l of hypotheses.md WL7): 206.
+# TEST MATERIAL: its random, session id and X25519 key share were drawn once and are public.
+16030100ce010000ca0303561f649c4a488a7124dc2ae16f80405ff6e8aa75e8
+f9b800f62f7f2dda26a6af2014547ff180cfb7c14a92f2150499d8528731c25d
+bdb11141cba6f1f96d895c68000213010100007f00000011000f00000c6f6e65
+706f72742e74657374000b000403000102000a00040002001d00230000001000
+0b000908687474702f312e310016000000170000000d000400020403002b0003
+020304002d00020101003300260024001d002093330a99943f5281087fcc2165
+751fdaffa4d728a71ebda1f8a29aad9e2e987e
