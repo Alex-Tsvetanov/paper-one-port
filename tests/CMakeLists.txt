@@ -1,8 +1,8 @@
 # The test suite: one CTest entry per (group, case), as in P1's suite. Every entry also runs in each
 # sanitizer build (hypotheses.md, section 11).
 add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp apps_tests.cpp clienthello_tests.cpp server_tests.cpp handler_tests.cpp
-               relay_tests.cpp case_tests.cpp test_support.hpp harness.hpp)
-target_link_libraries(oneport_tests PRIVATE oneport_server oneport_loop opcase)
+               relay_tests.cpp case_tests.cpp gen_tests.cpp test_support.hpp harness.hpp)
+target_link_libraries(oneport_tests PRIVATE oneport_server oneport_loop opcase opgen_core)
 oneport_warnings(oneport_tests)
 
 set(ONEPORT_FLAG_TESTS
@@ -30,7 +30,8 @@ set(ONEPORT_PURE_TESTS
     detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets
     http.valid http.grammar http.bad_request http.incomplete http.responses
     apps.smtp_lines apps.smtp_partial_and_limits apps.mqtt_connect_ping_disconnect apps.mqtt_streams_payload
-    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments)
+    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments
+    gen.options gen.quantiles)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
     set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)
@@ -76,7 +77,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         endforeach()
         add_test(NAME relay.binary.${_backend} COMMAND oneport_tests test relay.binary.${_backend} $<TARGET_FILE:oneport>)
         set_tests_properties(relay.binary.${_backend} PROPERTIES TIMEOUT 120 LABELS "relay;${_backend}")
+        # opgen's loads and protocols against the server (hypotheses.md, section 11: the records
+        # cover opgen, opcase and ophold).
+        foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub
+                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe)
+            add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
+            set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "gen;${_backend}")
+        endforeach()
     endforeach()
+    foreach(_test gen.source_block gen.failures)
+        add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+        set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS gen)
+    endforeach()
+    add_test(NAME gen.binaries COMMAND oneport_tests test gen.binaries $<TARGET_FILE:oneport> $<TARGET_FILE:opgen>
+             $<TARGET_FILE:opcase_bin> $<TARGET_FILE:ophold>)
+    set_tests_properties(gen.binaries PROPERTIES TIMEOUT 300 LABELS gen)
     # Once: the kernel behaviour the peek paths rest on, the TLS context, and what is not served.
     foreach(_test server.kernel_rcvlowat_et server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.not_served)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})

@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oneport::test
 {
@@ -27,6 +28,7 @@ namespace oneport::test
 	void register_clienthello_tests(Registry& r);  // pure, every platform
 	void register_handler_tests(Registry& r);  // Linux with TLS only; empty elsewhere
 	void register_relay_tests(Registry& r);    // Linux with TLS only; empty elsewhere
+	void register_gen_tests(Registry& r);      // opgen, opcase and ophold (tests/gen_tests.cpp); the pure parts on every platform
 
 	/// Runs hard case `hc` on `backend` ("epoll" or "io_uring") with `dispatch` ("inproc" or
 	/// "relay") in detection mode `mode` ("replay" or "peek"). Returns the process exit code.
@@ -37,6 +39,13 @@ namespace oneport::test
 	{
 		static std::string path;
 		return path;
+	}
+
+	/// More program paths after the first (gen.binaries: opgen, opcase, ophold).
+	inline std::vector<std::string>& extra_paths()
+	{
+		static std::vector<std::string> paths;
+		return paths;
 	}
 
 }  // namespace oneport::test

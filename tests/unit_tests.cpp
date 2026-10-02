@@ -617,7 +617,7 @@ int main(int argc, char** argv)
 		}
 		return oneport::test::run_case(hc, a[2], a[3], a[4]);
 	}
-	if ((a.size() == 2 || a.size() == 3) && a[0] == "test")
+	if (a.size() >= 2 && a[0] == "test")
 	{
 		oneport::test::Registry registry;
 		oneport::test::register_detect_tests(registry);
@@ -627,7 +627,9 @@ int main(int argc, char** argv)
 		oneport::test::register_clienthello_tests(registry);
 		oneport::test::register_handler_tests(registry);
 		oneport::test::register_relay_tests(registry);
-		if (a.size() == 3) oneport::test::binary_path() = std::string(a[2]);
+		oneport::test::register_gen_tests(registry);
+		if (a.size() >= 3) oneport::test::binary_path() = std::string(a[2]);
+		for (std::size_t i = 3; i < a.size(); ++i) oneport::test::extra_paths().emplace_back(a[i]);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");
 		Result r;
