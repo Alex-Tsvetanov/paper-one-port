@@ -1,6 +1,6 @@
 # Hypotheses
 
-Status: DRAFT, to be frozen after a consistency check.
+Status: FROZEN 2026-10-02. Changes go into the revision log below; the text above it is never edited.
 
 Written on 2026-10-02 from `design/proposal.md` as revised that day after the second audit, and
 revised the same day after the freeze check (`design/freeze-check.md`), with the proposal, and
