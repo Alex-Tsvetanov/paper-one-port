@@ -1,0 +1,49 @@
+# The test suite: one CTest entry per (group, case), as in P1's suite.
+add_executable(oneport_tests unit_tests.cpp)
+target_link_libraries(oneport_tests PRIVATE oneport_config oneport_loop)
+oneport_warnings(oneport_tests)
+
+set(ONEPORT_FLAG_TESTS
+    arms required spellings unknown duplicates missing_value defaults options numbers combinations platform
+    dedicated_echoes help print_config)
+foreach(_test IN LISTS ONEPORT_FLAG_TESTS)
+    add_test(NAME flags.${_test} COMMAND oneport_tests flags ${_test})
+    set_tests_properties(flags.${_test} PROPERTIES TIMEOUT 60 LABELS flags)
+endforeach()
+
+set(ONEPORT_LOOP_TESTS
+    construct bounded_wait zero_wait stop_wakes_blocked stop_before_start stop_is_sticky start_twice_refused
+    wait_before_start_refused negative_bound_refused)
+foreach(_backend IN LISTS ONEPORT_BACKENDS)
+    foreach(_test IN LISTS ONEPORT_LOOP_TESTS)
+        add_test(NAME loop.${_backend}.${_test} COMMAND oneport_tests loop ${_backend} ${_test})
+        set_tests_properties(loop.${_backend}.${_test} PROPERTIES TIMEOUT 60 LABELS "loop;${_backend}")
+    endforeach()
+endforeach()
+
+# The binary's command line: its exit code and output, through run_expect.cmake. The arm uses
+# the first backend this platform compiles.
+list(GET ONEPORT_BACKENDS 0 _first_backend)
+set(_arm --mode one-port --detect replay --dispatch inproc --backend ${_first_backend})
+function(oneport_cli_test name expect_exit expect_output)
+    list(JOIN ARGN "|" _words)
+    add_test(NAME cli.${name}
+             COMMAND ${CMAKE_COMMAND} "-DCOMMAND=$<TARGET_FILE:oneport>|${_words}" "-DEXPECT_EXIT=${expect_exit}"
+                     "-DEXPECT_OUTPUT=${expect_output}" -P ${CMAKE_CURRENT_SOURCE_DIR}/run_expect.cmake)
+    set_tests_properties(cli.${name} PROPERTIES TIMEOUT 60 LABELS cli)
+endfunction()
+oneport_cli_test(print_config 0 "detect replay.+dispatch inproc.+backend ${_first_backend}" ${_arm} --print-config)
+oneport_cli_test(serve_not_implemented 3 "serving is not implemented in M0" ${_arm})
+oneport_cli_test(usage_error 2 "missing --detect, --dispatch, --backend" --mode one-port)
+oneport_cli_test(help 0 "usage: oneport" --help)
+
+# The records gate and the record writer (bench/), when a Python 3 interpreter is found.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    foreach(_script test_gates test_record_writers)
+        add_test(NAME gate.${_script} COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/${_script}.py)
+        set_tests_properties(gate.${_script} PROPERTIES TIMEOUT 120 LABELS gate)
+    endforeach()
+else()
+    message(STATUS "oneport: no Python 3, so the gate tests are not registered")
+endif()
