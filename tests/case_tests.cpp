@@ -1,0 +1,343 @@
+// The hard cases (hypotheses.md, Appendix A) as a deterministic suite: B1's conformance table and
+// B2's bounds (section 5.2), on epoll, in-process dispatch, in one detection mode per CTest entry.
+//
+// For each variant of a case: the script runs `replicates` times against a one-port server with
+// the variant's listener setup; each run's outcome, transcript and server report are checked
+// against the frozen expectation (bench/cases/cases.cpp), and the B2 bounds against the report:
+//   (a, b) a timed event is never early and is handled in the first pass whose wait returned at or
+//          after its deadline (prev_wait_return < deadline <= wait_return);
+//   (c)    a classification happens in the pass of the receive or peek that brought its byte;
+//   (d)    a pending connection held at most its mode's bytes in user space (replay: the handler's
+//          buffer; peek: none) and no data buffer while it had no byte;
+//   (e)    a half-close before a decision closed the connection in the pass that observed it.
+// The client side checks each timer from below on the same clock: an end that came "at T" came no
+// sooner than T after the client's own reference, which precedes the server's.
+//
+// Output: one line per variant (PASS, PASS with the M1 stub, PASS with a part pending), then a
+// summary. Nothing received is printed beyond counts and printable first lines.
+#include "test_support.hpp"
+
+#if defined(__linux__)
+
+#include "cases.hpp"
+#include "harness.hpp"
+#include "http1.hpp"
+
+#include <cstdio>
+#include <map>
+#include <memory>
+
+namespace oneport::test
+{
+
+	namespace
+	{
+
+		using namespace std::chrono_literals;
+		using opcase::Coverage;
+		using opcase::Expect;
+		using opcase::Reply;
+		using opcase::Setup;
+		using opcase::Variant;
+		using opcase::When;
+
+		server::Outcome outcome_of(Expect e)
+		{
+			switch (e)
+			{
+				case Expect::classified: return server::Outcome::classified;
+				case Expect::rejected: return server::Outcome::rejected;
+				case Expect::undecided: return server::Outcome::undecided;
+				case Expect::silent: return server::Outcome::silent;
+				case Expect::fallback: return server::Outcome::fallback;
+				case Expect::proxy_rejected: return server::Outcome::proxy_rejected;
+				case Expect::proxy_timeout: return server::Outcome::proxy_timeout;
+				case Expect::reset: return server::Outcome::reset;
+			}
+			return server::Outcome::stopped;
+		}
+
+		bool proxy_of(Setup s) { return s == Setup::proxy || s == Setup::proxy_fallback_smtp; }
+		bool fallback_of(Setup s) { return s == Setup::fallback_smtp || s == Setup::proxy_fallback_smtp; }
+
+		/// The servers of one entry, started when a variant first needs them.
+		class Servers
+		{
+		public:
+			Servers(Detect detect, const opcase::SuiteParams& p) : detect_(detect), p_(p) {}
+
+			Running& one_port(Setup s)
+			{
+				auto& slot = one_port_[s];
+				if (!slot)
+				{
+					ServerArgs a = base();
+					a.mode = Mode::one_port;
+					a.proxy = proxy_of(s) ? Proxy::on : Proxy::off;
+					a.fallback = fallback_of(s) ? Fallback::smtp : Fallback::none;
+					slot = std::make_unique<Running>(a);
+				}
+				return *slot;
+			}
+
+			Running& dedicated(bool proxy)
+			{
+				auto& slot = dedicated_[proxy];
+				if (!slot)
+				{
+					ServerArgs a = base();
+					a.mode = Mode::dedicated;
+					a.proxy = proxy ? Proxy::on : Proxy::off;
+					slot = std::make_unique<Running>(a);
+				}
+				return *slot;
+			}
+
+			/// Stops every server and checks each (harness.hpp).
+			Result stop_and_check()
+			{
+				for (auto& [s, r] : one_port_)
+				{
+					if (auto bad = r->stop_and_check()) return "one-port server (" + std::string(opcase::name(s)) + "): " + *bad;
+				}
+				for (auto& [proxy, r] : dedicated_)
+				{
+					if (auto bad = r->stop_and_check()) return std::string("dedicated server") + (proxy ? " (PROXY)" : "") + ": " + *bad;
+				}
+				return std::nullopt;
+			}
+
+		private:
+			ServerArgs base() const
+			{
+				ServerArgs a;
+				a.detect = detect_;
+				a.t_fb = p_.t_fb;
+				a.t_dec = p_.t_dec;
+				a.t_hdr = p_.t_hdr;
+				return a;
+			}
+
+			Detect detect_;
+			opcase::SuiteParams p_;
+			std::map<Setup, std::unique_ptr<Running>> one_port_;
+			std::map<bool, std::unique_ptr<Running>> dedicated_;
+		};
+
+		/// Runs a script against a port and waits for the server to close the connection.
+		Result run_one(Running& srv, const opcase::Script& s, std::uint16_t port, opcase::Transcript& t, std::vector<server::DetectionReport>& reps)
+		{
+			t = opcase::run(s, port);
+			CHECK(t.connected, "connect failed");
+			CHECK(!t.timed_out, "the client waited past its limit");
+			CHECK(srv.collector.wait_close(t.local_port, 10000ms, reps), "the server did not close the connection");
+			return std::nullopt;
+		}
+
+		Result check_reply(Reply want, const opcase::Transcript& t, const opcase::Transcript* dedicated)
+		{
+			switch (want)
+			{
+				case Reply::dedicated:
+					CHECK(dedicated != nullptr, "no dedicated transcript");
+					CHECK(t.received == dedicated->received, "the transcript differs from the dedicated port's: " << t.received.size() << " bytes ('"
+					                                                                                            << opcase::first_line(t.received) << "') against "
+					                                                                                            << dedicated->received.size());
+					CHECK(t.eof && !t.reset && dedicated->eof && !dedicated->reset, "both must end with the server's EOF");
+					return std::nullopt;
+				case Reply::http200:
+					CHECK(t.received == opcase::text(http1::kResponse200) && t.eof, "no 200 then EOF: " << t.received.size() << " bytes");
+					return std::nullopt;
+				case Reply::http400:
+					CHECK(t.received == opcase::text(http1::kResponse400) && t.eof, "no 400 then EOF: " << t.received.size() << " bytes");
+					return std::nullopt;
+				case Reply::closed:
+					CHECK(t.received.empty(), "a reply of " << t.received.size() << " bytes ('" << opcase::first_line(t.received) << "') where none is expected");
+					CHECK(t.eof || t.reset, "the connection was not closed");
+					return std::nullopt;
+				case Reply::any: return std::nullopt;
+			}
+			return std::nullopt;
+		}
+
+		/// One replicate of a variant against the one-port server: B1 and B2.
+		Result check_run(const Variant& v, Detect detect, const opcase::SuiteParams& p, Running& srv, const opcase::Transcript& t,
+		                 const std::vector<server::DetectionReport>& reps, const opcase::Transcript* dedicated)
+		{
+			CHECK(reps.size() == 1, reps.size() << " detection reports for one connection");
+			const server::DetectionReport& r = reps[0];
+			// B1: the outcome, the class and the transcript.
+			CHECK(r.outcome == outcome_of(v.expect), "outcome " << server::name(r.outcome) << ", expected " << opcase::name(v.expect));
+			if (v.expect == Expect::classified || v.expect == Expect::fallback)
+			{
+				CHECK(r.proto == v.proto, "class " << detect::name(r.proto) << ", expected " << detect::name(v.proto));
+			}
+			if (v.at) CHECK(r.at == *v.at, "decided at byte " << r.at << ", expected " << *v.at);
+			if (v.source) CHECK(r.has_proxy && r.proxy == *v.source, "the recorded source is not the PROXY header's");
+			if (v.proxy_reason) CHECK(r.proxy_reason == *v.proxy_reason, "the PROXY header was refused for another reason");
+			if (auto bad = check_reply(v.reply, t, dedicated)) return bad;
+			// When it ended, from the server's record and, for timers, from the client's clock.
+			const server::TimePoint anchor = v.header_write ? t.write_times.at(*v.header_write) : t.before_connect;
+			switch (v.when)
+			{
+				case When::at_once:
+					CHECK(!r.timed, "ended by " << server::name(r.event.kind) << ", expected at once");
+					if (v.expect == Expect::classified || v.expect == Expect::rejected || v.expect == Expect::proxy_rejected)
+					{
+						CHECK(r.end_pass == r.last_read_pass, "decided in pass " << r.end_pass << ", the deciding bytes came in pass " << r.last_read_pass << " (B2 c)");
+					}
+					if (v.expect == Expect::undecided || v.expect == Expect::silent)
+					{
+						CHECK(r.observe_pass != 0 && r.end_pass == r.observe_pass, "closed in pass " << r.end_pass << ", the half-close was observed in pass "
+						                                                                         << r.observe_pass << " (B2 e)");
+					}
+					break;
+				case When::t_fb:
+					CHECK(r.timed && r.event.kind == server::TimerKind::t_fb && r.event.result == server::TimerResult::fallback, "not dispatched by T_fb");
+					if (auto bad = srv.check_timed(r.event)) return bad;
+					CHECK(t.first_byte && *t.first_byte - anchor >= p.t_fb, "the fallback spoke before T_fb on the client's clock");
+					break;
+				case When::t_dec:
+					CHECK(r.timed && r.event.kind == server::TimerKind::t_dec, "not closed by T_dec");
+					if (auto bad = srv.check_timed(r.event)) return bad;
+					CHECK(t.end && *t.end - anchor >= p.t_dec, "closed before T_dec on the client's clock");
+					break;
+				case When::t_hdr:
+					CHECK(r.timed && r.event.kind == server::TimerKind::t_hdr, "not closed by T_hdr");
+					if (auto bad = srv.check_timed(r.event)) return bad;
+					CHECK(t.end && *t.end - anchor >= p.t_hdr, "closed before T_hdr on the client's clock");
+					break;
+			}
+			if (v.expect == Expect::classified) CHECK(r.end_pass == r.last_read_pass, "classified in pass " << r.end_pass << ", not in the pass of its byte (B2 c)");
+			// B2 (d): user-space payload while pending, and no buffer without a byte.
+			const std::uint32_t bound = detect == Detect::replay ? server::kRecvBuf : 0;
+			CHECK(r.max_user_bytes <= bound, "held " << r.max_user_bytes << " payload bytes in user space while pending; the bound is " << bound << " (B2 d)");
+			CHECK(!r.buffer_while_silent, "held a data buffer while no byte had arrived (B2 d)");
+			// The timers start at accept, or when the PROXY header is complete.
+			if (r.has_proxy && (v.when == When::t_fb || v.when == When::t_dec)) CHECK(r.timers_start > r.accept_time, "the timers did not wait for the PROXY header");
+			return std::nullopt;
+		}
+
+		std::string_view coverage_word(Coverage c)
+		{
+			switch (c)
+			{
+				case Coverage::full: return "PASS";
+				case Coverage::stub: return "PASS-STUB";
+				case Coverage::partial: return "PASS-PARTIAL";
+			}
+			return "?";
+		}
+
+		bool is_split_case(int hc) { return hc == 2 || hc == 3 || hc == 10 || hc == 20; }
+
+	}  // namespace
+
+	int run_case(int hc, std::string_view mode_name)
+	{
+		const Detect detect = mode_name == "peek" ? Detect::peek : Detect::replay;
+		const opcase::SuiteParams p;
+		char hcid[8];
+		std::snprintf(hcid, sizeof(hcid), "HC%02d", hc);
+		std::printf("%s (%s), epoll, inproc, %s: %u replicates; suite timers %lld ms, GAP_SPLIT stand-in %lld ms, G stand-in %lld ms\n", hcid,
+		            std::string(opcase::title(hc)).c_str(), std::string(mode_name).c_str(), p.replicates, static_cast<long long>(p.t_dec.count()),
+		            static_cast<long long>(p.gap_split.count()), static_cast<long long>(p.g.count()));
+		std::vector<Variant> vs;
+		try
+		{
+			vs = opcase::variants(hc, p);
+		}
+		catch (const std::exception& e)
+		{
+			std::printf("FAIL: %s: building the variants: %s\n", hcid, e.what());
+			return 1;
+		}
+		Servers servers(detect, p);
+		std::map<Coverage, int> passed;
+		int failed = 0;
+		for (const Variant& v : vs)
+		{
+			Result bad;
+			unsigned split_seen = 0;
+			try
+			{
+				// The reference transcript: the same script against the dedicated port, once.
+				opcase::Transcript ded;
+				std::vector<server::DetectionReport> ded_reps;
+				const bool proxy = proxy_of(v.setup);
+				if (v.reply == Reply::dedicated)
+				{
+					Running& d = servers.dedicated(proxy);
+					bad = run_one(d, v.script, d.port_of(v.dedicated), ded, ded_reps);
+					if (!bad && v.dedicated == detect::Proto::http1 && ded.received != opcase::text(http1::kResponse200))
+					{
+						bad = "the dedicated HTTP/1.1 port did not answer 200";
+					}
+				}
+				// Z2: the HTTP/1.1 grammar on invalid input in dedicated mode too.
+				if (!bad && v.dedicated_http_reply)
+				{
+					Running& d = servers.dedicated(proxy);
+					opcase::Transcript dt;
+					std::vector<server::DetectionReport> dr;
+					bad = run_one(d, v.script, d.port_of(detect::Proto::http1), dt, dr);
+					if (!bad)
+					{
+						if (auto b = check_reply(*v.dedicated_http_reply, dt, nullptr)) bad = "dedicated mode: " + *b;
+					}
+				}
+				Running& srv = servers.one_port(v.setup);
+				for (unsigned rep = 0; rep < p.replicates && !bad; ++rep)
+				{
+					opcase::Transcript t;
+					std::vector<server::DetectionReport> reps;
+					bad = run_one(srv, v.script, srv.port(), t, reps);
+					if (!bad) bad = check_run(v, detect, p, srv, t, reps, v.reply == Reply::dedicated ? &ded : nullptr);
+					if (bad) bad = "replicate " + std::to_string(rep + 1) + ": " + *bad;
+					else if (reps[0].wakeups >= 2) ++split_seen;
+				}
+			}
+			catch (const std::exception& e)
+			{
+				bad = std::string("exception: ") + e.what();
+			}
+			if (bad)
+			{
+				++failed;
+				std::printf("FAIL: %s %s: %s\n", v.id.c_str(), std::string(mode_name).c_str(), bad->c_str());
+				continue;
+			}
+			++passed[v.coverage];
+			std::printf("%s %s %s: %u/%u", std::string(coverage_word(v.coverage)).c_str(), v.id.c_str(), std::string(mode_name).c_str(), p.replicates, p.replicates);
+			if (is_split_case(hc)) std::printf("; detection woke %u of %u times more than once", split_seen, p.replicates);
+			if (!v.pending.empty()) std::printf("; pending: %s", v.pending.c_str());
+			std::printf("\n");
+		}
+		const Result end = servers.stop_and_check();
+		if (end)
+		{
+			++failed;
+			std::printf("FAIL: %s %s: after the runs: %s\n", hcid, std::string(mode_name).c_str(), end->c_str());
+		}
+		std::printf("SUMMARY %s %s: variants %zu; full %d, stub %d, partial %d; failed %d\n", hcid, std::string(mode_name).c_str(), vs.size(), passed[Coverage::full],
+		            passed[Coverage::stub], passed[Coverage::partial], failed);
+		std::fflush(stdout);
+		return failed == 0 ? 0 : 1;
+	}
+
+}  // namespace oneport::test
+
+#else
+
+#include <cstdio>
+
+namespace oneport::test
+{
+	int run_case(int, std::string_view)
+	{
+		std::printf("the M1 case suite runs on Linux\n");
+		return 77;
+	}
+}  // namespace oneport::test
+
+#endif

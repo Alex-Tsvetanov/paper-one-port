@@ -1,6 +1,8 @@
-# The test suite: one CTest entry per (group, case), as in P1's suite.
-add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp test_support.hpp)
-target_link_libraries(oneport_tests PRIVATE oneport_config oneport_loop oneport_server)
+# The test suite: one CTest entry per (group, case), as in P1's suite. Every entry also runs in each
+# sanitizer build (hypotheses.md, section 11).
+add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp server_tests.cpp case_tests.cpp
+               test_support.hpp harness.hpp)
+target_link_libraries(oneport_tests PRIVATE oneport_server oneport_loop opcase)
 oneport_warnings(oneport_tests)
 
 set(ONEPORT_FLAG_TESTS
@@ -35,6 +37,58 @@ endforeach()
 add_test(NAME structure.mode_readers
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_mode_readers.cmake)
 set_tests_properties(structure.mode_readers PROPERTIES TIMEOUT 60 LABELS structure)
+
+# The server on epoll and the hard cases: Linux. Elsewhere every case is pending (IOCP is M6).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(ONEPORT_SERVER_TESTS
+        server.http_keepalive.oneport_replay server.http_keepalive.oneport_peek server.http_keepalive.dedicated
+        server.dedicated_ports server.dedicated_proxy server.peek_lowat.peek server.peek_lowat.replay
+        server.kernel_rcvlowat_et server.check_byte_wins.replay server.check_byte_wins.peek
+        server.two_workers.shared_replay server.two_workers.shared_peek server.two_workers.reuseport_replay
+        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending server.not_served)
+    foreach(_test IN LISTS ONEPORT_SERVER_TESTS)
+        add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+        set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS server)
+    endforeach()
+    add_test(NAME server.binary_smoke COMMAND oneport_tests test server.binary_smoke $<TARGET_FILE:oneport>)
+    set_tests_properties(server.binary_smoke PROPERTIES TIMEOUT 120 LABELS server)
+endif()
+
+# The 25 hard cases of hypotheses.md, Appendix A. How much of each frozen outcome M1 checks, by
+# label: full; stub (detection and timing checked, the exchange is an M1 stub handler's until M2);
+# partial (the detection checked, the rest of the outcome pending M2). Every case also has entries
+# for the dispatch modes and backends M1 does not serve, marked pending with the reason.
+set(_stub_cases 1 2 3 5 7 15)
+set(_partial_cases 20)
+foreach(_n RANGE 1 25)
+    if(_n LESS 10)
+        set(_id HC0${_n})
+    else()
+        set(_id HC${_n})
+    endif()
+    set(_coverage full)
+    if(_n IN_LIST _stub_cases)
+        set(_coverage stub)
+    elseif(_n IN_LIST _partial_cases)
+        set(_coverage partial)
+    endif()
+    foreach(_mode replay peek)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            add_test(NAME case.${_id}.epoll.inproc.${_mode} COMMAND oneport_tests case ${_n} ${_mode})
+            set_tests_properties(case.${_id}.epoll.inproc.${_mode} PROPERTIES TIMEOUT 600 LABELS "case;epoll;${_coverage}")
+            add_test(NAME case.${_id}.epoll.relay.${_mode} COMMAND oneport_tests pending ${_id}.epoll.relay.${_mode} pending M2: relay dispatch)
+            set_tests_properties(case.${_id}.epoll.relay.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
+            foreach(_dispatch inproc relay)
+                add_test(NAME case.${_id}.io_uring.${_dispatch}.${_mode}
+                         COMMAND oneport_tests pending ${_id}.io_uring.${_dispatch}.${_mode} pending M2: the io_uring backend)
+                set_tests_properties(case.${_id}.io_uring.${_dispatch}.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
+            endforeach()
+        elseif(WIN32)
+            add_test(NAME case.${_id}.IOCP.inproc.${_mode} COMMAND oneport_tests pending ${_id}.IOCP.inproc.${_mode} pending M6: the IOCP backend)
+            set_tests_properties(case.${_id}.IOCP.inproc.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
+        endif()
+    endforeach()
+endforeach()
 
 # The binary's command line: its exit code and output, through run_expect.cmake. The arm uses
 # the first backend this platform compiles.

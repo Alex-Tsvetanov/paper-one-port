@@ -2,11 +2,13 @@
 //
 //   oneport_tests flags <case>              the flag parser (bench/server/config.cpp)
 //   oneport_tests loop <backend> <case>     the event loop (bench/loop) on one compiled backend
-//   oneport_tests test <name>               detect.*, http.* (tests/*_tests.cpp)
+//   oneport_tests test <name> [binary]      detect.*, http.*, server.* (tests/*_tests.cpp)
+//   oneport_tests case <n> <replay|peek>    hard case n on epoll, in-process (tests/case_tests.cpp)
+//   oneport_tests pending <id> <reason>     a case M1 cannot run: prints why, exits kSkip
 //
 // Exit 0 and "PASS: ..." on success; exit 1 and "FAIL: <file>:<line>: <reason>" on a failed check;
-// exit 2 on a usage error. The flag tests pass an explicit platform to the parser, so they run
-// alike on every host.
+// exit 2 on a usage error; kSkip (77, CTest's SKIP_RETURN_CODE) for a pending entry. The flag
+// tests pass an explicit platform to the parser, so they run alike on every host.
 #include "config.hpp"
 #include "oneport/loop.hpp"
 #include "test_support.hpp"
@@ -37,6 +39,7 @@ namespace
 	using oneport::Platform;
 
 	using oneport::test::Result;
+	constexpr int kSkip = 77;
 
 	// ---- flags ----
 
@@ -567,8 +570,8 @@ namespace
 	int usage_error(const char* what)
 	{
 		std::fprintf(stderr,
-		             "oneport_tests: %s\nusage: oneport_tests flags <case> | loop <backend> <case> | test <name>"
-		             "\n",
+		             "oneport_tests: %s\nusage: oneport_tests flags <case> | loop <backend> <case> | test <name> [binary] | "
+		             "case <n> <replay|peek> | pending <id> <reason>\n",
 		             what);
 		return 2;
 	}
@@ -581,11 +584,30 @@ int main(int argc, char** argv)
 	std::map<std::string, std::function<Result()>> tests;
 	std::string name;
 	std::string test_case;
-	if (a.size() == 2 && a[0] == "test")
+	if (a.size() >= 3 && a[0] == "pending")
+	{
+		std::string reason;
+		for (std::size_t i = 2; i < a.size(); ++i)
+		{
+			if (!reason.empty()) reason += ' ';
+			reason += a[i];
+		}
+		std::printf("PENDING: %s: %s\n", std::string(a[1]).c_str(), reason.c_str());
+		return kSkip;
+	}
+	if (a.size() == 3 && a[0] == "case")
+	{
+		const int hc = std::atoi(std::string(a[1]).c_str());
+		if (hc < 1 || hc > 25 || (a[2] != "replay" && a[2] != "peek")) return usage_error("bad case arguments");
+		return oneport::test::run_case(hc, a[2]);
+	}
+	if ((a.size() == 2 || a.size() == 3) && a[0] == "test")
 	{
 		oneport::test::Registry registry;
 		oneport::test::register_detect_tests(registry);
 		oneport::test::register_http_tests(registry);
+		oneport::test::register_server_tests(registry);
+		if (a.size() == 3) oneport::test::binary_path() = std::string(a[2]);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");
 		Result r;
