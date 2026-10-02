@@ -91,36 +91,32 @@ namespace oneport::test
 			/// The relay's backend: a server in dedicated mode with PROXY off.
 			Running& relay_backend() { return dedicated(false); }
 
+			/// The servers are kept only once started: a server that cannot start throws, and no
+			/// entry is left behind for stop_and_check().
 			Running& one_port(Setup s)
 			{
-				auto& slot = one_port_[s];
-				if (!slot)
+				if (const auto it = one_port_.find(s); it != one_port_.end()) return *it->second;
+				ServerArgs a = base();
+				a.mode = Mode::one_port;
+				a.proxy = proxy_of(s) ? Proxy::on : Proxy::off;
+				a.fallback = fallback_of(s) ? Fallback::smtp : Fallback::none;
+				if (relays())
 				{
-					ServerArgs a = base();
-					a.mode = Mode::one_port;
-					a.proxy = proxy_of(s) ? Proxy::on : Proxy::off;
-					a.fallback = fallback_of(s) ? Fallback::smtp : Fallback::none;
-					if (relays())
-					{
-						a.dispatch = Dispatch::relay;
-						a.relay_port = relay_backend().port(0);
-					}
-					slot = std::make_unique<Running>(a);
+					a.dispatch = Dispatch::relay;
+					a.relay_port = relay_backend().port(0);
 				}
-				return *slot;
+				auto started = std::make_unique<Running>(a);
+				return *one_port_.emplace(s, std::move(started)).first->second;
 			}
 
 			Running& dedicated(bool proxy)
 			{
-				auto& slot = dedicated_[proxy];
-				if (!slot)
-				{
-					ServerArgs a = base();
-					a.mode = Mode::dedicated;
-					a.proxy = proxy ? Proxy::on : Proxy::off;
-					slot = std::make_unique<Running>(a);
-				}
-				return *slot;
+				if (const auto it = dedicated_.find(proxy); it != dedicated_.end()) return *it->second;
+				ServerArgs a = base();
+				a.mode = Mode::dedicated;
+				a.proxy = proxy ? Proxy::on : Proxy::off;
+				auto started = std::make_unique<Running>(a);
+				return *dedicated_.emplace(proxy, std::move(started)).first->second;
 			}
 
 			/// Stops every server and checks each (harness.hpp); the fronts first, then their backend.
