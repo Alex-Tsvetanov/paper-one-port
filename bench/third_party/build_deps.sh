@@ -15,7 +15,8 @@
 #
 # The flavours and their flags (the same compiler as the server: clang 22.1.8 on L):
 #   release  no sanitizer; the Debug and Release builds of oneport link it
-#   asan     ASan with UBSan (OpenSSL: enable-asan enable-ubsan)
+#   asan     ASan with UBSan (OpenSSL: enable-asan enable-ubsan, and openssl-ubsan.ignorelist,
+#            which leaves -fsanitize=function out of crypto/stack/stack.c alone)
 #   tsan     TSan (OpenSSL has no enable-tsan; -fsanitize=thread is passed as a compiler flag)
 #   msan     MSan (OpenSSL: enable-msan, which also turns assembly off, Configure line 707)
 # OpenSSL options common to every flavour: a static build (no-shared, as INSTALL.md asks for
@@ -63,7 +64,7 @@ fresh() {  # fresh DIR: stop if DIR exists
 openssl_flags() {
     case $1 in
         release) echo "" ;;
-        asan) echo "enable-asan enable-ubsan" ;;
+        asan) echo "enable-asan enable-ubsan -fsanitize-ignorelist=$here/openssl-ubsan.ignorelist" ;;
         tsan) echo "-fsanitize=thread -fno-omit-frame-pointer -g" ;;
         msan) echo "enable-msan -fsanitize-memory-track-origins=2" ;;
         *) echo "build_deps: unknown flavour $1" >&2; exit 2 ;;

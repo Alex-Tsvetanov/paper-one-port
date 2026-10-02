@@ -1,0 +1,12 @@
+# A clang sanitizer special-case list for OpenSSL's ASan+UBSan flavour (build_deps.sh asan).
+#
+# OpenSSL 3.5.9 frees a stack's elements by calling each typed free function through the generic
+# pointer type OPENSSL_sk_freefunc, void (*)(void *): crypto/stack/stack.c line 440,
+# `func((char *)st->data[i]);`, reached for example from crypto/property/property_parse.c line 400,
+# `sk_OSSL_PROPERTY_DEFINITION_pop_free(sk, &pd_free);` with pd_free(OSSL_PROPERTY_DEFINITION *).
+# clang 22's -fsanitize=function (part of -fsanitize=undefined for C) reports every such call.
+# It is OpenSSL's code, not oneport's, so only that check and only in that file is left out;
+# every other UBSan check stays on in all of OpenSSL, and oneport's own code keeps the function
+# check. Declared in bench/coverage.json.
+[function]
+src:*/crypto/stack/stack.c
