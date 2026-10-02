@@ -1109,5 +1109,9 @@ Log sha256:
     ClientHello is what opgen will send to it.
   The pending entries `case.*.epoll.relay.*` and `case.*.io_uring.*` (150) then become run
   entries.
+- I29's "payload bytes copied in user space": the HTTP/1.1 and SMTP compaction counts in
+  `bytes_copied`, the output tail copied into a connection's queue does not yet. Both modes run
+  the same code, so no cost contrast is touched; M2b's relay copy should settle one rule for all
+  three and apply it.
 - On L everything M2b needs is installed: OpenSSL 3.5.9 and nghttp2 1.70.0 in four flavours in
   `~/opt`, the test certificate, the recorded ClientHello. Nothing blocks M2b.
