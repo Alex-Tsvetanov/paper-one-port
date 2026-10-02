@@ -76,6 +76,56 @@ endfunction()
 
 find_package(Threads REQUIRED)
 
+# The pinned third-party C libraries, OpenSSL and nghttp2 (bench/cmake/pins.cmake), built by
+# bench/third_party/build_deps.sh into ONEPORT_OPT, one prefix per flavour: release for builds
+# without a sanitizer, and asan, tsan or msan with the sanitizer of this build (proposal Z3).
+# Linux only in M2; Windows builds them in M6. ONEPORT_OPENSSL_ROOT and ONEPORT_NGHTTP2_ROOT
+# override the prefixes; the prefixes used are kept in the cache (ONEPORT_*_USED).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(ONEPORT_OPT "$ENV{HOME}/opt" CACHE PATH "Where build_deps.sh installed the third-party libraries")
+    set(ONEPORT_OPENSSL_ROOT "" CACHE PATH "Overrides the OpenSSL prefix")
+    set(ONEPORT_NGHTTP2_ROOT "" CACHE PATH "Overrides the nghttp2 prefix")
+    if(ONEPORT_SANITIZER STREQUAL "")
+        set(_flavour release)
+    elseif(ONEPORT_SANITIZER STREQUAL "address+undefined" OR ONEPORT_SANITIZER STREQUAL "address")
+        set(_flavour asan)
+    elseif(ONEPORT_SANITIZER STREQUAL "thread")
+        set(_flavour tsan)
+    elseif(ONEPORT_SANITIZER STREQUAL "memory")
+        set(_flavour msan)
+    else()
+        message(FATAL_ERROR "no third-party flavour for ONEPORT_SANITIZER=${ONEPORT_SANITIZER}")
+    endif()
+    set(_ossl "${ONEPORT_OPT}/openssl-${ONEPORT_OPENSSL_VERSION}-${_flavour}")
+    if(ONEPORT_OPENSSL_ROOT)
+        set(_ossl "${ONEPORT_OPENSSL_ROOT}")
+    endif()
+    set(_ng "${ONEPORT_OPT}/nghttp2-${ONEPORT_NGHTTP2_VERSION}-${_flavour}")
+    if(ONEPORT_NGHTTP2_ROOT)
+        set(_ng "${ONEPORT_NGHTTP2_ROOT}")
+    endif()
+    foreach(_lib "${_ossl}/lib/libssl.a" "${_ossl}/lib/libcrypto.a" "${_ng}/lib/libnghttp2.a")
+        if(NOT EXISTS "${_lib}")
+            message(FATAL_ERROR "missing ${_lib}: run bench/third_party/build_deps.sh ${_flavour}")
+        endif()
+    endforeach()
+    set(ONEPORT_OPENSSL_USED "${_ossl}" CACHE INTERNAL "The OpenSSL prefix this build links")
+    set(ONEPORT_NGHTTP2_USED "${_ng}" CACHE INTERNAL "The nghttp2 prefix this build links")
+    add_library(oneport_dep_crypto STATIC IMPORTED)
+    set_target_properties(oneport_dep_crypto PROPERTIES IMPORTED_LOCATION "${_ossl}/lib/libcrypto.a"
+                          INTERFACE_INCLUDE_DIRECTORIES "${_ossl}/include"
+                          INTERFACE_LINK_LIBRARIES "Threads::Threads;${CMAKE_DL_LIBS}")
+    add_library(oneport_dep_ssl STATIC IMPORTED)
+    set_target_properties(oneport_dep_ssl PROPERTIES IMPORTED_LOCATION "${_ossl}/lib/libssl.a"
+                          INTERFACE_INCLUDE_DIRECTORIES "${_ossl}/include"
+                          INTERFACE_LINK_LIBRARIES oneport_dep_crypto)
+    add_library(oneport_dep_nghttp2 STATIC IMPORTED)
+    set_target_properties(oneport_dep_nghttp2 PROPERTIES IMPORTED_LOCATION "${_ng}/lib/libnghttp2.a"
+                          INTERFACE_INCLUDE_DIRECTORIES "${_ng}/include")
+    message(STATUS "oneport: OpenSSL ${_ossl}; nghttp2 ${_ng}")
+    add_subdirectory(bench/tls)
+endif()
+
 add_subdirectory(bench/loop)
 add_subdirectory(bench/server)
 add_subdirectory(bench/cases)
