@@ -44,11 +44,16 @@ FAILED = "95% tests passed, 4 tests failed out of 87"
 CONFIG = {"CMAKE_BUILD_TYPE": "Release"}
 failures = 0
 runs = iter(range(1000))
+printed: list[str] = []
 
 
 def expect(name: str, ok: bool) -> None:
+    """Prints one result line. A record scans the CTest log (ctest -V) for the report pattern, so
+    no line printed here may match it; main() checks that."""
     global failures
-    print(("ok: " if ok else "FAIL: ") + name)
+    line = ("ok: " if ok else "FAIL: ") + name
+    printed.append(line)
+    print(line)
     failures += not ok
 
 
@@ -82,11 +87,12 @@ def pattern() -> None:
                found is not None and found.group(1) == SHARED_PATTERN)
     else:
         print(f"skip: {PATTERN_TEST} (the Papers repo is not checked out around this one)")
-    for line in ("==4711==WARNING: MemorySanitizer: use-of-uninitialized-value",
-                 "==4711==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000011",
-                 "WARNING: ThreadSanitizer: data race (pid=4711)",
-                 "src/a.cpp:12:5: runtime error: signed integer overflow"):
-        expect(f"a report line matches: {line[:40]}", m.REPORT.search(line) is not None)
+    samples = ("==4711==WARNING: MemorySanitizer: use-of-uninitialized-value",
+               "==4711==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000011",
+               "WARNING: ThreadSanitizer: data race (pid=4711)",
+               "src/a.cpp:12:5: runtime error: signed integer overflow")
+    for i, line in enumerate(samples, 1):
+        expect(f"report sample {i} of {len(samples)} matches", m.REPORT.search(line) is not None)
     expect("a clean line does not match", m.REPORT.search("100% tests passed out of 87") is None)
 
 
@@ -135,6 +141,8 @@ def main() -> int:
     pattern()
     with tempfile.TemporaryDirectory() as t:
         end_to_end(Path(t))
+    report = re.compile(SHARED_PATTERN)
+    expect("no line this test printed matches the report pattern", not any(report.search(p) for p in printed))
     print(f"{failures} failed" if failures else "all checks passed")
     return 1 if failures else 0
 
