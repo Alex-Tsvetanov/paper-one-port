@@ -9,8 +9,8 @@ has run.
 | Id | Milestone | State |
 |---|---|---|
 | M0 | Foundations | done, 2026-10-02 (below) |
-| M1 | epoll server with the detection table, the HTTP/1.1 handler and the 25-case generator as a deterministic test suite under every sanitizer | next |
-| M2 | h2c, TLS, PROXY, SSH and MQTT; relay mode and io_uring | |
+| M1 | epoll server with the detection table, the HTTP/1.1 handler and the 25-case generator as a deterministic test suite under every sanitizer | done, 2026-10-02 (below) |
+| M2 | h2c, TLS, PROXY, SSH and MQTT; relay mode and io_uring | next |
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | |
 | M4 | Competitors | |
 | M5 | Iterate until it wins | |
@@ -317,12 +317,350 @@ Also on W, unasked, as a compile check before M6: a Debug build with MSVC 19.51.
 Tools 18.6.2, Ninja) at 45023e9 had no warnings, and 29 of 29 CTest entries passed (14 flags,
 9 `loop.IOCP`, 4 cli, 2 gate).
 
+## M1, 2026-10-02
+
+### Commits (papers/one-port)
+
+| Commit | Message |
+|---|---|
+| 6b0cb58 | feat: the detection table, pure and constexpr, checked at compile time over its corpus |
+| f01ab4a | test: the detection table at run time, at every split, and the PROXY parser |
+| e9ef952 | feat: the HTTP/1.1 handler's parser, with the detector's grammar in both modes |
+| 51f64a7 | feat: the epoll loop registers sockets and returns each wait's events |
+| 6a1016a | feat: oneport serves on epoll: detection, timers, in-process dispatch and the handlers |
+| 35f4ffa | feat: opcase, the case generator: the 25 hard cases as scripts with their frozen outcomes |
+| 1521c10 | test: the hard-case suite (B1, B2) and the server's functional tests on epoll |
+
+This file is committed after them. Each commit builds alone on L (Debug, clang 22.1.8, Ninja)
+with no warning and passes its own suite (38, 49, 54, 54, 57, 57 and 275 CTest entries); the
+logs are in `~/lab/p3/m1-check/commits/<sha>/`. Nothing is pushed to origin; the `lab` remote has
+every commit.
+
+### What M1 built
+
+**The detection table** (`bench/server/detect.hpp`, `detect_corpus.hpp`). Pure and free of I/O.
+- The five matchers of hypotheses.md section 1, in the frozen order (TLS, h2c, HTTP/1.1, SSH,
+  MQTT). Each is a `constexpr` function over the bytes received so far. It returns yes (with
+  its decision length), no (with the byte that ruled it out) or more (with the fewest bytes in
+  all with which it could still say yes).
+- The first-byte sets are derived from the matchers, and a `static_assert` checks them against
+  the frozen table. The 256-entry bucket array puts the smaller `need` first.
+- `classify()` checks the empty candidate set, then runs the candidates until one says yes.
+- The PROXY v1 and v2 parser of I9, strict. A v2 header is checked at 16 bytes with its first 13
+  matching, a v1 line at 8 bytes with its first 5 equal to "PROXY". A prefix that cannot match
+  closes the connection. A v2 header longer than 536 bytes is rejected at its length field, and
+  a v1 line longer than 107 bytes is rejected.
+- The checks of proposal I7 are `static_assert`s over a corpus built from the specifications'
+  shapes:
+  - each sample is accepted by its own matcher within its `need`;
+  - no matcher accepts any prefix of another protocol's sample;
+  - the bucket order and its reverse give the same decision on every prefix;
+  - every `need` maximum is at most B_dec;
+  - HC16's derivation holds;
+  - the PROXY samples parse as expected.
+- They also build under MSVC.
+
+**The HTTP/1.1 parser** (`bench/server/http1.hpp`). It returns I26's fixed 200. In both modes the
+request line first runs the table's HTTP/1.1 matcher. So two CRLFs, an unlisted method or a
+second SP close without a response in dedicated mode as in one-port mode. Other malformed
+requests get 400.
+
+**The server** (`bench/server/`):
+- Files:
+  - `server.cpp`: the sockets and `Server`;
+  - `worker.hpp`, `worker.cpp`: connection state, the pass, accept, the PROXY header, detection
+    and timers;
+  - `handlers.cpp`: the handlers, output and connection lifecycle;
+  - `counters.cpp`;
+  - `listeners.cpp`: the only reader of `Config::mode` besides the parser.
+- Workers and listeners. One epoll worker per thread. Sockets are edge-triggered with
+  EPOLLRDHUP in both modes. The listener is shared by all workers through EPOLLEXCLUSIVE, or a
+  SO_REUSEPORT group gives one socket per worker.
+- Replay mode reads into the handler's buffer, taken on the first readiness.
+- Peek mode copies at most B_dec bytes with `MSG_PEEK` into a per-worker scratch buffer. When the
+  table is undecided, it sets `SO_RCVLOWAT` to the matcher's `more` total, and resets it to 1
+  before the handler reads.
+- On a PROXY listener the header comes first. Peek mode consumes it with an exact `recv`; replay
+  mode and dedicated listeners skip it in the buffer.
+- Timers (I13). One FIFO deadline list per listener and timer (T_hdr, T_fb, T_dec). A pass:
+  - waits with `epoll_pwait2` until the earliest deadline;
+  - re-reads the clock;
+  - handles all readiness events;
+  - then handles every expiry at or before that reading.
+  T_hdr starts at accept. T_fb and T_dec start at accept, or when the PROXY header is complete.
+- The check of 1(b) is a one-byte `MSG_PEEK | MSG_DONTWAIT` receive before each fallback
+  dispatch. A byte wins, and the bytes decide the connection in that pass.
+- Outcomes (a) to (h) are counted per class. The counters of I29 are per worker, without atomics,
+  and each timed event's deadline, wait return, previous wait return and pass are recorded
+  (`Counters::timed`). The binary prints them at SIGTERM.
+- Handlers:
+  - HTTP/1.1: the real handler of I26, with keep-alive, pipelining and `Connection: close`;
+  - h2c, TLS, MQTT, SSH and SMTP: clearly marked M1 stubs (below), which M2 replaces.
+- `--backend io_uring`, `--dispatch relay` and `--mode stub` exit 3 with "not served in M1"; on W,
+  IOCP does the same.
+- The connection state is 400 bytes (`sizeof`, L, clang 22.1.8). The binary prints it at start
+  (I15).
+
+**opcase** (`bench/cases/`), named as hypotheses.md section 2.4 names it. In M1 it is a library
+that the suite runs in-process.
+- Each of the 25 hard cases of Appendix A expands into variants, 164 in all. Each variant is a
+  script of writes and gaps, sent with `TCP_NODELAY` and one write per chunk.
+- Write times are recorded on CLOCK_MONOTONIC, the server's clock.
+- Each variant carries its frozen expected outcome: the class or end, what ends it (at once,
+  T_fb, T_dec, T_hdr), the reply, and where frozen the deciding byte, the PROXY source and the
+  rejection reason.
+- The ClientHello is built from RFC 8446's structure. The recorded one of I18 is M2's.
+
+**The suite** (`tests/`):
+- `tests/case_tests.cpp` runs every variant 16 times against a one-port server, once per
+  detection mode. It checks B1 and B2 on each run.
+  - The outcome and class are checked.
+  - The transcript must equal the same script's transcript against the dedicated port of the
+    expected class (I20, Z2).
+  - B2(a) and (b) are checked exactly from the server's record: prev_wait_return < deadline <=
+    wait_return <= handled_at, and deadline = start + T.
+  - B2(c): the classification happens in the pass of the receive or peek that brought its byte.
+  - B2(d): the payload held in user space while pending is at most the handler's buffer in
+    replay and none in peek, and no data buffer is held while no byte has arrived.
+  - B2(e): a half-close closes in the pass that observed it.
+  - Each timer is also checked from below on the client's clock. The client takes its reference
+    time before connect, so it is no later than the server's accept.
+- `tests/server_tests.cpp` covers the server's functions:
+  - keep-alive and pipelining in both modes;
+  - the six dedicated ports;
+  - T_hdr on a dedicated PROXY port (the pilot timer part's path);
+  - the `SO_RCVLOWAT` drip: peek wakes exactly twice, and replay wakes on the drips (at least
+    three times);
+  - the kernel behaviour peek rests on, pinned on L's kernel. With edge-triggered epoll, setting
+    the mark at or below the queued bytes raises an event, a mark above them raises none, data
+    below the mark raises none, reaching the mark raises one, and a half-close is reported above
+    the mark;
+  - the check of 1(b) with a byte that arrives in the pass of the expiry, through a hook between
+    a pass's events and its expiries, in both modes: the byte won, check_found_byte 1, no
+    fallback;
+  - two workers on the shared listener and on SO_REUSEPORT, in both modes, 200 connections each;
+  - all 96 flag combinations M1 serves;
+  - a stop with a pending connection;
+  - the binary itself: start, an HTTP/1.1 exchange, SIGTERM, exit 0 and its counters.
+- `tests/check_mode_readers.cmake` is the structural test of I21.
+
+### Flag combinations after M1
+
+- Served, and run by `server.flag_matrix` (all 96, each with an HTTP/1.1 exchange, the fallback
+  of a silent client where one is named, and the SMTP port in dedicated mode):
+  - `--mode` one-port or dedicated;
+  - `--detect` replay or peek;
+  - `--dispatch inproc --backend epoll`;
+  - `--proxy` off or on;
+  - `--fallback` none, SMTP or SSH;
+  - `--listener` shared or reuseport;
+  - `--workers` 1 or 2.
+- The timer flags take the suite's values. `--iocp-receive` and `--relay-copy` are accepted and
+  have no effect on epoll with in-process dispatch, so the matrix does not vary them.
+- Refused with exit 3 (the `cli.not_served_*` tests): io_uring (M2), relay (M2), stub mode (M2);
+  IOCP (M6, on W).
+
+### Design choices of M1
+
+Every number here is a design choice of M1, not a frozen value.
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| Receive buffer (I27) | 4096 bytes, every handler | `server.hpp` `kRecvBuf` | one page on L (read 2026-10-02); holds HC23's 4,096 bytes in one read. One size for all handlers, since replay reads before the class is known |
+| Events per wait | 64 | `loop.hpp` `kMaxEvents` | WL1's 64 connection slots per server core |
+| Peek window, PROXY stage | 560 bytes | `detect.hpp` `kPeekWindow` | the longest v2 header (536) and B_dec (24), so one peek covers the header and the table; derived from frozen constants |
+| Trigger mode | edge-triggered, EPOLLRDHUP | `worker.cpp` | I11 leaves it to engineering; the M1 brief fixes it. A short read counts as drained; after a half-close the read goes on to EOF |
+| Low-water mark | the fewest bytes in all with which some candidate could still say yes | `detect.hpp` | see reading 1 below |
+| Outcome names beyond the frozen ones | `rejected_budget`, `proxy_rejected`, `proxy_timeout`, `reset`, `stopped` | `server.hpp` | ends the frozen text does not name |
+| 400 response | `HTTP/1.1 400 Bad Request`, `Content-Length: 0`, `Connection: close`, then close | `http1.hpp` | I26 names the status, not its bytes |
+| HTTP/1.1 parser | the request-target is visible ASCII; the version is `HTTP/1.1` or `HTTP/1.0`, case-sensitive; header lines are name ":" OWS value OWS CRLF, without folding; HTTP/1.1 needs exactly one Host; no body (any Content-Length other than 0, or any Transfer-Encoding, gets 400); HTTP/1.0 closes after the response; a request that does not fit in the buffer gets 400 | `http1.hpp` | minimal, and the same in both modes |
+| M1 stub handlers | at entry, `oneport M1 stub <class>` and CRLF; at the client's EOF, `oneport M1 stub <class> received <n> bytes fnv1a64 <16 hex digits>` and CRLF; then close | `handlers.cpp` | lets the client see that the handler got every byte from the first, in replay and in peek. Replaced in M2 |
+| Listening address | 127.0.0.1 | `server.cpp` | loopback only |
+| Ports without `--port` | the first free run of consecutive ports, at most 100 tries | `server.cpp` | a test convenience |
+
+The suite's stand-ins and parameters, not the frozen values:
+
+| Name | Value | Reason |
+|---|---|---|
+| T_fb, T_dec, T_hdr | 300 ms | "short test timeouts" (section 11); the frozen value is 3 s |
+| GAP_SPLIT stand-in | 10 ms | HC2, HC10, HC20; the pilot sets GAP_SPLIT (9.2) |
+| G stand-in | 100 ms | HC7; the pilot sets G_L and G_W (9.2) |
+| Drip gap (HC3) | 5 ms | 24 bytes take 120 ms, inside T_dec |
+| Slow drip (HC4) | the first d - 1 bytes of the sample, d its decision length, one per write, spread over 2 × T_dec | still incomplete at T_dec |
+| HC24 Remaining Lengths | 12, 128, 16,384 and 2,097,152 | HC1's CONNECT, then the smallest values that need 2, 3 and 4 bytes |
+| HC14 headers | ALPN and AUTHORITY TLVs; 536 bytes in all; 537 bytes | at most 536, and one longer |
+| Replicates | 16 | the frozen count (B1) |
+| Server tests | flag matrix timers 100 ms; peek drip gaps 30 ms; T_hdr 200 ms in the dedicated PROXY test; 8 threads × 25 connections per two-worker test | functional, untimed |
+
+### The suite on L at 1521c10
+
+275 CTest entries: 125 run and pass, 150 are skipped as pending, and none fails.
+
+| Group | Entries | Result |
+|---|---|---|
+| `flags.*` | 14 | pass |
+| `loop.{epoll,io_uring}.*` | 18 | pass |
+| `detect.*`, `http.*` | 11, 5 | pass |
+| `structure.mode_readers` | 1 | pass |
+| `server.*` | 18 | pass |
+| `case.HCnn.epoll.inproc.{replay,peek}` | 50 | pass |
+| `cli.*` | 6 | pass |
+| `gate.*` | 2 | pass |
+| `case.HCnn.epoll.relay.*` | 50 | pending M2: relay dispatch |
+| `case.HCnn.io_uring.{inproc,relay}.*` | 100 | pending M2: the io_uring backend |
+
+The hard cases on epoll with in-process dispatch, per detection mode (the same in replay and
+peek): 164 variants, each run 16 times. 97 pass in full, 66 pass with an M1 stub handler, 1
+passes in part, and none fails. Labels: `full`, `stub`, `partial`.
+
+| Case | Variants | M1 checks | Pending |
+|---|---|---|---|
+| HC1 | 6 | HTTP/1.1 in full. h2c, TLS, MQTT 3.1.1, MQTT 5.0 and SSH: classified, transcript equal to the dedicated port's (an M1 stub's) | the exchanges (nghttp2, OpenSSL, CONNACK, the SSH line): M2 |
+| HC2 | 62 | as HC1, every k from 1 to the matcher's largest need minus 1 | as HC1; GAP_SPLIT is a stand-in |
+| HC3 | 6 | as HC1 | as HC1 |
+| HC4 | 6 | full: undecided at T_dec | |
+| HC5 | 1 | fallback at T_fb; the transcript equals the dedicated SMTP port's (an M1 stub's) | the SMTP exchange (220, 250, 221): M2 |
+| HC6 | 1 | full: silent at T_dec | |
+| HC7 | 2 | twin: full, HTTP/1.1. Late: fallback at T_fb, transcript equal to the dedicated SMTP port's | the 500 from the SMTP handler: M2; G is a stand-in |
+| HC8 | 1 | full: rejected at byte 1 | |
+| HC9 | 1 | full: the source recorded is the header's; 200 | |
+| HC10 | 27 | full, every k inside the 28-byte header | GAP_SPLIT is a stand-in |
+| HC11 | 1 | full: closed at once (the PROXY prefix) | |
+| HC12 | 1 | full: closed at T_hdr | |
+| HC13 | 1 | full: TLS | |
+| HC14 | 3 | full: MQTT after TLVs and after a 536-byte header; 537 bytes rejected at the length field | |
+| HC15 | 1 | fallback at T_fb after the header completed (client-side bound from the header's write) | the greeting is the SMTP handler's 220: M2 |
+| HC16 | 24 | full: rejected at byte k + 1 | |
+| HC17 | 2 | full, in one-port and in dedicated mode | |
+| HC18 | 1 | full: SSH | |
+| HC19 | 2 | full: TLS | |
+| HC20 | 1 | partial: classified TLS from the first record | the handshake (TLS termination) and the SNI routing (relay): M2 |
+| HC21 | 4 | full: undecided and silent at once, also on a fallback listener | |
+| HC22 | 2 | full: reset; state freed and counters consistent after the entry | |
+| HC23 | 2 | full: rejected at bytes 4 and 1, no budget exceeded; closed without a response in dedicated mode | |
+| HC24 | 5 | full: MQTT for the four Remaining Lengths, MQIsdp rejected | |
+| HC25 | 1 | full: HTTP/1.1, 400, in both modes | |
+
+After each entry the servers are stopped and checked:
+- every accepted connection was closed, and no connection or buffer is left;
+- every one-port connection had exactly one outcome;
+- no budget was exceeded;
+- every timed event meets B2(a) and (b).
+
+### Sanitizer checks on L (development checks, not records)
+
+Work tree `~/lab/p3/one-port` at 1521c10, clang 22.1.8, Ninja; build trees and logs in
+`~/lab/p3/m1-check/`; `ctest -V -j 8`. "Report lines" counts the lines of the ctest log that
+match the shared report pattern.
+
+| Build | CMake | Build | CTest | Report lines |
+|---|---|---|---|---|
+| Debug | `-DCMAKE_BUILD_TYPE=Debug` | 0 warnings | 125 passed, 150 skipped, 0 failed | 0 |
+| ASan+UBSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address+undefined` | 0 warnings | the same | 0 |
+| TSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=thread` | 0 warnings | the same | 0 |
+| MSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=memory`, the libc++ 22.1.8 at `~/opt/libcxx-msan-gcc` | 0 warnings | the same | 0 |
+
+- Options:
+  - ASan runs with M0's `ASAN_OPTIONS` and `UBSAN_OPTIONS`;
+  - TSan and MSan use the runtime defaults, as `lab/bin/sanitize.sh` does.
+- Each run takes about 30 s; the timers dominate.
+- Instrumentation, as checked:
+  - the test binary of each build defines the runtime's symbols (`nm`: 324 `__asan_`, 173
+    `__tsan_`, 64 `__msan_`);
+  - the MSan binaries load `libc++` and `libc++abi` from `~/opt/libcxx-msan-gcc/lib`.
+- TSan runs the two-worker tests on the shared listener and on SO_REUSEPORT.
+- A stress run of the same four builds at the same time, each with `ctest -V -j 16` (64 tests on
+  16 CPUs), also passed with 0 report lines (`stress-*-1521c10.ctest.log`).
+
+Log sha256:
+
+    1c91c2e88059778289326bbb0305e51bc7db4abe817e3a41a4fe184836b8cb45  debug-1521c10.build.log
+    f366abe0801c2ab49cfead531ba64833496ca8e3738d26f5e7b7290958e983e5  debug-1521c10.ctest.log
+    2a12d0ec600f73257aad78ea0e27034490f7b5b893e8e508452bc309cc81617a  asan-1521c10.build.log
+    b6f1aea5cd2d3f0c0771915c7a139d8d8836c47609bf775216f8a430c159cc7c  asan-1521c10.ctest.log
+    a7dc7804f09c2c8738df69803322ebcf99d948ce582c1d684bf406fa1eccd24d  tsan-1521c10.build.log
+    ceb6ee361ad3e6bce14f6d8a00a2ae196182769a3b66f066e67072a55e32d13d  tsan-1521c10.ctest.log
+    753ce0e313291a2707ee6e6c2216996faa73c2ac073237d5367a578f198b25d8  msan-1521c10.build.log
+    e2d1fd234156d75871cfd55b9e0c5f15595956c10d408b681570aa0cfe81988a  msan-1521c10.ctest.log
+    9840fa4c62536bd58f84bfa31e62811334cf6740061b3c71be37a8940a1bdafa  stress-debug-1521c10.ctest.log
+    ec34d58b946e686f623c51a308d8fa31f6ec27b0fb718cdc5b41c6b384f1f08b  stress-asan-1521c10.ctest.log
+    cd0d4064988b92358963bf5f4927960456988c1ea7c9d466ac2dbffbed9a7ffb  stress-tsan-1521c10.ctest.log
+    48ab204b5695a0e1e49a71c91950a59885312060aa6d3ba5b1094a79cadd18d9  stress-msan-1521c10.ctest.log
+
+Also on W, as a compile check before M6 (as in M0):
+- a Debug build with MSVC 19.51.36246.0 (Build Tools 18.6.2, Ninja), out of tree in a scratch
+  directory, of the tree that became 1521c10 (before the split of `server.cpp`), built with no
+  warning, so the compile-time checks of the table also hold under MSVC;
+- 96 CTest entries: 46 passed (14 flags, 9 `loop.IOCP`, 16 pure, 1 structure, 4 cli, 2 gate),
+  and 50 IOCP case entries were skipped as pending M6.
+
+### Where the frozen text was read one way
+
+Each item may need a revision-log entry of hypotheses.md. The frozen text is not edited.
+
+1. "The number of bytes still needed" (proposal I6) and the low-water mark of peek mode (I11):
+   - Read as: the fewest bytes in all with which some remaining candidate could still say yes.
+   - So in peek mode, an impossible byte that leaves the queue below the mark is not "delivered"
+     (section 1: observed by the loop) until the mark is met, the peer shuts down, or T_dec.
+   - A connection that sends "P" and later "X" is then closed at T_dec as undecided (1 d), where
+     replay rejects it when "X" arrives (1 e).
+   - No hard case does this: HC16 and HC23 are single writes.
+2. T_dec on a silent connection of a fallback listener does not close it; T_fb decides, since
+   1(a) says such a connection is "never closed or routed elsewhere instead". With the frozen
+   T_fb = T_dec the two fall due together and T_fb is handled first, so this matters only when
+   T_dec < T_fb.
+3. HC2's "every k from 1 to the matcher's need minus 1", for the matchers whose need varies
+   (HTTP/1.1 at most 10, MQTT 9 to 12): k runs to the largest need minus 1. Splits after the
+   sample's decision point are therefore included. HC3 drips the first largest-need bytes.
+4. HC4's "slow drip": the first d - 1 bytes of the signature, spread over 2 × T_dec, so that the
+   drip is still running at T_dec.
+5. HC7's "written at T_fb + G" and "at T_fb - G", on a clock the client shares with the server:
+   - the late write is at the client's connect return + T_fb + G;
+   - the twin is at the client's time just before connect + T_fb - G;
+   - so each lies at least G from the server's deadline, whatever the accept delay.
+6. HC10's "split after every byte k inside it, then HTTP/1.1": two writes, the header's first k
+   bytes, then the rest of the header with the request.
+7. TLS "a record length of at most 2^14" is read literally: a length of 0 is accepted.
+8. MQTT "a Remaining Length of 1 to 4 bytes": only its length is checked, not its value or a
+   minimal encoding.
+   - HC24's 4-byte case cannot be a well-formed CONNECT, since no payload reaches 2,097,152 bytes.
+   - The case sends that Remaining Length with filler after a 65,535-byte client identifier.
+   - Its frozen outcome, MQTT, is the classification.
+9. HTTP/1.1's "exactly one SP": the matcher decides at the method and its SP, so within its 10
+   bytes. The handler closes a second SP without a response, in both modes, as I26 says.
+10. PROXY v2's "first 13 matching": the 13th byte matches when its version is 2. A command other
+    than LOCAL or PROXY is malformed and closes too.
+11. 1(h) on a PROXY listener:
+    - a half-close during an incomplete header with bytes is "undecided", and with no byte
+      "silent";
+    - after a complete header with no application byte it is "silent".
+12. "Pending M2" for IOCP: the M1 brief lists IOCP among the pending M2 items, but the milestone
+    list above puts Windows in M6. The suite marks IOCP entries "pending M6", and only on W; L
+    lists none.
+13. HC1, HC2, HC3, HC13, HC18, HC19 and HC24 state an outcome ("classified", "TLS", "SSH",
+    "MQTT"). For HC13, HC18, HC19 and HC24, which name only the class, M1 counts the check as
+    full. For HC1 to HC3, whose outcome includes the dedicated port's transcript, it counts as
+    stub, since that transcript is an M1 stub's.
+
+### Not in M1
+
+- The io_uring backend, relay dispatch, stub mode and IOCP.
+- The handlers of h2, TLS, MQTT, SSH and SMTP (M1 stubs stand in), and the recorded ClientHello.
+- `opgen` and `ophold`.
+- The sanitizer driver and the records: at the code freeze, by the M1 brief.
+- K_SRC (M3, as M0 says).
+- A per-connection decision record for hard-case runs against a server in its own process
+  (WL8's decision time against `opcase`'s write times). In M1 the suite reads it through
+  in-process hooks; M3 needs it from the binary.
+- Nothing was installed on L or W.
+
 ## Follow-ups outside this repository
 
-- `lab/bin/test_report_pattern.sh` lists the record writers by path. Add
-  `papers/one-port/bench/oneport_record.py` to it. Until then, `bench/test_record_writers.py`
-  checks the writer's pattern against the script's `want`.
+- `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
+  added `papers/one-port/bench/oneport_record.py` to it.
 - The Papers repo's submodule pointer for `papers/one-port` (the coordinator's commit).
+- The readings of "Where the frozen text was read one way" (M1), for the revision log of
+  hypotheses.md if Alex or the coordinator agree.
 
 ## What M1 starts from
 
@@ -336,8 +674,48 @@ Tools 18.6.2, Ninja) at 45023e9 had no warnings, and 29 of 29 CTest entries pass
   `bench/keep_record_logs.sh`. It runs `lab/bin/inputs_hash.py` in project mode (build name
   `oneport`, with config keys for the code-selecting options) and writes
   `oneport-<commit>-L-{asan,tsan,msan}.json` with `bench/oneport_record.py`, keeping its logs
-  under `~/lab/records-logs/`. M1 makes the first records.
+  under `~/lab/records-logs/`. M1 makes the first records. (Changed by the M1 brief: M1's
+  sanitizer runs are development checks, and records are made at the code freeze, M7. M1 did not
+  write the driver.)
 - The 25 hard cases of Appendix A of hypotheses.md as a deterministic CTest suite, run under every
   sanitizer.
 - On L: the work tree `~/lab/p3/one-port` and the `lab` remote; push, then
   `git -C ~/lab/p3/one-port pull --ff-only`.
+
+## What M2 starts from
+
+- The server on epoll:
+  - `bench/server/worker.{hpp,cpp}` and `handlers.cpp`, with the outcome counters and the timed
+    events;
+  - the deadline lists, which the io_uring wait uses through its timeout argument;
+  - the listener setup in `listeners.cpp`, where `not_served_in_m1()` lists what M2 opens.
+- io_uring:
+  - the multishot accept;
+  - replay into provided buffers;
+  - peek by `IORING_OP_POLL_ADD` with `POLLRDHUP` and a synchronous `MSG_PEEK`;
+  - the check of 1(b) as a non-waiting reap where a receive is posted with a buffer;
+  - the RK4 pin test (the poll completes only at `SO_RCVLOWAT`), after
+    `server.kernel_rcvlowat_et`;
+  - the counters of `io_uring_enter` calls and submissions by opcode.
+  `UringLoop` has only `start`, `wait` and `stop` so far.
+- Handlers. Replace the M1 stubs in `handlers.cpp` with:
+  - h2 (nghttp2);
+  - TLS (OpenSSL through memory BIOs, the settings of I24);
+  - MQTT, SSH and SMTP (I26).
+  Then in `bench/cases/cases.cpp`, the stub variants of HC1 to HC3, HC5, HC7 and HC15 become
+  full: their `Reply::dedicated` stays, and the transcripts become the real ones. HC7's 500 and
+  HC20's handshake become checkable.
+- Relay and stub mode:
+  - the front's loopback connection and the copy of rule E (user-space with `RELAY_BUF`, or
+    `splice`);
+  - the pass-through ClientHello parser with B_CH and its SNI and ALPN routing (HC20);
+  - stub mode (I18).
+  The pending entries `case.*.epoll.relay.*` and `case.*.io_uring.*` then become run entries.
+- Prerequisites on L. Nothing was installed in M1; each goes into `~/opt` with a sha256 under the
+  rules above:
+  - OpenSSL from the 3.5 LTS series, built from its pinned tarball (L has 3.6.4);
+  - nghttp2 v1.70.0 from its pinned source, built with each sanitizer's flags (Z3), MSan against
+    the MSan libc++;
+  - then the recorded ClientHello of I18, from that OpenSSL with the settings of I24, replacing
+    the synthetic one of `opcase`.
+- Nothing blocks M2 beyond these prerequisites.
