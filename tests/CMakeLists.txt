@@ -113,12 +113,8 @@ oneport_cli_test(print_config 0 "detect replay.+dispatch inproc.+backend ${_firs
 oneport_cli_test(usage_error 2 "missing --detect, --dispatch, --backend" --mode one-port)
 oneport_cli_test(help 0 "usage: oneport" --help)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    oneport_cli_test(not_served_io_uring 3 "not served yet: the io_uring backend is M2b"
-                     --mode one-port --detect replay --dispatch inproc --backend io_uring)
-    oneport_cli_test(not_served_relay 3 "not served yet: relay dispatch is M2b"
-                     --mode one-port --detect replay --dispatch relay --backend epoll)
-    oneport_cli_test(not_served_stub 3 "not served yet: stub mode"
-                     --mode stub --detect replay --dispatch inproc --backend epoll)
+    oneport_cli_test(relay_needs_port 2 "--dispatch relay needs --relay-port"
+                     --mode one-port --detect replay --dispatch relay --backend io_uring)
 else()
     oneport_cli_test(not_served_iocp 3 "not served yet: the IOCP backend is M6" ${_arm})
 endif()

@@ -1,19 +1,23 @@
-// oneport's server on epoll (design/proposal.md I3 to I5, I9 to I16, I20, I22 to I24, I26, I27,
-// I29; the fallback rules of hypotheses.md, section 1).
+// oneport's server on epoll and io_uring (design/proposal.md I3 to I5, I9 to I18, I20, I22 to I24,
+// I26, I27, I29; the fallback rules of hypotheses.md, section 1).
 //
-// One worker per thread, each with its own epoll set (bench/loop). The sockets are non-blocking
-// and registered edge-triggered with EPOLLRDHUP in both modes (the trigger mode is fixed in
-// engineering, proposal I11: edge-triggered, as the M1 brief and nginx's peek path have it).
+// One worker per thread, each with its own epoll set or io_uring ring (bench/loop). On epoll the
+// sockets are non-blocking and registered edge-triggered with EPOLLRDHUP in both modes (the
+// trigger mode is fixed in engineering, proposal I11: edge-triggered, as the M1 brief and nginx's
+// peek path have it); io_uring is completion-based (bench/server/uring.cpp).
 //
-// A pass: wait until the earliest deadline (epoll_pwait2), read the clock, handle every readiness
-// event, then every expiry whose deadline is at or before the clock reading taken after the wait.
-// A deadline that passes while the pass handles events waits for the next pass, whose wait then
-// returns at once (B2 b). Before a fallback dispatch, the check of 1(b) peeks one byte.
+// A pass: wait until the earliest deadline (epoll_pwait2, or io_uring_enter with its timeout),
+// read the clock, handle every readiness event or completion, then every expiry whose deadline is
+// at or before the clock reading taken after the wait. A deadline that passes while the pass
+// handles events waits for the next pass, whose wait then returns at once (B2 b). Before a
+// fallback dispatch, the check of 1(b) peeks one byte, or on io_uring in replay reaps the ring
+// without waiting.
 //
 // The connection state is a tagged union of handler states, and dispatch is a switch on the tag
 // (I3). A one-port listener sets the tag at classification, a dedicated listener at accept.
 #include "server.hpp"
 
+#include <array>
 #include <stdexcept>
 #include <system_error>
 #include <thread>
@@ -156,7 +160,26 @@ namespace oneport::server
 		impl_->shared.ssl_ctx = impl_->ssl_ctx.get();
 		impl_->options = options;
 		impl_->specs = listener_specs(config);
+		impl_->shared.backend = config.backend;
 		impl_->shared.detect = config.detect;
+		// Relay dispatch applies to one-port listeners only; the listeners know whether they detect.
+		impl_->shared.relay = config.dispatch == Dispatch::relay && config.relay_port.has_value();
+		impl_->shared.splice = config.relay_copy == RelayCopy::splice;
+		if (impl_->shared.relay)
+		{
+			for (std::size_t i = 0; i < detect::kProtos; ++i)
+			{
+				// The backend's listeners, in the order of I20: HTTP/1.1, h2c, TLS, MQTT, SSH, SMTP.
+				static constexpr std::array<Proto, detect::kProtos> kOrder{Proto::http1, Proto::h2c, Proto::tls, Proto::mqtt, Proto::ssh, Proto::smtp};
+				const std::uint32_t port = static_cast<std::uint32_t>(*config.relay_port) + static_cast<std::uint32_t>(i);
+				if (port > 65535) throw std::invalid_argument("--relay-port leaves no room for the backend's six ports");
+				sockaddr_in& a = impl_->shared.backends[static_cast<std::size_t>(kOrder[i])];
+				a = sockaddr_in{};
+				a.sin_family = AF_INET;
+				a.sin_port = htons(static_cast<std::uint16_t>(port));
+				a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+			}
+		}
 		impl_->shared.t_fb = std::chrono::milliseconds(config.t_fb_ms);
 		impl_->shared.t_dec = std::chrono::milliseconds(config.t_dec_ms);
 		impl_->shared.t_hdr = std::chrono::milliseconds(config.t_hdr_ms);

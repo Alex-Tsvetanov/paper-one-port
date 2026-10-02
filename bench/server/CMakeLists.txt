@@ -8,7 +8,7 @@ oneport_warnings(oneport_config)
 # compile-time checks of its corpus (detect_corpus.hpp), so a table that breaks one does not build.
 add_library(oneport_server STATIC
     detect.hpp detect_corpus.hpp detect_checks.cpp http1.hpp apps.hpp apps.cpp clienthello.hpp
-    counters.cpp listeners.cpp server.cpp server.hpp worker.hpp worker.cpp handlers.cpp)
+    counters.cpp listeners.cpp server.cpp server.hpp worker.hpp worker.cpp handlers.cpp uring.cpp relay.cpp)
 target_include_directories(oneport_server PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(oneport_server PUBLIC oneport_config oneport_loop)
 # The handlers that need the pinned libraries: h2 (nghttp2) and TLS (OpenSSL, bench/tls). Linux

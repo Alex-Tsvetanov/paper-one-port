@@ -1,14 +1,16 @@
 // The worker's handlers (proposal I26), TLS termination (I22 to I24), its output and its
 // connections' lifecycle (see worker.hpp). The protocol steps are in apps.cpp and h2.cpp.
 //
-// Every handler runs the same code in both modes: entry differs (accept, classification or T_fb),
-// and so does where the first bytes are (in the buffer after replay, in the socket after peek),
-// and nothing after it. TLS reads the received bytes through the worker's BIO from the
-// connection's buffer, the one the handler would read into, and decrypts into a second buffer
-// (`plain`), from which the HTTP/1.1 or h2 handler reads as from the socket's bytes.
+// Every handler runs the same code in both modes and on both backends: entry differs (accept,
+// classification or T_fb), and so does where the first bytes are (in the buffer after replay, in
+// the socket after peek), and nothing after it. TLS reads the received bytes through the worker's
+// BIO from the connection's buffer, the one the handler would read into, and decrypts into a
+// second buffer (`plain`), from which the HTTP/1.1 or h2 handler reads as from the socket's bytes.
 //
+// Input: epoll reads synchronously on readiness (handler_readable); io_uring receives into the
+// buffer and runs the handler on the completion (uring.cpp, handler_run, want_read).
 // Output: a step appends to out_ (for TLS, OpenSSL encrypts it into wire_); one send per step.
-// What the socket does not take is copied into the connection's `pend` and sent on EPOLLOUT;
+// What the socket does not take is copied into the connection's `pend` and sent on writability;
 // while it waits, the connection reads nothing more, and the read resumes after the flush.
 #include "worker.hpp"
 
@@ -18,6 +20,7 @@
 #include <cstring>
 
 #include <openssl/err.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -48,6 +51,12 @@ namespace oneport::server::detail
 				return true;  // its SETTINGS leaves with the first output
 			case Proto::tls:
 			{
+				if (c->listener->spec->stub)
+				{
+					c->app = App::stub_tls;  // stub mode: one record, the 13-byte body, close (I18)
+					c->a.stub = apps::StubTlsState{};
+					return true;
+				}
 				c->app = App::none;  // HTTP/1.1 or h2, by ALPN, once the handshake completes
 				c->ssl = SSL_new(shared_.ssl_ctx);
 				BIO* b = c->ssl != nullptr ? tls::new_bio(&bio_) : nullptr;
@@ -80,7 +89,19 @@ namespace oneport::server::detail
 
 	void Worker::enter_handler(Conn* c, Proto p, Entry entry)
 	{
+		if (shared_.relay && c->listener->spec->detects)
+		{
+			start_relay(c, p, entry);
+			return;
+		}
 		if (!start_handler(c, p)) return;
+		if (uring())
+		{
+			// The bytes replay left in the buffer first; then the handler's receive.
+			if (entry == Entry::replay && !handler_run(c)) return;
+			want_read(c);
+			return;
+		}
 		switch (entry)
 		{
 			case Entry::accept:
@@ -145,18 +166,18 @@ namespace oneport::server::detail
 	void Worker::drop_empty_buffer(Conn* c) noexcept
 	{
 		if (c->buf == nullptr) return;
+		if (c->recv_into == Into::own && (c->posted & bit(Op::recv)) != 0) return;  // io_uring: a receive writes into it
 		pool_.put(c->buf);
 		c->buf = nullptr;
 		c->beg = 0;
 		c->len = 0;
 	}
 
-	void Worker::audit_pending(int fd, std::uint32_t gen) noexcept
+	void Worker::audit_pending(Conn* c) noexcept
 	{
-		Conn* c = by_fd_[static_cast<std::size_t>(fd)];
-		if (c == nullptr || c->gen != gen) return;  // closed
+		if (c->fd < 0 || c->zombie) return;  // closed
 		if (c->stage != Stage::proxy && c->stage != Stage::detect) return;
-		if (c->buf != nullptr && c->len == 0) c->buffer_while_silent = true;
+		if (c->buf != nullptr && c->len == c->beg && !(c->recv_into == Into::own && (c->posted & bit(Op::recv)) != 0)) c->buffer_while_silent = true;
 	}
 
 	void Worker::handler_readable(Conn* c, bool rdhup, bool must_read)
@@ -179,28 +200,34 @@ namespace oneport::server::detail
 					return;
 				}
 			}
-			Next next = Next::more;
-			std::vector<std::byte>* wire = &out_;
-			if (c->proto == Proto::tls)
-			{
-				next = tls_step(c);
-				wire = &wire_;
-			}
-			else
-			{
-				out_.clear();
-				next = app_step(c, View{c->buf, c->beg, c->len}, c->eof_seen, out_);
-				if (next == Next::need_room)
-				{
-					c->last_read_full = true;  // the tail moved to the front: read on into the room
-					next = Next::more;
-				}
-			}
-			if (!commit(c, *wire, next)) return;
-			if (c->buf != nullptr && c->beg == c->len) drop_empty_buffer(c);
+			if (!handler_run(c)) return;
 			if (c->eof_seen || !c->last_read_full) return;
 			must_read = true;  // the buffer was full: more may be queued
 		}
+	}
+
+	bool Worker::handler_run(Conn* c)
+	{
+		Next next = Next::more;
+		std::vector<std::byte>* wire = &out_;
+		if (c->proto == Proto::tls && c->app != App::stub_tls)
+		{
+			next = tls_step(c);
+			wire = &wire_;
+		}
+		else
+		{
+			out_.clear();
+			next = app_step(c, View{c->buf, c->beg, c->len}, c->eof_seen, out_);
+			if (next == Next::need_room)
+			{
+				c->last_read_full = true;  // the tail moved to the front: read on into the room
+				next = Next::more;
+			}
+		}
+		if (!commit(c, *wire, next)) return false;
+		if (c->buf != nullptr && c->beg == c->len) drop_empty_buffer(c);
+		return true;
 	}
 
 	Next Worker::app_step(Conn* c, View v, bool eof, std::vector<std::byte>& out)
@@ -215,6 +242,7 @@ namespace oneport::server::detail
 			case App::smtp: s = apps::smtp(in, room, eof, out); break;
 			case App::mqtt: s = apps::mqtt(c->a.mqtt, in, eof, out); break;
 			case App::ssh: s = apps::ssh(c->a.ssh, in, eof); break;
+			case App::stub_tls: s = apps::stub_tls(c->a.stub, in, eof, out); break;
 			case App::h2:
 			{
 				const bool ok = in.empty() || h2::feed(c->a.h2, in);
@@ -229,7 +257,7 @@ namespace oneport::server::detail
 		if (s.next == Next::need_room)
 		{
 			if (v.beg == 0) return Next::close_now;  // nothing to move: a step must decide a full buffer itself
-			// Move the incomplete tail to the start, counted as a user-space copy (I29).
+			// Move the incomplete tail to the start: a copy in user space (I29).
 			const std::uint32_t n = v.len - v.beg;
 			std::memmove(v.buf->data.data(), v.buf->data.data() + v.beg, n);
 			c_.bytes_copied += n;
@@ -379,7 +407,9 @@ namespace oneport::server::detail
 	{
 		if (!c->pend.empty())
 		{
+			// Behind output that waits: appended to the queue, a copy in user space (I29).
 			c->pend.insert(c->pend.end(), bytes.begin(), bytes.end());
+			c_.bytes_copied += bytes.size();
 			return true;
 		}
 		const ssize_t w = ::send(c->fd, bytes.data(), bytes.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
@@ -393,15 +423,29 @@ namespace oneport::server::detail
 		c_.bytes_sent += done;
 		c->bytes_sent += done;
 		if (done == bytes.size()) return true;
+		// The unsent tail into the connection's queue: a copy in user space (I29).
 		c->pend.assign(bytes.begin() + static_cast<std::ptrdiff_t>(done), bytes.end());
+		c_.bytes_copied += bytes.size() - done;
 		c->pend_off = 0;
-		if (!c->want_out)
-		{
-			loop_.modify(c->fd, kConnEvents | EPOLLOUT, tag_of(c));
-			++c_.epoll_ctl_calls;
-			c->want_out = true;
-		}
+		want_out(c);
 		return true;
+	}
+
+	void Worker::want_out(Conn* c)
+	{
+		if (uring())
+		{
+			if ((c->posted & bit(Op::poll_out)) != 0) return;
+			ur_->poll(c->fd, POLLOUT, ud(c, Op::poll_out));
+			posted(c, Op::poll_out);
+			++c_.out_waits;
+			return;
+		}
+		if (c->want_out) return;
+		++c_.out_waits;
+		ep_->modify(c->fd, kConnEvents | EPOLLOUT, tag_of(c->fd, c->gen));
+		++c_.epoll_ctl_calls;
+		c->want_out = true;
 	}
 
 	bool Worker::flush(Conn* c)
@@ -411,36 +455,56 @@ namespace oneport::server::detail
 		++c_.send_calls;
 		if (w < 0)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return true;
+			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+			{
+				if (uring()) want_out(c);  // the poll is single-shot: wait again
+				return true;
+			}
 			close_conn(c);
 			return false;
 		}
 		c_.bytes_sent += static_cast<std::uint64_t>(w);
 		c->bytes_sent += static_cast<std::uint64_t>(w);
 		c->pend_off += static_cast<std::size_t>(w);
-		if (c->pend_off < c->pend.size()) return true;
+		if (c->pend_off < c->pend.size())
+		{
+			if (uring()) want_out(c);
+			return true;
+		}
 		c->pend.clear();
 		c->pend_off = 0;
-		loop_.modify(c->fd, kConnEvents, tag_of(c));
-		++c_.epoll_ctl_calls;
-		c->want_out = false;
+		if (!uring())
+		{
+			ep_->modify(c->fd, kConnEvents, tag_of(c->fd, c->gen));
+			++c_.epoll_ctl_calls;
+			c->want_out = false;
+		}
 		if (c->close_after_out)
 		{
 			close_conn(c);
 			return false;
 		}
 		// Resume: a read that waited for this flush, or bytes left in the buffer by a full read.
-		const bool again = c->read_deferred || c->last_read_full;
-		c->read_deferred = false;
-		handler_readable(c, false, again);
-		return c->fd >= 0 && by_fd_[static_cast<std::size_t>(c->fd)] == c;
+		const std::uint64_t id = c->id;
+		if (uring())
+		{
+			c->read_deferred = false;
+			if (handler_run(c)) want_read(c);
+		}
+		else
+		{
+			const bool again = c->read_deferred || c->last_read_full;
+			c->read_deferred = false;
+			handler_readable(c, false, again);
+		}
+		return c->id == id && c->fd >= 0 && !c->zombie;
 	}
 
 	// ---- Connections ----
 
-	std::uint64_t Worker::tag_of(const Conn* c) const noexcept
+	std::uint64_t Worker::tag_of(int fd, std::uint32_t gen) const noexcept
 	{
-		return (static_cast<std::uint64_t>(c->gen) << 32) | static_cast<std::uint32_t>(c->fd);
+		return (static_cast<std::uint64_t>(gen) << 32) | static_cast<std::uint32_t>(fd);
 	}
 
 	Conn* Worker::new_conn(int fd)
@@ -452,19 +516,27 @@ namespace oneport::server::detail
 			gen_by_fd_.resize(slot + 1, 0);
 		}
 		Conn* c = nullptr;
+		std::uint32_t index = 0;
+		std::uint32_t gen = 0;
 		if (free_conns_.empty())
 		{
 			conns_.push_back(std::make_unique<Conn>());
 			c = conns_.back().get();
+			index = static_cast<std::uint32_t>(conns_.size() - 1);
 		}
 		else
 		{
 			c = free_conns_.back();
 			free_conns_.pop_back();
+			index = c->slot;
+			gen = c->gen;
 		}
 		*c = Conn{};
 		c->fd = fd;
-		c->gen = ++gen_by_fd_[slot] & 0x3FFFFFFFu;  // 30 bits: a tag never sets kListenerTag's bit
+		c->slot = index;
+		// epoll: the generation of the descriptor (30 bits: a tag never sets kListenerTag's bit);
+		// io_uring: the generation of the slot (24 bits, the user_data's field).
+		c->gen = uring() ? ((gen + 1) & 0xFFFFFFu) : (++gen_by_fd_[slot] & 0x3FFFFFFFu);
 		c->id = ++next_id_;
 		by_fd_[slot] = c;
 		++open_;
@@ -473,8 +545,8 @@ namespace oneport::server::detail
 
 	void Worker::close_conn(Conn* c)
 	{
+		if (c->fd < 0 || c->zombie) return;
 		for (std::size_t k = 0; k < 3; ++k) disarm(c, static_cast<TimerKind>(k));
-		drop_empty_buffer(c);
 		if (c->plain != nullptr)
 		{
 			pool_.put(c->plain);
@@ -498,28 +570,80 @@ namespace oneport::server::detail
 			r.worker = index_;
 			r.conn = c->id;
 			r.peer_port = c->peer_port;
-			r.handled = c->stage == Stage::handler;
-			r.proto = c->proto;
+			r.handled = c->stage == Stage::handler || c->stage == Stage::relay;
+			r.proto = c->stage == Stage::relay && c->relay ? c->relay->proto : c->proto;
 			r.bytes_received = c->bytes_received;
 			r.bytes_sent = c->bytes_sent;
 			shared_.hooks.closed(shared_.hooks.ctx, r);
 		}
-		by_fd_[static_cast<std::size_t>(c->fd)] = nullptr;
-		::close(c->fd);  // also removes it from the epoll set
+		if (by_fd_[static_cast<std::size_t>(c->fd)] == c) by_fd_[static_cast<std::size_t>(c->fd)] = nullptr;
+		if (c->relay)
+		{
+			Relay& r = *c->relay;
+			for (int* p : {&r.up.pipe_r, &r.up.pipe_w, &r.down.pipe_r, &r.down.pipe_w})
+			{
+				if (*p >= 0) ::close(*p);
+				*p = -1;
+			}
+			if (r.fd >= 0)
+			{
+				if (by_fd_.size() > static_cast<std::size_t>(r.fd) && by_fd_[static_cast<std::size_t>(r.fd)] == c) by_fd_[static_cast<std::size_t>(r.fd)] = nullptr;
+				if (r.reset)
+				{
+					const linger l{1, 0};
+					::setsockopt(r.fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+				}
+				::close(r.fd);
+				r.fd = -1;
+			}
+		}
+		if (c->relay && c->relay->reset)
+		{
+			const linger l{1, 0};
+			::setsockopt(c->fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+		}
+		::close(c->fd);  // on epoll this also removes it from the set; io_uring holds it until its operations end
 		c->fd = -1;
 		c->pend.clear();
 		c->pend.shrink_to_fit();
 		++c_.closed;
 		--open_;
+		if (uring() && c->posted != 0)
+		{
+			cancel_all(c);  // finalize() when the last completion arrives
+			return;
+		}
+		finalize(c);
+	}
+
+	void Worker::finalize(Conn* c)
+	{
+		if (c->zombie)
+		{
+			c->zombie = false;
+			--zombies_;
+		}
+		c->recv_into = Into::provided;
+		drop_empty_buffer(c);
+		if (c->buf != nullptr)
+		{
+			pool_.put(c->buf);
+			c->buf = nullptr;
+		}
+		if (c->relay)
+		{
+			if (c->relay->down.buf != nullptr) pool_.put(c->relay->down.buf);
+			c->relay.reset();
+		}
 		free_conns_.push_back(c);
 	}
 
 	void Worker::close_all()
 	{
-		for (std::size_t slot = 0; slot < by_fd_.size(); ++slot)
+		for (const auto& owned : conns_)
 		{
-			Conn* c = by_fd_[slot];
-			if (c == nullptr) continue;
+			Conn* c = owned.get();
+			if (c->fd < 0 || c->zombie) continue;
 			if (c->stage == Stage::proxy || c->stage == Stage::detect)
 			{
 				++c_.outcomes[static_cast<std::size_t>(Outcome::stopped)];
@@ -530,7 +654,7 @@ namespace oneport::server::detail
 		c_.conns_open = open_;
 		c_.buffers_allocated = pool_.allocated();
 		c_.buffers_outstanding = pool_.outstanding();
-		c_.passes = loop_.passes();
+		if (ep_) c_.passes = ep_->passes();
 	}
 
 }  // namespace oneport::server::detail

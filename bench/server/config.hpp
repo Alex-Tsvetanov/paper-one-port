@@ -115,6 +115,9 @@ namespace oneport
 		Listener listener = Listener::shared;
 		std::uint32_t workers = 1;
 		std::optional<std::uint16_t> port;  // the first port; dedicated mode takes consecutive ones
+		/// Relay dispatch: the first port of the backend, a server in dedicated or stub mode on
+		/// 127.0.0.1 (proposal I17, I18), whose six listeners follow in the order of I20.
+		std::optional<std::uint16_t> relay_port;
 		std::int64_t t_fb_ms = kDesignTimerMs;
 		std::int64_t t_dec_ms = kDesignTimerMs;
 		std::int64_t t_hdr_ms = kDesignTimerMs;

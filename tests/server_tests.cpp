@@ -590,17 +590,22 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// Since M2b every Linux arm is served: both backends, every mode, both dispatch modes.
+		/// IOCP waits for M6.
 		Result not_served()
 		{
 			Config c = make_config(ServerArgs{});
-			c.backend = Backend::io_uring;
-			CHECK(server::not_served(c) == std::optional<std::string>("the io_uring backend is M2b"), "io_uring");
-			c.backend = Backend::epoll;
-			c.dispatch = Dispatch::relay;
-			CHECK(server::not_served(c).has_value(), "relay");
-			c.dispatch = Dispatch::inproc;
-			c.mode = Mode::stub;
-			CHECK(server::not_served(c).has_value(), "stub mode");
+			for (const Backend b : {Backend::epoll, Backend::io_uring})
+				for (const Mode m : {Mode::one_port, Mode::dedicated, Mode::stub})
+					for (const Dispatch d : {Dispatch::inproc, Dispatch::relay})
+					{
+						c.backend = b;
+						c.mode = m;
+						c.dispatch = d;
+						CHECK(!server::not_served(c), token(m) << " " << token(d) << " on " << token(b) << " is not served");
+					}
+			c.backend = Backend::iocp;
+			CHECK(server::not_served(c) == std::optional<std::string>("the IOCP backend is M6 (Windows)"), "IOCP");
 			bool refused = false;
 			try
 			{
@@ -611,8 +616,6 @@ namespace oneport::test
 				refused = true;
 			}
 			CHECK(refused, "the server refuses a configuration not served yet");
-			c.mode = Mode::one_port;
-			CHECK(!server::not_served(c), "one-port epoll inproc is served");
 			CHECK(server::Server::conn_state_bytes() > 0, "the connection state has a size");
 			return std::nullopt;
 		}

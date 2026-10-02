@@ -3,8 +3,8 @@
 // ClientHello are reassembled, up to B_CH, and the ClientHello's server name (SNI) and ALPN list
 // are read from it. Pure: no I/O, no allocation.
 //
-// M2a uses it to check the recorded ClientHello and opcase's TLS client (tests/tls_tests.cpp); the
-// relay's routing by SNI and ALPN, which reads ClientHellos with it, is M2b.
+// The relay's pass-through routes by it (bench/server/relay.cpp); the tests also check the recorded
+// ClientHello and opcase's TLS client with it (tests/clienthello_tests.cpp, handler_tests.cpp).
 #pragma once
 
 #include "detect.hpp"
@@ -33,6 +33,7 @@ namespace oneport::clienthello
 		std::uint32_t msg_len = 0;  // the handshake message's bytes, its 4-byte header included
 		std::uint32_t wire_len = 0; // the record bytes, headers included, up to the record that completed it
 		std::uint32_t records = 0;  // the records that carried it
+		std::uint32_t need = 0;     // more: the fewest record bytes in all, headers included, with which it can go on
 	};
 
 	/// Copies the handshake fragments of the records at the start of `wire` into `out` (at least
@@ -52,11 +53,19 @@ namespace oneport::clienthello
 				if (need > cap) return {Verdict::no, 0, 0, r.records};
 				if (got >= need) return {Verdict::yes, static_cast<std::uint32_t>(need), static_cast<std::uint32_t>(pos), r.records};
 			}
-			if (wire.size() - pos < 5) return r;
+			if (wire.size() - pos < 5)
+			{
+				r.need = static_cast<std::uint32_t>(pos + 5);
+				return r;
+			}
 			if (u8(wire[pos]) != 0x16 || u8(wire[pos + 1]) != 0x03) return {Verdict::no, 0, 0, r.records};
 			const std::size_t len = (std::size_t{u8(wire[pos + 3])} << 8) | u8(wire[pos + 4]);
 			if (len == 0 || len > 16384) return {Verdict::no, 0, 0, r.records};  // RFC 8446 s5.1
-			if (wire.size() - pos - 5 < len) return r;
+			if (wire.size() - pos - 5 < len)
+			{
+				r.need = static_cast<std::uint32_t>(pos + 5 + len);
+				return r;
+			}
 			if (got + len > cap) return {Verdict::no, 0, 0, r.records};
 			for (std::size_t i = 0; i < len; ++i) out[got + i] = wire[pos + 5 + i];
 			got += len;

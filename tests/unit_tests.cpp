@@ -99,7 +99,8 @@ namespace
 				{
 					for (const char* b : linux_backends)
 					{
-						const Args a{"--mode", m, "--detect", d, "--dispatch", p, "--backend", b};
+						Args a{"--mode", m, "--detect", d, "--dispatch", p, "--backend", b};
+						if (std::string_view(m) == "one-port" && std::string_view(p) == "relay") a = with(a, {"--relay-port", "9000"});
 						const auto r = parse(a, Platform::Linux);
 						CHECK(r.has_value(), m << " " << d << " " << p << " " << b << " refused: " << r.error());
 						CHECK(r->kind == oneport::Command::serve, "a plain arm is a serve command");
@@ -205,6 +206,7 @@ namespace
 		                         "listener shared\n"
 		                         "workers 1\n"
 		                         "port unset\n"
+		                         "relay-port unset\n"
 		                         "t-fb-ms 3000\n"
 		                         "t-dec-ms 3000\n"
 		                         "t-hdr-ms 3000\n";
@@ -216,12 +218,12 @@ namespace
 	Result flags_options()
 	{
 		const Args a = with(base(), {"--iocp-receive", "posted", "--relay-copy", "splice", "--proxy", "on", "--fallback", "SMTP",
-		                             "--listener", "reuseport", "--workers", "2", "--port", "8080", "--t-fb-ms", "60000",
-		                             "--t-dec-ms", "60000", "--t-hdr-ms", "250"});
+		                             "--listener", "reuseport", "--workers", "2", "--port", "8080", "--relay-port", "9000",
+		                             "--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "250"});
 		const auto r = parse(a, Platform::Linux);
 		CHECK(r.has_value(), "every option parses: " << r.error());
 		for (const char* line : {"iocp-receive posted", "relay-copy splice", "proxy on", "fallback SMTP", "listener reuseport", "workers 2",
-		                         "port 8080", "t-fb-ms 60000", "t-dec-ms 60000", "t-hdr-ms 250"})
+		                         "port 8080", "relay-port 9000", "t-fb-ms 60000", "t-dec-ms 60000", "t-hdr-ms 250"})
 		{
 			CHECK(has_line(r->config, line), "describe echoes '" << line << "'");
 		}
@@ -244,7 +246,10 @@ namespace
 		for (const std::string_view v : {"1", "65535"})
 		{
 			CHECK(parse(with(base(), {"--port", v}), Platform::Linux).has_value(), "--port " << v << " parses");
+			CHECK(parse(with(base(), {"--relay-port", v}), Platform::Linux).has_value(), "--relay-port " << v << " parses");
 		}
+		CHECK(refused_with(with(base(), {"--relay-port", "0"}), Platform::Linux, "--relay-port: '0' is not a port from 1 to 65535"),
+		      "--relay-port 0 is refused");
 		for (const std::string_view flag : {"--t-fb-ms", "--t-dec-ms", "--t-hdr-ms"})
 		{
 			for (const std::string_view v : {"0", "-5", "1.5", "3s", "9223372036854775808"})
@@ -266,8 +271,11 @@ namespace
 		      "reuseport on IOCP is refused");
 		for (const std::string_view b : {"epoll", "io_uring"})
 		{
-			CHECK(parse(with(without(base(b), "--dispatch"), {"--dispatch", "relay", "--relay-copy", "splice"}), Platform::Linux).has_value(),
+			CHECK(parse(with(without(base(b), "--dispatch"), {"--dispatch", "relay", "--relay-copy", "splice", "--relay-port", "9000"}), Platform::Linux)
+			          .has_value(),
 			      "relay with splice on " << b << " parses");
+			CHECK(refused_with(with(without(base(b), "--dispatch"), {"--dispatch", "relay"}), Platform::Linux, "--dispatch relay needs --relay-port"),
+			      "relay without its backend's port is refused on " << b);
 			CHECK(parse(with(base(b), {"--listener", "reuseport", "--workers", "2"}), Platform::Linux).has_value(),
 			      "reuseport on " << b << " parses");
 		}
@@ -296,6 +304,8 @@ namespace
 			                     Platform::Linux);
 			CHECK(r.has_value(), m << " with --detect peek parses: " << r.error());
 			CHECK(has_line(r->config, "detect peek") && has_line(r->config, "fallback SMTP"), m << " echoes the flags it does not use");
+			const auto q = parse(with(without(without(base(), "--mode"), "--dispatch"), {"--mode", m, "--dispatch", "relay"}), Platform::Linux);
+			CHECK(q.has_value() && has_line(q->config, "dispatch relay"), m << " accepts --dispatch relay without --relay-port: it relays nothing");
 		}
 		return std::nullopt;
 	}
@@ -308,7 +318,8 @@ namespace
 		CHECK(mixed.has_value() && mixed->kind == oneport::Command::help, "--help after an arm is a help command");
 		const std::string text = oneport::usage();
 		for (const char* f : {"--mode", "--detect", "--dispatch", "--backend", "--iocp-receive", "--relay-copy", "--proxy", "--fallback",
-		                      "--listener", "--workers", "--port", "--t-fb-ms", "--t-dec-ms", "--t-hdr-ms", "--print-config", "--help"})
+		                      "--listener", "--workers", "--port", "--relay-port", "--t-fb-ms", "--t-dec-ms", "--t-hdr-ms", "--print-config",
+		                      "--help"})
 		{
 			CHECK(text.find(f) != std::string::npos, "the usage names " << f);
 		}

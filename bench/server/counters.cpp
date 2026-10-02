@@ -3,6 +3,10 @@
 
 #include <string>
 
+#if defined(__linux__)
+#include <linux/io_uring.h>
+#endif
+
 namespace oneport::server
 {
 
@@ -35,6 +39,41 @@ namespace oneport::server
 		return "?";
 	}
 
+	std::string_view name(Route r) noexcept
+	{
+		switch (r)
+		{
+			case Route::by_class: return "by_class";
+			case Route::by_sni: return "by_sni";
+			case Route::rejected: return "rejected";
+			case Route::connect_failed: return "connect_failed";
+		}
+		return "?";
+	}
+
+	namespace
+	{
+
+		/// The io_uring opcodes the server submits, by the names of IORING_OP_*; others by number.
+		std::string opcode_name(std::size_t op)
+		{
+#if defined(__linux__)
+			switch (op)
+			{
+				case IORING_OP_POLL_ADD: return "POLL_ADD";
+				case IORING_OP_ACCEPT: return "ACCEPT";
+				case IORING_OP_ASYNC_CANCEL: return "ASYNC_CANCEL";
+				case IORING_OP_CONNECT: return "CONNECT";
+				case IORING_OP_RECV: return "RECV";
+				case IORING_OP_SPLICE: return "SPLICE";
+				default: break;
+			}
+#endif
+			return "op" + std::to_string(op);
+		}
+
+	}  // namespace
+
 	Counters& Counters::operator+=(const Counters& o)
 	{
 		accept_calls += o.accept_calls;
@@ -52,10 +91,17 @@ namespace oneport::server
 		lowat_sets += o.lowat_sets;
 		lowat_resets += o.lowat_resets;
 		check_found_byte += o.check_found_byte;
+		connect_calls += o.connect_calls;
+		splice_calls += o.splice_calls;
+		shutdown_calls += o.shutdown_calls;
+		recv_retries += o.recv_retries;
+		out_waits += o.out_waits;
+		for (std::size_t i = 0; i < uring_submissions.size(); ++i) uring_submissions[i] += o.uring_submissions[i];
 		bytes_received += o.bytes_received;
 		bytes_peeked += o.bytes_peeked;
 		bytes_sent += o.bytes_sent;
 		bytes_copied += o.bytes_copied;
+		bytes_spliced += o.bytes_spliced;
 		detection_wakeups += o.detection_wakeups;
 		accepted += o.accepted;
 		closed += o.closed;
@@ -63,9 +109,14 @@ namespace oneport::server
 		for (std::size_t i = 0; i < classified.size(); ++i) classified[i] += o.classified[i];
 		for (std::size_t i = 0; i < fallback.size(); ++i) fallback[i] += o.fallback[i];
 		accept_errors += o.accept_errors;
+		relayed += o.relayed;
+		routed_by_sni += o.routed_by_sni;
+		route_rejected += o.route_rejected;
+		relay_connect_errors += o.relay_connect_errors;
 		conns_open += o.conns_open;
 		buffers_allocated += o.buffers_allocated;
 		buffers_outstanding += o.buffers_outstanding;
+		ring_buffers += o.ring_buffers;
 		passes += o.passes;
 		timed.insert(timed.end(), o.timed.begin(), o.timed.end());
 		return *this;
@@ -96,10 +147,25 @@ namespace oneport::server
 		line("lowat_sets", c.lowat_sets);
 		line("lowat_resets", c.lowat_resets);
 		line("check_found_byte", c.check_found_byte);
+		line("connect_calls", c.connect_calls);
+		line("splice_calls", c.splice_calls);
+		line("shutdown_calls", c.shutdown_calls);
+		line("recv_retries", c.recv_retries);
+		line("out_waits", c.out_waits);
+		for (std::size_t i = 0; i < c.uring_submissions.size(); ++i)
+		{
+			if (c.uring_submissions[i] == 0) continue;
+			s += "counter io_uring_submissions ";
+			s += opcode_name(i);
+			s += ' ';
+			s += std::to_string(c.uring_submissions[i]);
+			s += '\n';
+		}
 		line("bytes_received", c.bytes_received);
 		line("bytes_peeked", c.bytes_peeked);
 		line("bytes_sent", c.bytes_sent);
 		line("bytes_copied", c.bytes_copied);
+		line("bytes_spliced", c.bytes_spliced);
 		line("detection_wakeups", c.detection_wakeups);
 		line("accepted", c.accepted);
 		line("closed", c.closed);
@@ -128,9 +194,14 @@ namespace oneport::server
 			s += '\n';
 		}
 		line("accept_errors", c.accept_errors);
+		line("relayed", c.relayed);
+		line("routed_by_sni", c.routed_by_sni);
+		line("route_rejected", c.route_rejected);
+		line("relay_connect_errors", c.relay_connect_errors);
 		line("conns_open", c.conns_open);
 		line("buffers_allocated", c.buffers_allocated);
 		line("buffers_outstanding", c.buffers_outstanding);
+		line("ring_buffers", c.ring_buffers);
 		line("passes", c.passes);
 		line("timed_events", c.timed.size());
 		return s;

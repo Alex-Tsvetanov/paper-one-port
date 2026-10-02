@@ -1,10 +1,11 @@
 // oneport's server: listeners, workers, detection, timers, dispatch and handlers
 // (design/proposal.md, section 2; hypotheses.md, section 2.1).
 //
-// Served: the epoll backend with in-process dispatch, in one-port and dedicated mode, with both
-// detection modes, PROXY on or off, every fallback, both listener layouts and any worker count,
-// and every handler of I26 (HTTP/1.1, h2, TLS, MQTT, SSH, SMTP). The io_uring backend, relay
-// dispatch and stub mode are M2b; IOCP is M6 (not_served()).
+// Served on Linux: the epoll and io_uring backends; one-port, dedicated and stub mode; both
+// detection modes; in-process and relay dispatch (with both relay copies, and pass-through for
+// TLS); PROXY on or off; every fallback; both listener layouts and any worker count; and every
+// handler of I26 (HTTP/1.1, h2, TLS, MQTT, SSH, SMTP) and the stub's (I18). IOCP is M6
+// (not_served()).
 //
 // The counters (proposal I29) are plain integers per worker, read after stop(). The reports and
 // hooks below are the test suite's view of each connection (tests/case_tests.cpp); with no hook
@@ -100,17 +101,28 @@ namespace oneport::server
 		std::uint64_t epoll_wait_calls = 0;
 		std::uint64_t epoll_ctl_calls = 0;
 		std::uint64_t zero_byte_recv_calls = 0;  // IOCP (M6)
-		std::uint64_t io_uring_enter_calls = 0;  // io_uring (M2b)
+		std::uint64_t io_uring_enter_calls = 0;  // io_uring
 		std::uint64_t gqcs_calls = 0;            // GetQueuedCompletionStatus (M6)
 		std::uint64_t peek_to_replay = 0;        // IOCP's switch (M6)
 		std::uint64_t lowat_sets = 0;
 		std::uint64_t lowat_resets = 0;
 		std::uint64_t check_found_byte = 0;
+		std::uint64_t connect_calls = 0;   // relay: connects to the backend
+		std::uint64_t splice_calls = 0;    // relay with --relay-copy splice
+		std::uint64_t shutdown_calls = 0;  // relay: a half-close passed on
+		std::uint64_t recv_retries = 0;    // io_uring: a provided-buffer receive that found the ring empty (ENOBUFS)
+		std::uint64_t out_waits = 0;       // output that waited for writability (EPOLLOUT, or a POLLOUT poll)
+		/// io_uring submissions by opcode (IORING_OP_*), from the worker's ring.
+		std::array<std::uint64_t, 80> uring_submissions{};
 		// Payload bytes across the user and kernel boundary, and copied in user space.
 		std::uint64_t bytes_received = 0;
 		std::uint64_t bytes_peeked = 0;
 		std::uint64_t bytes_sent = 0;
+		/// Payload bytes the server's own code moved from one user-space place to another
+		/// (design/status.md, M2b, the rule of I29): a receive buffer's compaction, output copied
+		/// into or appended behind a connection's queue, a ClientHello moved to a larger buffer.
 		std::uint64_t bytes_copied = 0;
+		std::uint64_t bytes_spliced = 0;  // relay with splice: moved inside the kernel, counted by neither of the above
 		// Wakeups of connections during detection (the PROXY header included).
 		std::uint64_t detection_wakeups = 0;
 		// Connections and their outcomes.
@@ -120,10 +132,17 @@ namespace oneport::server
 		std::array<std::uint64_t, detect::kProtos> classified{};  // per class
 		std::array<std::uint64_t, detect::kProtos> fallback{};    // per fallback class
 		std::uint64_t accept_errors = 0;
+		// Relay dispatch (proposal I17): connections handed to a backend, by route, and the ends
+		// that are not detection outcomes (design choices of M2b).
+		std::uint64_t relayed = 0;               // connected to the backend
+		std::uint64_t routed_by_sni = 0;         // of which TLS, routed by its ClientHello
+		std::uint64_t route_rejected = 0;        // pass-through: no route for the ClientHello, or not a ClientHello
+		std::uint64_t relay_connect_errors = 0;  // the backend refused or failed the connect
 		// State at the end (after stop()).
 		std::uint64_t conns_open = 0;
 		std::uint64_t buffers_allocated = 0;
 		std::uint64_t buffers_outstanding = 0;
+		std::uint64_t ring_buffers = 0;  // io_uring: the provided buffers the ring held, a fixed count per worker
 		std::uint64_t passes = 0;
 		std::vector<TimedEvent> timed;
 
@@ -175,12 +194,40 @@ namespace oneport::server
 		std::uint64_t bytes_sent = 0;
 	};
 
+	/// How a relayed connection chose its backend (test hook).
+	enum class Route : std::uint8_t
+	{
+		by_class,        // the backend port of its class (or of the fallback's)
+		by_sni,          // TLS: pass-through, by the ClientHello's SNI and ALPN
+		rejected,        // TLS: no route for the ClientHello, or not a ClientHello
+		connect_failed,  // routed, but the backend refused the connection
+	};
+	std::string_view name(Route r) noexcept;
+
+	/// A relayed connection's route (test hook), when it is decided.
+	struct RelayReport
+	{
+		unsigned worker = 0;
+		std::uint64_t conn = 0;
+		std::uint16_t peer_port = 0;
+		Route route = Route::by_class;
+		Proto proto = Proto::http1;
+		std::uint16_t backend_port = 0;
+		std::uint64_t route_pass = 0;
+		/// Pass-through: the ClientHello's message length (its 4-byte header included) and the
+		/// records that carried it, and the most payload bytes held while it was incomplete.
+		std::uint32_t hello_len = 0;
+		std::uint32_t hello_records = 0;
+		std::uint32_t held_max = 0;
+	};
+
 	/// Test instrumentation, null in the binary. Each hook runs on the worker thread.
 	struct Hooks
 	{
 		void* ctx = nullptr;
 		void (*detection)(void* ctx, const DetectionReport&) = nullptr;
 		void (*closed)(void* ctx, const CloseReport&) = nullptr;
+		void (*relayed)(void* ctx, const RelayReport&) = nullptr;
 		/// Called in every pass after its readiness events and before its expiries, with the time
 		/// its wait returned and the earliest armed deadline, so a test can make a byte arrive in
 		/// the pass that handles an expiry (hypotheses.md, section 11: "the check of 1(b) ... with a
@@ -195,15 +242,16 @@ namespace oneport::server
 		bool detects = false;  // one-port: detection, then dispatch; dedicated: the class at accept
 		Proto proto = Proto::http1;
 		bool proxy = false;
+		bool stub = false;              // stub mode (I18): the TLS port reads one record and answers the 13-byte body
 		std::optional<Proto> fallback;  // one-port only
-		std::string name;               // "one-port", or the class of a dedicated port
+		std::string name;               // "one-port", or the class of a dedicated or stub port
 	};
 
 	/// Why this configuration is not served yet, and in which milestone it is, or nullopt.
 	std::optional<std::string> not_served(const Config& config);
 
-	/// The listeners of a configuration, in port order: one in one-port mode; in dedicated mode
-	/// HTTP/1.1, h2c, TLS, MQTT, SSH and SMTP on consecutive ports (proposal I20).
+	/// The listeners of a configuration, in port order: one in one-port mode; in dedicated and stub
+	/// mode HTTP/1.1, h2c, TLS, MQTT, SSH and SMTP on consecutive ports (proposal I18, I20).
 	std::vector<ListenerSpec> listener_specs(const Config& config);
 
 	struct Options

@@ -1,4 +1,6 @@
-// The worker's pass, accept, PROXY header, detection and timers (see worker.hpp).
+// The worker's pass on epoll, accept, the PROXY header, detection and timers (see worker.hpp).
+// The detection and the timers are shared with io_uring (uring.cpp): what differs is how the
+// bytes reach them (proxy_after_read, detect_after_read) and the check of 1(b).
 #include "worker.hpp"
 
 #if defined(__linux__)
@@ -14,29 +16,56 @@
 namespace oneport::server::detail
 {
 
+	Worker::Worker(unsigned index, const Shared& shared, const std::vector<ListenerSpec>& specs, const std::vector<int>& fds)
+		: index_(index), shared_(shared)
+	{
+		if (uring()) ur_ = std::make_unique<loop::UringLoop>();
+		else ep_ = std::make_unique<loop::EpollLoop>();
+		listeners_.resize(specs.size());
+		for (std::size_t i = 0; i < specs.size(); ++i)
+		{
+			listeners_[i].fd = fds[i];
+			listeners_[i].index = i;
+			listeners_[i].spec = &specs[i];
+		}
+	}
+
 	Worker::~Worker()
 	{
+		ur_.reset();  // the ring first: its operations reference the descriptors and buffers below
 		for (auto& c : conns_)
 		{
 			if (c->fd >= 0) ::close(c->fd);
+			if (c->relay && c->relay->fd >= 0) ::close(c->relay->fd);
 		}
+	}
+
+	void Worker::stop() noexcept
+	{
+		if (ur_) ur_->stop();
+		else ep_->stop();
 	}
 
 	void Worker::run()
 	{
+		if (uring())
+		{
+			run_uring();
+			return;
+		}
 		try
 		{
-			loop_.start();
+			ep_->start();
 			const std::uint32_t listen_events = EPOLLIN | EPOLLET | (shared_.exclusive_listeners ? EPOLLEXCLUSIVE : 0u);
 			for (const ListenerState& l : listeners_)
 			{
-				loop_.add(l.fd, listen_events, kListenerTag | l.index);
+				ep_->add(l.fd, listen_events, kListenerTag | l.index);
 				++c_.epoll_ctl_calls;
 			}
 			prev_return_ = Clock::now();
-			while (!loop_.stopped())
+			while (!ep_->stopped())
 			{
-				pass_once();
+				pass_epoll();
 			}
 		}
 		catch (const std::exception& e)
@@ -64,20 +93,21 @@ namespace oneport::server::detail
 		return e;
 	}
 
-	void Worker::pass_once()
+	loop::Bound Worker::bound_now() const
 	{
 		const std::optional<TimePoint> first = earliest();
-		loop::Bound bound;
-		if (first)
-		{
-			const TimePoint now = Clock::now();
-			bound = *first > now ? std::chrono::duration_cast<nanoseconds>(*first - now) : nanoseconds(0);
-		}
-		const std::span<const epoll_event> events = loop_.wait(bound);
+		if (!first) return std::nullopt;
+		const TimePoint now = Clock::now();
+		return *first > now ? std::chrono::duration_cast<nanoseconds>(*first - now) : nanoseconds(0);
+	}
+
+	void Worker::pass_epoll()
+	{
+		const std::span<const epoll_event> events = ep_->wait(bound_now());
 		const TimePoint wait_return = Clock::now();  // the clock, re-read after every wait (I13)
 		++c_.epoll_wait_calls;
-		pass_ = loop_.passes();
-		if (loop_.stopped()) return;
+		pass_ = ep_->passes();
+		if (ep_->stopped()) return;
 		for (const epoll_event& ev : events) on_event(ev.data.u64, ev.events);
 		if (shared_.hooks.before_expiries != nullptr) shared_.hooks.before_expiries(shared_.hooks.ctx, index_, wait_return, earliest());
 		expire(wait_return);
@@ -95,7 +125,9 @@ namespace oneport::server::detail
 		const auto gen = static_cast<std::uint32_t>(tag >> 32);
 		if (fd < 0 || static_cast<std::size_t>(fd) >= by_fd_.size()) return;
 		Conn* c = by_fd_[static_cast<std::size_t>(fd)];
-		if (c == nullptr || c->gen != gen) return;  // closed in this pass, or the fd was reused
+		if (c == nullptr) return;  // closed in this pass
+		const bool backend = c->relay && c->relay->fd == fd;
+		if (backend ? c->relay->gen != gen : (c->fd != fd || c->gen != gen)) return;  // the fd was reused
 		const bool rdhup = (events & EPOLLRDHUP) != 0;
 		const bool err = (events & (EPOLLERR | EPOLLHUP)) != 0;
 		switch (c->stage)
@@ -112,8 +144,17 @@ namespace oneport::server::detail
 				}
 				if (c->stage == Stage::proxy) on_proxy_readable(c, rdhup);
 				else on_detect_readable(c, rdhup);
-				audit_pending(fd, gen);
+				audit_pending(c);
 				return;
+			case Stage::route:
+				if (err)
+				{
+					relay_abort(c, true);
+					return;
+				}
+				route_readable(c, rdhup);
+				return;
+			case Stage::relay: relay_event(c, backend, events); return;
 			case Stage::handler:
 				if (rdhup) c->rdhup_seen = true;
 				if ((events & EPOLLOUT) != 0 && !c->pend.empty())
@@ -141,38 +182,48 @@ namespace oneport::server::detail
 				if (errno != EAGAIN && errno != EWOULDBLOCK) ++c_.accept_errors;
 				return;
 			}
-			Conn* c = new_conn(fd);
-			c->listener = &l;
-			c->peer_port = peer.ss_family == AF_INET ? ntohs(reinterpret_cast<const sockaddr_in&>(peer).sin_port) : 0;
-			c->accept_pass = pass_;
-			++c_.accepted;
+			accepted(l, fd, peer.ss_family == AF_INET ? ntohs(reinterpret_cast<const sockaddr_in&>(peer).sin_port) : 0);
+		}
+	}
+
+	void Worker::accepted(ListenerState& l, int fd, std::uint16_t peer_port)
+	{
+		Conn* c = new_conn(fd);
+		c->listener = &l;
+		c->peer_port = peer_port;
+		c->accept_pass = pass_;
+		++c_.accepted;
+		if (!uring())
+		{
 			try
 			{
-				loop_.add(fd, kConnEvents, tag_of(c));
+				ep_->add(fd, kConnEvents, tag_of(fd, c->gen));
 				++c_.epoll_ctl_calls;
 			}
 			catch (const std::system_error&)
 			{
 				++c_.accept_errors;
 				close_conn(c);
-				continue;
+				return;
 			}
-			const ListenerSpec& spec = *l.spec;
-			if (spec.proxy || spec.detects) c->accept_time = Clock::now();  // timers start at accept
-			if (spec.proxy)
-			{
-				c->stage = Stage::proxy;
-				arm(c, TimerKind::t_hdr, c->accept_time + shared_.t_hdr);
-			}
-			else if (spec.detects)
-			{
-				c->stage = Stage::detect;
-				start_detection_timers(c, c->accept_time);
-			}
-			else
-			{
-				enter_handler(c, spec.proto, Entry::accept);
-			}
+		}
+		const ListenerSpec& spec = *l.spec;
+		if (spec.proxy || spec.detects) c->accept_time = Clock::now();  // timers start at accept
+		if (spec.proxy)
+		{
+			c->stage = Stage::proxy;
+			arm(c, TimerKind::t_hdr, c->accept_time + shared_.t_hdr);
+			if (uring()) pending_io(c);
+		}
+		else if (spec.detects)
+		{
+			c->stage = Stage::detect;
+			start_detection_timers(c, c->accept_time);
+			if (uring()) pending_io(c);
+		}
+		else
+		{
+			enter_handler(c, spec.proto, Entry::accept);
 		}
 	}
 
@@ -189,7 +240,7 @@ namespace oneport::server::detail
 	{
 		if (peeks(c))
 		{
-			const ssize_t n = peek(c, detect::kPeekWindow);
+			const ssize_t n = peek(c, scratch_);
 			if (n < 0) return;  // nothing, or closed by peek()
 			if (n == 0)
 			{
@@ -232,16 +283,20 @@ namespace oneport::server::detail
 			run_detection(c, std::span<const std::byte>(scratch_.data() + r.at, keep), rdhup);
 			return;
 		}
-		// Read into the handler's buffer.
-		const bool fresh = c->buf == nullptr;
-		if (fresh) take_buffer(c);
+		// Read into the handler's buffer (epoll; io_uring's receive completes into it).
+		if (c->buf == nullptr) take_buffer(c);
 		const ReadResult rr = read_into(c, rdhup);
+		proxy_after_read(c, rr, rdhup);
+	}
+
+	void Worker::proxy_after_read(Conn* c, const ReadResult& rr, bool rdhup)
+	{
 		if (rr.error)
 		{
 			end_detection(c, Outcome::reset, 0);
 			return;
 		}
-		if (c->len == c->beg)
+		if (c->buf == nullptr || c->len == c->beg)
 		{
 			drop_empty_buffer(c);
 			if (rr.eof) end_detection(c, Outcome::silent, 0);
@@ -275,6 +330,11 @@ namespace oneport::server::detail
 		}
 		// A dedicated listener: its handler takes the bytes after the header.
 		if (c->len == c->beg) drop_empty_buffer(c);
+		if (uring())
+		{
+			if (handler_run(c)) want_read(c);
+			return;
+		}
 		handler_readable(c, rdhup, c->last_read_full);
 	}
 
@@ -308,7 +368,7 @@ namespace oneport::server::detail
 	{
 		if (peeks(c))
 		{
-			const ssize_t n = peek(c, detect::kBDec);
+			const ssize_t n = peek(c, std::span<std::byte>(scratch_.data(), detect::kBDec));
 			if (n < 0) return;
 			if (n == 0)
 			{
@@ -321,16 +381,20 @@ namespace oneport::server::detail
 		}
 		// Replay: the first read goes into the buffer the handler will parse (I11).
 		if (c->buf == nullptr) take_buffer(c);
-		const ReadResult rr = read_into(c, rdhup);
+		detect_after_read(c, read_into(c, rdhup));
+	}
+
+	void Worker::detect_after_read(Conn* c, const ReadResult& rr)
+	{
 		if (rr.error)
 		{
 			end_detection(c, Outcome::reset, 0);
 			return;
 		}
-		if (c->len == c->beg)
+		if (c->buf == nullptr || c->len == c->beg)
 		{
 			drop_empty_buffer(c);
-			if (rr.eof) end_detection(c, Outcome::silent, 0);
+			if (rr.eof) end_detection(c, c->app_seen > 0 ? Outcome::undecided : Outcome::silent, 0);
 			return;
 		}
 		track_user_bytes(c);
@@ -368,21 +432,20 @@ namespace oneport::server::detail
 		++c_.outcomes[static_cast<std::size_t>(Outcome::classified)];
 		++c_.classified[static_cast<std::size_t>(p)];
 		const bool peeked = peeks(c);
-		if (peeked && c->lowat != 1) set_lowat(c, 1);  // reset before the handler reads
+		// Reset before the handler reads; the relay's pass-through sets its own mark.
+		if (peeked && c->lowat != 1 && !(shared_.relay && p == Proto::tls)) set_lowat(c, 1);
 		report(c, Outcome::classified, p, at);
 		enter_handler(c, p, peeked ? Entry::peek : Entry::replay);
 	}
 
-	void Worker::end_detection(Conn* c, Outcome o, std::uint32_t at, detect::ProxyReason why,
-	                   const TimedEvent* ev)
+	void Worker::end_detection(Conn* c, Outcome o, std::uint32_t at, detect::ProxyReason why, const TimedEvent* ev)
 	{
 		++c_.outcomes[static_cast<std::size_t>(o)];
 		report(c, o, Proto::http1, at, why, ev);
 		close_conn(c);
 	}
 
-	void Worker::report(const Conn* c, Outcome o, Proto p, std::uint32_t at, detect::ProxyReason why,
-	            const TimedEvent* ev)
+	void Worker::report(const Conn* c, Outcome o, Proto p, std::uint32_t at, detect::ProxyReason why, const TimedEvent* ev)
 	{
 		if (shared_.hooks.detection == nullptr) return;
 		DetectionReport r;
@@ -416,9 +479,9 @@ namespace oneport::server::detail
 		shared_.hooks.detection(shared_.hooks.ctx, r);
 	}
 
-	ssize_t Worker::peek(Conn* c, std::size_t window)
+	ssize_t Worker::peek(Conn* c, std::span<std::byte> into)
 	{
-		const ssize_t n = ::recv(c->fd, scratch_.data(), window, MSG_PEEK | MSG_DONTWAIT);
+		const ssize_t n = ::recv(c->fd, into.data(), into.size(), MSG_PEEK | MSG_DONTWAIT);
 		++c_.peek_calls;
 		if (n > 0)
 		{
@@ -428,7 +491,8 @@ namespace oneport::server::detail
 		}
 		if (n == 0) return 0;
 		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return -1;
-		end_detection(c, Outcome::reset, 0);
+		if (c->stage == Stage::route) relay_abort(c, true);
+		else end_detection(c, Outcome::reset, 0);
 		return -1;
 	}
 
@@ -504,28 +568,57 @@ namespace oneport::server::detail
 	{
 		const TimePoint deadline = deadline_of(c, TimerKind::t_fb);
 		disarm(c, TimerKind::t_fb);
-		std::array<std::byte, 1> one{};
-		const ssize_t n = ::recv(c->fd, one.data(), one.size(), MSG_PEEK | MSG_DONTWAIT);
-		++c_.check_calls;
-		if (n == 1)
+		if (uring() && !peeks(c))
 		{
-			++c_.check_found_byte;
-			record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::byte_won);
-			on_detect_readable(c, false);  // the bytes alone decide the connection
+			// io_uring replay: a receive is posted with a buffer, so the check is a non-waiting
+			// reap of the ring's completions (1 b). Every completion it reaps is handled now; if
+			// this connection's receive was among them, its bytes (or its end) decided it, and the
+			// connection may be closed, even reused, by then: the event is recorded first.
+			const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::fallback);
+			const std::size_t at = c_.timed.size() - 1;
+			++c_.check_calls;
+			if (const std::optional<int> res = reap_for(c))
+			{
+				// Bytes (or ENOBUFS: bytes are queued, and the receive posted again brings them):
+				// the byte wins. 0 or an error: the half-close or the reset ended the connection.
+				++c_.check_found_byte;
+				c_.timed[at].result = (*res > 0 || *res == -ENOBUFS) ? TimerResult::byte_won : TimerResult::closed;
+				return;
+			}
+			disarm(c, TimerKind::t_dec);
+			const Proto p = *c->listener->spec->fallback;
+			++c_.outcomes[static_cast<std::size_t>(Outcome::fallback)];
+			++c_.fallback[static_cast<std::size_t>(p)];
+			report(c, Outcome::fallback, p, 0, detect::ProxyReason::none, &ev);
+			enter_handler(c, p, Entry::fallback);
 			return;
 		}
-		if (n == 0)
+		else
 		{
-			c->observe_pass = pass_;
-			const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::closed);
-			end_detection(c, Outcome::silent, 0, detect::ProxyReason::none, &ev);  // 1(h): a half-close, no byte
-			return;
-		}
-		if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-		{
-			const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::closed);
-			end_detection(c, Outcome::reset, 0, detect::ProxyReason::none, &ev);
-			return;
+			std::array<std::byte, 1> one{};
+			const ssize_t n = ::recv(c->fd, one.data(), one.size(), MSG_PEEK | MSG_DONTWAIT);
+			++c_.check_calls;
+			if (n == 1)
+			{
+				++c_.check_found_byte;
+				record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::byte_won);
+				on_detect_readable(c, false);  // the bytes alone decide the connection
+				if (uring() && c->fd >= 0 && !c->zombie && (c->stage == Stage::detect || c->stage == Stage::route)) pending_io(c);
+				return;
+			}
+			if (n == 0)
+			{
+				c->observe_pass = pass_;
+				const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::closed);
+				end_detection(c, Outcome::silent, 0, detect::ProxyReason::none, &ev);  // 1(h): a half-close, no byte
+				return;
+			}
+			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+			{
+				const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::closed);
+				end_detection(c, Outcome::reset, 0, detect::ProxyReason::none, &ev);
+				return;
+			}
 		}
 		const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::fallback);
 		disarm(c, TimerKind::t_dec);

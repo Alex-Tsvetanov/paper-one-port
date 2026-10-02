@@ -47,9 +47,9 @@ namespace oneport
 		constexpr std::array<std::string_view, 4> kRequired{"--mode", "--detect", "--dispatch", "--backend"};
 
 		/// Every flag that takes a value.
-		constexpr std::array<std::string_view, 14> kValueFlags{
-			"--mode",     "--detect", "--dispatch", "--backend", "--iocp-receive", "--relay-copy", "--proxy",
-			"--fallback", "--listener", "--workers", "--port",   "--t-fb-ms",      "--t-dec-ms",   "--t-hdr-ms",
+		constexpr std::array<std::string_view, 15> kValueFlags{
+			"--mode",     "--detect",  "--dispatch", "--backend",    "--iocp-receive", "--relay-copy", "--proxy",    "--fallback",
+			"--listener", "--workers", "--port",     "--relay-port", "--t-fb-ms",      "--t-dec-ms",   "--t-hdr-ms",
 		};
 
 		template <class E, std::size_t N>
@@ -126,11 +126,11 @@ namespace oneport
 				c.workers = *v;
 				return std::nullopt;
 			}
-			if (flag == "--port")
+			if (flag == "--port" || flag == "--relay-port")
 			{
 				const auto v = whole<std::uint32_t>(value, 1, 65535);
 				if (!v) return std::string(flag) + ": '" + std::string(value) + "' is not a port from 1 to 65535";
-				c.port = static_cast<std::uint16_t>(*v);
+				(flag == "--port" ? c.port : c.relay_port) = static_cast<std::uint16_t>(*v);
 				return std::nullopt;
 			}
 			if (flag == "--t-fb-ms") return set_timer(c.t_fb_ms, flag, value);
@@ -146,6 +146,10 @@ namespace oneport
 			if (c.dispatch == Dispatch::relay && c.backend == Backend::iocp)
 			{
 				return "--dispatch relay needs epoll or io_uring: the relay is Linux only (proposal I17)";
+			}
+			if (c.mode == Mode::one_port && c.dispatch == Dispatch::relay && !c.relay_port)
+			{
+				return "--dispatch relay needs --relay-port, the first port of its backend (a server in dedicated or stub mode)";
 			}
 			if (c.listener == Listener::reuseport && c.backend == Backend::iocp)
 			{
@@ -234,6 +238,7 @@ namespace oneport
 		line("listener", token_of(kListeners, c.listener));
 		line("workers", std::to_string(c.workers));
 		line("port", c.port ? std::to_string(*c.port) : std::string("unset"));
+		line("relay-port", c.relay_port ? std::to_string(*c.relay_port) : std::string("unset"));
 		line("t-fb-ms", std::to_string(c.t_fb_ms));
 		line("t-dec-ms", std::to_string(c.t_dec_ms));
 		line("t-hdr-ms", std::to_string(c.t_hdr_ms));
@@ -257,12 +262,15 @@ namespace oneport
 		       "  --listener      " + list_of(kListeners) + " (reuseport: epoll and io_uring only)\n"
 		       "  --workers       N >= 1, default 1\n"
 		       "  --port          1 to 65535, the first listening port\n"
+		       "  --relay-port    1 to 65535, the backend's first port; required by one-port mode with\n"
+		       "                  --dispatch relay (its six listeners follow in the order HTTP/1.1, h2c,\n"
+		       "                  TLS, MQTT, SSH, SMTP)\n"
 		       "  --t-fb-ms, --t-dec-ms, --t-hdr-ms\n"
 		       "                  T_fb, T_dec, T_hdr in whole milliseconds >= 1, default " + std::to_string(kDesignTimerMs) + "\n"
 		       "  --print-config  print the parsed configuration and exit\n"
 		       "  --help          print this text and exit\n"
-		       "Each flag and value has one spelling, case-sensitive. Served so far: --backend epoll with\n"
-		       "--dispatch inproc in one-port and dedicated mode, on 127.0.0.1.\n";
+		       "Each flag and value has one spelling, case-sensitive. Served on 127.0.0.1: every mode and\n"
+		       "dispatch on epoll and io_uring; IOCP from M6.\n";
 	}
 
 }  // namespace oneport

@@ -99,6 +99,26 @@ namespace oneport::apps
 
 	Step mqtt(MqttState& m, std::span<const std::byte> in, bool eof, std::vector<std::byte>& out);
 
+	// ---- Stub mode's TLS port (proposal I18; hypotheses.md, section 2.1, "Stub mode") ----
+
+	/// The fixed 13-byte body of I26 that the stub writes for a TLS record.
+	inline constexpr std::string_view kStubBody = "Hello, World!";
+
+	struct StubTlsState
+	{
+		std::uint8_t seen;                 // record header bytes read, at most 5
+		bool answered;                     // the body is written
+		std::uint8_t hdr[5];               // the record header
+		std::uint32_t left;                // record body bytes still to skip
+	};
+
+	/// The stub's TLS handler: reads one whole TLS record, its 5-byte header (content type 22,
+	/// handshake; major version 3; a length of at most 2^14, as the detector's TLS matcher reads
+	/// it) and then that many bytes, skipped as they arrive; then writes the 13-byte body and
+	/// closes. It never handshakes. Other first bytes close without a response; bytes after the
+	/// record are not read. Design choices of M2b, recorded in design/status.md.
+	Step stub_tls(StubTlsState& s, std::span<const std::byte> in, bool eof, std::vector<std::byte>& out);
+
 	inline void append(std::vector<std::byte>& out, std::string_view s)
 	{
 		const auto* p = reinterpret_cast<const std::byte*>(s.data());

@@ -234,4 +234,50 @@ namespace oneport::apps
 		return close(eof ? Next::close_after_output : Next::more);
 	}
 
+	Step stub_tls(StubTlsState& s, std::span<const std::byte> in, bool eof, std::vector<std::byte>& out)
+	{
+		Step st;
+		if (s.answered)
+		{
+			st.next = Next::close_after_output;
+			return st;
+		}
+		while (s.seen < 5 && st.used < in.size())
+		{
+			const std::uint8_t b = u8(in[st.used++]);
+			s.hdr[s.seen++] = b;
+			if ((s.seen == 1 && b != 0x16) || (s.seen == 2 && b != 0x03))
+			{
+				st.next = Next::close_now;
+				return st;
+			}
+			if (s.seen == 5)
+			{
+				s.left = (static_cast<std::uint32_t>(s.hdr[3]) << 8) | s.hdr[4];
+				if (s.left > 16384)  // 2^14, RFC 8446 s5.1
+				{
+					st.next = Next::close_now;
+					return st;
+				}
+			}
+		}
+		if (s.seen < 5)
+		{
+			st.next = eof ? Next::close_now : Next::more;
+			return st;
+		}
+		const auto take = static_cast<std::uint32_t>(std::min<std::size_t>(s.left, in.size() - st.used));
+		st.used += take;
+		s.left -= take;
+		if (s.left > 0)
+		{
+			st.next = eof ? Next::close_now : Next::more;
+			return st;
+		}
+		append(out, kStubBody);
+		s.answered = true;
+		st.next = Next::close_after_output;
+		return st;
+	}
+
 }  // namespace oneport::apps
