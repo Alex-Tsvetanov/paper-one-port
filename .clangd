@@ -1,0 +1,36 @@
+# clangd's view of the CMake build (CMakeLists.txt), for editors without a compile_commands.json:
+# C++23, and per source directory the include directories its CMake target uses. A relative -I
+# resolves against the directory of the file being edited, so each block names its own.
+#   oneport_loop    bench/loop/include
+#   oneport_config  bench/server
+#   oneport_server  bench/server, with oneport_loop's and oneport_tls's
+#   oneport_tls     bench/tls
+#   opcase          bench/cases, with oneport_server's and oneport_tls's
+#   oneport_tests   tests, with opcase's and oneport_loop's
+# The pinned OpenSSL and nghttp2 are found where bench/third_party/build_deps.sh installs them on L
+# (release flavour); on a host without them those directories do not exist and are skipped.
+CompileFlags:
+  Add:
+    - -std=c++23
+    - -I/home/alex/opt/openssl-3.5.9-release/include
+    - -I/home/alex/opt/nghttp2-1.70.0-release/include
+---
+If:
+  PathMatch: bench/loop/src/.*
+CompileFlags:
+  Add: [-I../include]
+---
+If:
+  PathMatch: bench/loop/include/oneport/.*
+CompileFlags:
+  Add: [-I..]
+---
+If:
+  PathMatch: bench/(server|tls|cases)/.*
+CompileFlags:
+  Add: [-I../server, -I../loop/include, -I../tls, -I../cases]
+---
+If:
+  PathMatch: tests/.*
+CompileFlags:
+  Add: [-I., -I../bench/server, -I../bench/loop/include, -I../bench/tls, -I../bench/cases]
