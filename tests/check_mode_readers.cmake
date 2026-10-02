@@ -7,6 +7,19 @@
 if(NOT ROOT)
     message(FATAL_ERROR "ROOT is not set")
 endif()
+# The pattern that finds a reader, checked first on lines it must and must not match, so that a
+# pattern this engine reads otherwise cannot make the test pass with nothing found.
+set(_reader "(\\.|->)mode([^A-Za-z0-9_]|$)")
+foreach(_line "if (c.mode == Mode::one_port)" "cmd->config.mode" "return config.mode")
+    if(NOT _line MATCHES "${_reader}")
+        message(FATAL_ERROR "the reader pattern misses '${_line}'")
+    endif()
+endforeach()
+foreach(_line "Mode mode{}" "detect::kH2Preface" "c.modes" "c.mode_x = 1" "// the mode")
+    if(_line MATCHES "${_reader}")
+        message(FATAL_ERROR "the reader pattern matches '${_line}'")
+    endif()
+endforeach()
 set(_allowed
     "${ROOT}/bench/server/config.hpp"
     "${ROOT}/bench/server/config.cpp"
@@ -20,7 +33,7 @@ foreach(_f IN LISTS _sources)
         continue()
     endif()
     math(EXPR _checked "${_checked} + 1")
-    file(STRINGS "${_f}" _lines REGEX "(\\.|->)mode([^A-Za-z0-9_]|$)")
+    file(STRINGS "${_f}" _lines REGEX "${_reader}")
     if(_lines)
         list(APPEND _readers "${_f}")
     endif()
