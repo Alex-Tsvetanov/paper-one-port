@@ -69,14 +69,14 @@ namespace oneport::opcase
 		http400,    // http1::kResponse400, then EOF
 		closed,     // nothing, then EOF or a reset
 		any,        // not checked (the client resets)
+		tls_flight, // a TLS server flight beginning with a ServerHello, then EOF (no byte comparison)
 	};
 
-	/// How much of the frozen outcome M1 checks.
+	/// How much of the frozen outcome an entry checks.
 	enum class Coverage : std::uint8_t
 	{
 		full,     // all of it
-		stub,     // detection and timing; the handler is an M1 stub, so the exchange is pending M2
-		partial,  // the detection part only; the rest of the outcome is pending M2 (`pending`)
+		partial,  // the detection part only; the rest of the outcome is pending (`pending`)
 	};
 
 	struct Variant
@@ -97,7 +97,7 @@ namespace oneport::opcase
 		std::optional<detect::ProxySource> source;
 		std::optional<detect::ProxyReason> proxy_reason;
 		Coverage coverage = Coverage::full;
-		std::string pending;  // what of the frozen outcome waits for a later milestone
+		std::string pending;  // what of the frozen outcome waits for a later milestone, or a stand-in in use
 	};
 
 	inline constexpr int kCases = 25;

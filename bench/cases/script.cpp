@@ -1,11 +1,20 @@
 #include "script.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 #include <thread>
+
+#if defined(ONEPORT_HAVE_TLS)
+#include "tls.hpp"
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#endif
 
 #if defined(__linux__)
 #include <arpa/inet.h>
@@ -21,37 +30,43 @@ namespace oneport::opcase
 
 	Script& Script::write(Bytes b)
 	{
-		steps.push_back(Step{Step::Kind::write, std::move(b), {}, Anchor::after_connect});
+		steps.push_back(Step{Step::Kind::write, std::move(b), {}, Anchor::after_connect, std::nullopt});
 		return *this;
 	}
 	Script& Script::gap(std::chrono::nanoseconds d)
 	{
-		steps.push_back(Step{Step::Kind::gap, {}, d, Anchor::after_connect});
+		steps.push_back(Step{Step::Kind::gap, {}, d, Anchor::after_connect, std::nullopt});
 		return *this;
 	}
 	Script& Script::write_at(Anchor a, std::chrono::nanoseconds d, Bytes b)
 	{
-		steps.push_back(Step{Step::Kind::write_at, std::move(b), d, a});
+		steps.push_back(Step{Step::Kind::write_at, std::move(b), d, a, std::nullopt});
 		return *this;
 	}
 	Script& Script::shutdown_write()
 	{
-		steps.push_back(Step{Step::Kind::shutdown_write, {}, {}, Anchor::after_connect});
+		steps.push_back(Step{Step::Kind::shutdown_write, {}, {}, Anchor::after_connect, std::nullopt});
 		return *this;
 	}
 	Script& Script::reset()
 	{
-		steps.push_back(Step{Step::Kind::reset, {}, {}, Anchor::after_connect});
+		steps.push_back(Step{Step::Kind::reset, {}, {}, Anchor::after_connect, std::nullopt});
 		return *this;
 	}
 	Script& Script::await_line()
 	{
-		steps.push_back(Step{Step::Kind::await_line, {}, {}, Anchor::after_connect});
+		steps.push_back(Step{Step::Kind::await_line, {}, {}, Anchor::after_connect, std::nullopt});
 		return *this;
 	}
 	Script& Script::await_close()
 	{
-		steps.push_back(Step{Step::Kind::await_close, {}, {}, Anchor::after_connect});
+		steps.push_back(Step{Step::Kind::await_close, {}, {}, Anchor::after_connect, std::nullopt});
+		return *this;
+	}
+	Script& Script::tls(TlsPlan p)
+	{
+		Step st{Step::Kind::tls, {}, {}, Anchor::after_connect, std::move(p)};
+		steps.push_back(std::move(st));
 		return *this;
 	}
 	Script& Script::split(const Bytes& b, const std::vector<std::size_t>& cuts, std::chrono::nanoseconds g)
@@ -133,7 +148,119 @@ namespace oneport::opcase
 				}
 			}
 
+			/// Waits until `until` at most for one read's worth of what the server sends.
+			void pump_some(TimePoint until)
+			{
+				if (closed()) return;
+				const auto now = Clock::now();
+				const auto left = until > now ? std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count() + 1 : 0;
+				pollfd p{fd_, POLLIN, 0};
+				const int r = ::poll(&p, 1, static_cast<int>(std::min<long long>(left, 1000)));
+				if (r > 0) read_some();
+			}
+
 			bool closed() const noexcept { return t_.eof || t_.reset || fd_ < 0; }
+
+#if defined(ONEPORT_HAVE_TLS)
+			/// A live TLS exchange (script.hpp, TlsPlan).
+			void tls_exchange(const TlsPlan& plan)
+			{
+				TlsResult res;
+				static const tls::Ctx frozen = tls::client_ctx();
+				tls::Ctx custom;
+				SSL_CTX* ctx = frozen.get();
+				if (!plan.groups.empty())
+				{
+					custom = tls::client_ctx(plan.groups.c_str());
+					ctx = custom.get();
+				}
+				const std::unique_ptr<SSL, SslFree> ssl(SSL_new(ctx));
+				BIO* rb = BIO_new(BIO_s_mem());
+				BIO* wb = BIO_new(BIO_s_mem());
+				if (!ssl || rb == nullptr || wb == nullptr) throw std::runtime_error("opcase TLS: SSL_new or BIO_new");
+				SSL_set_bio(ssl.get(), rb, wb);
+				SSL_set_connect_state(ssl.get());
+				const std::string name(tls::kServerName);
+				SSL_set_tlsext_host_name(ssl.get(), name.c_str());
+				SSL_set1_host(ssl.get(), name.c_str());
+				if (!plan.alpn.empty())
+				{
+					const auto w = tls::alpn_wire(plan.alpn);
+					SSL_set_alpn_protos(ssl.get(), w.data(), static_cast<unsigned>(w.size()));
+				}
+				ERR_clear_error();
+				if (SSL_do_handshake(ssl.get()) == 1) throw std::runtime_error("opcase TLS: a handshake without a server");
+				ERR_clear_error();
+				Bytes hello = take(wb);
+				if (plan.record_minor != 0) hello = with_record_version(hello, plan.record_minor);
+				std::vector<std::size_t> cuts = plan.cuts;
+				if (plan.fragment_at > 0)
+				{
+					std::size_t first = 0;
+					hello = fragment_client_hello(hello, plan.fragment_at, &first);
+					if (cuts.empty()) cuts.push_back(plan.prefix.size() + first);
+				}
+				res.client_hello = hello;
+				const Bytes flight = cat({plan.prefix, hello});
+				std::size_t from = 0;
+				for (const std::size_t cut : cuts)
+				{
+					write(slice(flight, from, cut));
+					pump(Clock::now() + plan.gap);
+					from = cut;
+				}
+				write(slice(flight, from, flight.size()));
+				// The rest as the server answers.
+				std::size_t fed = 0;
+				bool requests_sent = false;
+				const TimePoint until = limit();
+				for (;;)
+				{
+					if (t_.received.size() > fed)
+					{
+						BIO_write(rb, t_.received.data() + fed, static_cast<int>(t_.received.size() - fed));
+						fed = t_.received.size();
+					}
+					if (!res.handshake)
+					{
+						ERR_clear_error();
+						const int r = SSL_do_handshake(ssl.get());
+						if (r == 1)
+						{
+							res.handshake = true;
+							describe(ssl.get(), res);
+						}
+						else if (SSL_get_error(ssl.get(), r) != SSL_ERROR_WANT_READ)
+						{
+							res.error = "handshake: " + tls::take_errors();
+							send_all(wb);
+							break;
+						}
+					}
+					if (res.handshake && !requests_sent)
+					{
+						for (const Bytes& q : plan.requests)
+						{
+							std::size_t n = 0;
+							if (SSL_write_ex(ssl.get(), q.data(), q.size(), &n) != 1 || n != q.size()) res.error = "SSL_write: " + tls::take_errors();
+						}
+						requests_sent = true;
+					}
+					send_all(wb);
+					if (res.handshake && !res.close_notify && !read_plain(ssl.get(), res)) break;
+					if (closed() && t_.received.size() == fed) break;
+					if (Clock::now() >= until)
+					{
+						t_.timed_out = true;
+						break;
+					}
+					if (t_.received.size() == fed) pump_some(until);
+				}
+				if (SSL_SESSION* sess = SSL_get_session(ssl.get())) res.resumable = SSL_SESSION_is_resumable(sess) == 1;
+				ERR_clear_error();
+				t_.tls = std::move(res);
+			}
+#endif
 
 			void write(const Bytes& b)
 			{
@@ -206,6 +333,69 @@ namespace oneport::opcase
 				t_.end = Clock::now();
 			}
 
+#if defined(ONEPORT_HAVE_TLS)
+			struct SslFree
+			{
+				void operator()(SSL* s) const noexcept { SSL_free(s); }
+			};
+
+			static Bytes take(BIO* b)
+			{
+				Bytes out;
+				std::array<std::byte, 4096> buf{};
+				int n = 0;
+				while ((n = BIO_read(b, buf.data(), static_cast<int>(buf.size()))) > 0) out.insert(out.end(), buf.begin(), buf.begin() + n);
+				return out;
+			}
+
+			void send_all(BIO* b)
+			{
+				const Bytes out = take(b);
+				if (!out.empty()) write(out);
+			}
+
+			/// Decrypts what has arrived. False once the exchange cannot go on.
+			static bool read_plain(SSL* ssl, TlsResult& res)
+			{
+				std::array<std::byte, 4096> buf{};
+				for (;;)
+				{
+					std::size_t n = 0;
+					ERR_clear_error();
+					if (SSL_read_ex(ssl, buf.data(), buf.size(), &n) == 1)
+					{
+						res.plain.insert(res.plain.end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(n));
+						continue;
+					}
+					const int e = SSL_get_error(ssl, 0);
+					if (e == SSL_ERROR_WANT_READ) return true;
+					if (e == SSL_ERROR_ZERO_RETURN)
+					{
+						res.close_notify = true;
+						return true;
+					}
+					// An EOF without close_notify, or an error: the exchange ends here.
+					if (res.error.empty() && e != SSL_ERROR_SYSCALL) res.error = "SSL_read: " + tls::take_errors();
+					ERR_clear_error();
+					return false;
+				}
+			}
+
+			static void describe(SSL* ssl, TlsResult& res)
+			{
+				res.version = SSL_get_version(ssl);
+				res.cipher = SSL_get_cipher_name(ssl);
+				if (const char* g = SSL_get0_group_name(ssl)) res.group = g;
+				const char* sig = nullptr;
+				if (SSL_get0_peer_signature_name(ssl, &sig) == 1 && sig != nullptr) res.sigalg = sig;
+				const unsigned char* p = nullptr;
+				unsigned int n = 0;
+				SSL_get0_alpn_selected(ssl, &p, &n);
+				res.alpn.assign(reinterpret_cast<const char*>(p), n);
+				res.verified = SSL_get0_peer_certificate(ssl) != nullptr && SSL_get_verify_result(ssl) == X509_V_OK;
+			}
+#endif
+
 			Transcript& t_;
 			const Limits& limits_;
 			int fd_ = -1;
@@ -249,6 +439,13 @@ namespace oneport::opcase
 					if (!client.closed()) t.timed_out = true;
 					break;
 				}
+				case Step::Kind::tls:
+#if defined(ONEPORT_HAVE_TLS)
+					client.tls_exchange(*s.plan);
+					break;
+#else
+					throw std::runtime_error("opcase: this build has no TLS client");
+#endif
 			}
 		}
 		if (!t.client_reset)
@@ -262,7 +459,7 @@ namespace oneport::opcase
 
 #else
 
-	Transcript run(const Script&, std::uint16_t, const Limits&) { throw std::runtime_error("opcase: the M1 client runs on Linux only"); }
+	Transcript run(const Script&, std::uint16_t, const Limits&) { throw std::runtime_error("opcase: the client runs on Linux only"); }
 
 #endif
 

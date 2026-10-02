@@ -13,7 +13,10 @@ namespace oneport::opcase
 		using detect::Proto;
 		using std::chrono::milliseconds;
 
-		/// One protocol's opening, as HC1 sends it.
+		/// One protocol's opening, as HC1 sends it: the whole exchange of WL1 that a script can
+		/// write without reading (hypotheses.md, section 3), so the handler's reply is the
+		/// transcript. TLS runs the live client of script.hpp; `bytes` is then the recorded
+		/// ClientHello, which HC4 drips.
 		struct Opening
 		{
 			std::string_view name;
@@ -21,20 +24,31 @@ namespace oneport::opcase
 			Bytes bytes;
 			std::uint32_t need_max;  // the matcher's need, at most (section 1)
 			std::uint32_t decision;  // where the matcher decides on these bytes
-			bool stub;               // the handler is an M1 stub: the client shuts down writing to get its trailer
-			std::string_view pending;
+			bool shutdown;           // the client shuts down writing after its bytes
+			bool live_tls;           // HC1 to HC3 run a live TLS exchange
 		};
 
 		std::vector<Opening> openings()
 		{
 			return {
-				{"HTTP", Proto::http1, http_get(), 10, 4, false, ""},
-				{"h2c", Proto::h2c, h2c_opening(), 24, 24, true, "the h2 exchange (nghttp2) is M2"},
-				{"TLS", Proto::tls, client_hello(0x01, "oneport.test"), 6, 6, true, "the TLS handshake (OpenSSL) is M2"},
-				{"MQTT311", Proto::mqtt, cat({mqtt_connect(4, 12), mqtt_disconnect()}), 12, 9, true, "CONNACK (the MQTT handler) is M2"},
-				{"MQTT5", Proto::mqtt, cat({mqtt_connect(5, 13), mqtt_disconnect()}), 12, 9, true, "CONNACK (the MQTT handler) is M2"},
-				{"SSH", Proto::ssh, ssh_line(), 4, 4, true, "the SSH identification exchange is M2"},
+				{"HTTP", Proto::http1, http_get(), 10, 4, false, false},
+				{"h2c", Proto::h2c, h2c_opening(), 24, 24, true, false},
+				{"TLS", Proto::tls, recorded_client_hello(), 6, 6, false, true},
+				{"MQTT311", Proto::mqtt, cat({mqtt_connect(4, 12), mqtt_disconnect()}), 12, 9, false, false},
+				{"MQTT5", Proto::mqtt, cat({mqtt_connect(5, 13), mqtt_disconnect()}), 12, 9, false, false},
+				{"SSH", Proto::ssh, ssh_line(), 4, 4, false, false},
 			};
+		}
+
+		/// The live TLS exchange of the TLS opening: the ClientHello cut at `cuts`, `gap` apart,
+		/// then GET with Connection: close (WL1's TLS exchange).
+		TlsPlan tls_plan(std::vector<std::size_t> cuts = {}, std::chrono::nanoseconds gap = {})
+		{
+			TlsPlan t;
+			t.cuts = std::move(cuts);
+			t.gap = gap;
+			t.requests.push_back(http_get());
+			return t;
 		}
 
 		std::string pad(unsigned k)
@@ -49,7 +63,7 @@ namespace oneport::opcase
 		{
 			Variant v;
 			v.id = std::move(id);
-			if (o.stub) s.shutdown_write();
+			if (o.shutdown) s.shutdown_write();
 			v.script = std::move(s);
 			v.expect = Expect::classified;
 			v.proto = o.proto;
@@ -57,11 +71,6 @@ namespace oneport::opcase
 			v.reply = Reply::dedicated;
 			v.dedicated = o.proto;
 			v.at = o.decision;
-			if (o.stub)
-			{
-				v.coverage = Coverage::stub;
-				v.pending = std::string(o.pending);
-			}
 			return v;
 		}
 
@@ -79,7 +88,11 @@ namespace oneport::opcase
 		std::vector<Variant> hc01(const SuiteParams&)
 		{
 			std::vector<Variant> out;
-			for (const Opening& o : openings()) out.push_back(classified_like_hc1(o, "HC01." + std::string(o.name), Script{}.write(o.bytes)));
+			for (const Opening& o : openings())
+			{
+				Script s = o.live_tls ? Script{}.tls(tls_plan()) : Script{}.write(o.bytes);
+				out.push_back(classified_like_hc1(o, "HC01." + std::string(o.name), std::move(s)));
+			}
 			return out;
 		}
 
@@ -90,8 +103,8 @@ namespace oneport::opcase
 			{
 				for (std::size_t k = 1; k < o.need_max && k < o.bytes.size(); ++k)
 				{
-					out.push_back(classified_like_hc1(o, "HC02." + std::string(o.name) + ".k" + pad(static_cast<unsigned>(k)),
-					                                  Script{}.split(o.bytes, {k}, p.gap_split)));
+					Script s = o.live_tls ? Script{}.tls(tls_plan({k}, p.gap_split)) : Script{}.split(o.bytes, {k}, p.gap_split);
+					out.push_back(classified_like_hc1(o, "HC02." + std::string(o.name) + ".k" + pad(static_cast<unsigned>(k)), std::move(s)));
 				}
 			}
 			return out;
@@ -104,7 +117,8 @@ namespace oneport::opcase
 			{
 				std::vector<std::size_t> cuts;
 				for (std::size_t k = 1; k <= o.need_max && k < o.bytes.size(); ++k) cuts.push_back(k);
-				out.push_back(classified_like_hc1(o, "HC03." + std::string(o.name), Script{}.split(o.bytes, cuts, p.drip_gap)));
+				Script s = o.live_tls ? Script{}.tls(tls_plan(cuts, p.drip_gap)) : Script{}.split(o.bytes, cuts, p.drip_gap);
+				out.push_back(classified_like_hc1(o, "HC03." + std::string(o.name), std::move(s)));
 			}
 			return out;
 		}
@@ -141,8 +155,6 @@ namespace oneport::opcase
 			v.when = When::t_fb;
 			v.reply = Reply::dedicated;
 			v.dedicated = Proto::smtp;
-			v.coverage = Coverage::stub;
-			v.pending = "the SMTP exchange of I26 (220, 250, 221) is M2; the M1 stub's first line stands for the greeting";
 			return {v};
 		}
 
@@ -159,8 +171,7 @@ namespace oneport::opcase
 			late.when = When::t_fb;
 			late.reply = Reply::dedicated;
 			late.dedicated = Proto::smtp;
-			late.coverage = Coverage::stub;
-			late.pending = "the SMTP handler's 500 to the request is M2; G is the suite's stand-in until the pilot sets G_L";
+			late.pending = "G is the suite's stand-in until the pilot sets G_L";
 			Variant twin;
 			twin.id = "HC07.twin";
 			twin.script = Script{}.write_at(Anchor::before_connect, p.t_fb - p.g, http_get());
@@ -230,12 +241,11 @@ namespace oneport::opcase
 		{
 			Variant v;
 			v.id = "HC13";
-			v.script = Script{}.write(cat({proxy_v1(), client_hello(0x01, "oneport.test")})).shutdown_write();
+			v.script = Script{}.write(cat({proxy_v1(), recorded_client_hello()})).shutdown_write();
 			v.setup = Setup::proxy;
 			v.expect = Expect::classified;
 			v.proto = Proto::tls;
-			v.reply = Reply::dedicated;
-			v.dedicated = Proto::tls;
+			v.reply = Reply::tls_flight;  // the outcome is "TLS"; a server flight's bytes differ on every connection
 			v.at = 6;
 			v.source = proxy_source();
 			return {v};
@@ -277,8 +287,6 @@ namespace oneport::opcase
 			v.reply = Reply::dedicated;
 			v.dedicated = Proto::smtp;
 			v.source = proxy_source();
-			v.coverage = Coverage::stub;
-			v.pending = "the greeting is the SMTP handler's 220 in M2; the M1 stub's first line stands for it";
 			return {v};
 		}
 
@@ -313,7 +321,8 @@ namespace oneport::opcase
 			return {one, two};
 		}
 
-		Variant classified_stub(std::string id, Script s, Proto p, std::uint32_t at)
+		/// Classified, the client then shuts down writing; the transcript equals the dedicated port's.
+		Variant classified_then_eof(std::string id, Script s, Proto p, std::uint32_t at)
 		{
 			Variant v;
 			v.id = std::move(id);
@@ -326,21 +335,35 @@ namespace oneport::opcase
 			return v;
 		}
 
-		std::vector<Variant> hc18(const SuiteParams&) { return {classified_stub("HC18", Script{}.write(ssh_line("a comment")), Proto::ssh, 4)}; }
+		std::vector<Variant> hc18(const SuiteParams&) { return {classified_then_eof("HC18", Script{}.write(ssh_line("a comment")), Proto::ssh, 4)}; }
 
 		std::vector<Variant> hc19(const SuiteParams&)
 		{
-			return {classified_stub("HC19.0301", Script{}.write(client_hello(0x01, "oneport.test")), Proto::tls, 6),
-			        classified_stub("HC19.0303", Script{}.write(client_hello(0x03, "oneport.test")), Proto::tls, 6)};
+			// The outcome is "TLS": the recorded ClientHello with each record version; a server
+			// flight's bytes differ on every connection, so its first record is checked instead.
+			Variant v0301 = classified_then_eof("HC19.0301", Script{}.write(with_record_version(recorded_client_hello(), 0x01)), Proto::tls, 6);
+			Variant v0303 = classified_then_eof("HC19.0303", Script{}.write(with_record_version(recorded_client_hello(), 0x03)), Proto::tls, 6);
+			v0301.reply = Reply::tls_flight;
+			v0303.reply = Reply::tls_flight;
+			return {v0301, v0303};
 		}
 
 		std::vector<Variant> hc20(const SuiteParams& p)
 		{
-			std::size_t first = 0;
-			const Bytes ch = client_hello(0x01, "oneport.test", 40, &first);
-			Variant v = classified_stub("HC20", Script{}.split(ch, {first}, p.gap_split), Proto::tls, 6);
-			v.coverage = Coverage::partial;
-			v.pending = "in-process, the handshake completes (TLS termination, M2); pass-through, it is routed by its SNI (relay, M2)";
+			// A live ClientHello in two records, the first with 40 handshake bytes (a design choice
+			// of M1: inside the ClientHello, before its extensions), one write per record.
+			TlsPlan t = tls_plan();
+			t.fragment_at = 40;
+			t.gap = p.gap_split;
+			Variant v;
+			v.id = "HC20";
+			v.script = Script{}.tls(std::move(t));
+			v.expect = Expect::classified;
+			v.proto = Proto::tls;
+			v.reply = Reply::dedicated;  // in-process the handshake completes, and the exchange is the dedicated port's
+			v.dedicated = Proto::tls;
+			v.at = 6;
+			v.pending = "pass-through (routed by its SNI) is the relay's, M2b";
 			return {v};
 		}
 
@@ -386,7 +409,7 @@ namespace oneport::opcase
 			const std::array<std::uint32_t, 4> lengths{12, 128, 16384, 2097152};
 			for (std::size_t i = 0; i < lengths.size(); ++i)
 			{
-				out.push_back(classified_stub("HC24.rl" + std::to_string(i + 1), Script{}.write(cat({mqtt_connect(4, lengths[i]), mqtt_disconnect()})),
+				out.push_back(classified_then_eof("HC24.rl" + std::to_string(i + 1), Script{}.write(cat({mqtt_connect(4, lengths[i]), mqtt_disconnect()})),
 				                              Proto::mqtt, static_cast<std::uint32_t>(9 + i)));
 			}
 			Variant isdp = closed("HC24.MQIsdp", Script{}.write(mqtt_isdp()), Expect::rejected, When::at_once);

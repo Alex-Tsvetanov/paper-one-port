@@ -1,13 +1,16 @@
 // The internals of oneport's server on epoll: connection state, deadline lists, buffers and
-// the worker (design/proposal.md I3 to I5, I9 to I16, I26, I27, I29). Linux only. The worker's
-// pass, accept, PROXY, detection and timers are in worker.cpp; its handlers, output and
-// connection lifecycle in handlers.cpp.
+// the worker (design/proposal.md I3 to I5, I9 to I16, I22, I26, I27, I29). Linux only. The
+// worker's pass, accept, PROXY, detection and timers are in worker.cpp; its handlers, TLS, output
+// and connection lifecycle in handlers.cpp; the handlers' protocol steps in apps.cpp and h2.cpp.
 #pragma once
 
 #if defined(__linux__)
 
+#include "apps.hpp"
+#include "h2.hpp"
 #include "oneport/loop.hpp"
 #include "server.hpp"
+#include "tls.hpp"
 
 #include <algorithm>
 #include <array>
@@ -116,10 +119,9 @@ namespace oneport::server::detail
 
 	enum class Stage : std::uint8_t
 	{
-		proxy,   // reading the PROXY header
-		detect,  // one-port: deciding the class
-		http1,   // the HTTP/1.1 handler
-		stub,    // an M1 stub handler (h2c, TLS, MQTT, SSH, SMTP): replaced in M2
+		proxy,    // reading the PROXY header
+		detect,   // one-port: deciding the class
+		handler,  // the class's handler (I26), entered at classification, at accept or at T_fb
 	};
 
 	/// How a handler is entered, which says whether it must read at once.
@@ -129,6 +131,18 @@ namespace oneport::server::detail
 		replay,      // classified in replay mode: the bytes are in the buffer
 		peek,        // classified in peek mode: the bytes are still in the socket
 		fallback,    // T_fb: nothing received
+	};
+
+	/// The application handler of a connection. A TLS connection has `none` until its handshake
+	/// chooses HTTP/1.1 or h2 by ALPN.
+	enum class App : std::uint8_t
+	{
+		none,
+		http1,
+		h2,
+		mqtt,
+		ssh,
+		smtp,
 	};
 
 	struct ListenerState;
@@ -142,21 +156,12 @@ namespace oneport::server::detail
 		bool armed = false;
 	};
 
-	/// The HTTP/1.1 handler's state.
-	struct HttpState
+	/// A view of a connection's input: the received bytes, or for TLS the decrypted ones.
+	struct View
 	{
-		bool closing;  // the last response is the last one
-	};
-
-	/// An M1 stub handler's state: the bytes it received, counted and hashed (FNV-1a, 64 bits),
-	/// so a test can check from the client side that the handler saw every byte from the first.
-	struct StubState
-	{
-		std::uint64_t count;
-		std::uint64_t hash;
-		bool trailer_pending;  // the client's EOF came while the marker was still being sent
-		std::uint8_t trailer_len;
-		std::array<char, 96> trailer;
+		Buffer*& buf;
+		std::uint32_t& beg;
+		std::uint32_t& len;
 	};
 
 	struct Conn
@@ -165,6 +170,7 @@ namespace oneport::server::detail
 		std::uint32_t gen = 0;
 		Stage stage = Stage::detect;
 		Proto proto = Proto::http1;
+		App app = App::none;
 		ListenerState* listener = nullptr;
 		std::uint64_t id = 0;
 		std::uint16_t peer_port = 0;
@@ -174,6 +180,7 @@ namespace oneport::server::detail
 		std::uint32_t len = 0;
 		bool last_read_full = false;  // the last read stopped at a full buffer
 		bool eof_seen = false;        // a receive returned 0: the peer shut down writing
+		bool rdhup_seen = false;      // an event reported the peer's half-close
 
 		// Detection.
 		std::uint32_t app_seen = 0;  // application bytes observed
@@ -192,20 +199,32 @@ namespace oneport::server::detail
 		TimePoint timers_start{};
 		std::array<Link, 3> timers{};  // indexed by TimerKind
 
-		// Output: a pending tail, from a static response or the stub's trailer.
-		const std::byte* out = nullptr;
-		std::uint32_t out_len = 0;
+		// TLS (I22 to I24): OpenSSL through the worker's BIO; the decrypted bytes in `plain`.
+		SSL* ssl = nullptr;
+		Buffer* plain = nullptr;
+		std::uint32_t pbeg = 0;
+		std::uint32_t plen = 0;
+		bool tls_open = false;       // the handshake is complete
+		bool tls_peer_done = false;  // the peer's close_notify arrived
+
+		// Output the socket did not take, owned, sent on EPOLLOUT before anything else.
+		std::vector<std::byte> pend;
+		std::size_t pend_off = 0;
 		bool close_after_out = false;
-		bool want_out = false;  // EPOLLOUT registered
+		bool want_out = false;       // EPOLLOUT registered
+		bool read_deferred = false;  // a read waited for the pending output
 
 		std::uint64_t bytes_received = 0;
 		std::uint64_t bytes_sent = 0;
 
+		/// The application handler's state, by `app`.
 		union
 		{
-			HttpState http;
-			StubState stub;
-		} h{};
+			bool http_unused;
+			nghttp2_session* h2;
+			apps::MqttState mqtt;
+			apps::SshState ssh;
+		} a{};
 	};
 
 	/// One deadline list per listener and timer: every connection of a listener waits under the
@@ -249,21 +268,6 @@ namespace oneport::server::detail
 		std::array<DeadlineList, 3> lists{};
 	};
 
-	/// The M1 stub handlers' first line, per class.
-	constexpr std::string_view stub_marker(Proto p) noexcept
-	{
-		switch (p)
-		{
-			case Proto::tls: return "oneport M1 stub TLS\r\n";
-			case Proto::h2c: return "oneport M1 stub h2c\r\n";
-			case Proto::mqtt: return "oneport M1 stub MQTT\r\n";
-			case Proto::ssh: return "oneport M1 stub SSH\r\n";
-			case Proto::smtp: return "oneport M1 stub SMTP\r\n";
-			case Proto::http1: return "oneport M1 stub HTTP\r\n";
-		}
-		return "oneport M1 stub\r\n";
-	}
-
 	inline std::span<const std::byte> as_bytes(std::string_view s) noexcept { return std::as_bytes(std::span<const char>(s.data(), s.size())); }
 
 	/// What every worker shares, read-only after start().
@@ -275,6 +279,7 @@ namespace oneport::server::detail
 		nanoseconds t_hdr{};
 		bool exclusive_listeners = true;  // the shared layout: EPOLLEXCLUSIVE on each worker's set
 		Hooks hooks{};
+		SSL_CTX* ssl_ctx = nullptr;  // the server's TLS context (tls::server_ctx), shared by the workers
 	};
 
 	struct ReadResult
@@ -334,7 +339,9 @@ namespace oneport::server::detail
 
 		void on_proxy_readable(Conn* c, bool rdhup);
 
-		void header_complete(Conn* c, const detect::ProxyResult& r);
+		/// The header is consumed: on a one-port listener detection starts; on a dedicated one the
+		/// handler is entered. Returns false once the connection is closed.
+		bool header_complete(Conn* c, const detect::ProxyResult& r);
 
 		// ---- Detection (I9 steps 2 and 3, I11) ----
 
@@ -388,9 +395,11 @@ namespace oneport::server::detail
 
 		// ---- Handlers (I26) ----
 
-		void init_handler(Conn* c);
-
+		/// Enters the handler of class `p`: TLS makes its OpenSSL object, SSH and SMTP speak.
 		void enter_handler(Conn* c, Proto p, Entry entry);
+
+		/// Sets up the handler's state; SSH and SMTP send their first line. False once closed.
+		bool start_handler(Conn* c, Proto p);
 
 		/// Reads into the connection's buffer until the socket is drained, the buffer is full or
 		/// the peer has shut down. A short read means drained: with edge-triggered readiness,
@@ -407,26 +416,32 @@ namespace oneport::server::detail
 		/// bytes. Recorded, and reported with the detection.
 		void audit_pending(int fd, std::uint32_t gen) noexcept;
 
-		/// The handler's readiness: read (when `must_read`), then let the handler consume. An
-		/// EOF already read by the detection or PROXY stage is in `eof_seen`.
+		/// The handler's readiness: read (when `must_read`), then let the handler consume and
+		/// send. While output is pending nothing more is read (the read waits for the flush).
 		void handler_readable(Conn* c, bool rdhup, bool must_read);
 
-		/// Parses and answers every complete request in the buffer. Returns false once the
-		/// connection is closed.
-		bool http_consume(Conn* c, bool eof);
+		/// One step of the connection's application handler over `v`, its output appended to
+		/// `out`. A need for room moves the incomplete tail to the buffer's start.
+		apps::Next app_step(Conn* c, View v, bool eof, std::vector<std::byte>& out);
 
-		/// An M1 stub: the marker at entry, then every received byte counted and hashed, and
-		/// at the client's EOF a trailer with the count and the hash, then close. M2 replaces
-		/// each stub with the protocol's handler (I26).
-		bool stub_consume(Conn* c, bool eof);
+		/// One step of a TLS connection: the received bytes into OpenSSL, the handshake, the
+		/// decrypted bytes through the application handler, its output through OpenSSL. The
+		/// bytes to send are left in wire_.
+		apps::Next tls_step(Conn* c);
+
+		/// After the handshake: decrypt, run the application handler, encrypt.
+		apps::Next tls_app(Conn* c);
 
 		// ---- Output ----
 
-		/// Sends `bytes`; what the socket does not take waits for EPOLLOUT. Returns false once
-		/// the connection is closed.
-		bool send(Conn* c, std::span<const std::byte> bytes, bool close_after);
+		/// Sends `wire`, then acts on `next`. Returns false once the connection is closed.
+		bool commit(Conn* c, std::vector<std::byte>& wire, apps::Next next);
 
-		/// Sends the pending tail on EPOLLOUT. Returns false once the connection is closed.
+		/// Sends `bytes`, or queues them behind pending output; what the socket does not take is
+		/// kept and waits for EPOLLOUT. Returns false once the connection is closed.
+		bool emit(Conn* c, std::span<const std::byte> bytes);
+
+		/// Sends the pending output on EPOLLOUT. Returns false once the connection is closed.
 		bool flush(Conn* c);
 
 		// ---- Connections ----
@@ -449,6 +464,9 @@ namespace oneport::server::detail
 		std::vector<std::uint32_t> gen_by_fd_;
 		BufferPool pool_;
 		std::array<std::byte, detect::kPeekWindow> scratch_{};  // the per-worker peek buffer (I11)
+		std::vector<std::byte> out_;   // a handler's output, staged until it is sent or encrypted
+		std::vector<std::byte> wire_;  // a TLS connection's output, from OpenSSL
+		tls::BioIo bio_;               // what OpenSSL reads and writes on this worker (tls::new_bio)
 		std::uint64_t pass_ = 0;
 		TimePoint prev_return_{};
 		std::uint64_t next_id_ = 0;

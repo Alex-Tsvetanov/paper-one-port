@@ -1,11 +1,13 @@
-// The server's functional tests on epoll (Linux): handlers, both modes, the peek path's
+// The server's functional tests on epoll (Linux): HTTP/1.1, both modes, the peek path's
 // SO_RCVLOWAT, the check of 1(b) with a byte in the pass of the expiry, two workers on the shared
-// listener and on SO_REUSEPORT, every flag combination M1 serves, and the binary itself.
+// listener and on SO_REUSEPORT, every flag combination served, and the binary itself. The other
+// handlers have their own tests (tests/handler_tests.cpp).
 // Untimed: no test measures a rate; the only times are the timers' bounds.
 #include "test_support.hpp"
 
 #if defined(__linux__)
 
+#include "apps.hpp"
 #include "cases.hpp"
 #include "harness.hpp"
 #include "http1.hpp"
@@ -101,11 +103,18 @@ namespace oneport::test
 			opcase::Transcript t;
 			run_and_wait(srv, Script{}.write(opcase::http_get()), ports[0], t);
 			CHECK(t.received == text(http1::kResponse200) && t.eof, "the dedicated HTTP/1.1 port answers 200");
+			// SSH and SMTP speak at accept (I26, I28); the others wait for the client's bytes.
 			for (std::size_t i = 1; i < 6; ++i)
 			{
-				run_and_wait(srv, Script{}.await_line().shutdown_write(), ports[i], t);
-				const std::string want = "oneport M1 stub " + std::string(detect::name(order[i]));
-				CHECK(opcase::first_line(t.received) == want, "port " << i << " says '" << opcase::first_line(t.received) << "'");
+				const bool speaks = order[i] == detect::Proto::ssh || order[i] == detect::Proto::smtp;
+				run_and_wait(srv, speaks ? Script{}.await_line().shutdown_write() : Script{}.gap(100ms).shutdown_write(), ports[i], t);
+				if (order[i] == detect::Proto::ssh) CHECK(t.received == text(apps::kSshBanner), "the SSH port says '" << opcase::first_line(t.received) << "'");
+				if (order[i] == detect::Proto::smtp) CHECK(t.received == text(apps::kSmtpGreeting), "the SMTP port says '" << opcase::first_line(t.received) << "'");
+				if (!speaks)
+				{
+					// Nothing before the client's EOF; h2c may then send its SETTINGS as it closes.
+					CHECK(!t.first_byte || *t.first_byte - t.after_connect >= 100ms, "port " << i << " spoke before the client");
+				}
 				CHECK(t.eof, "port " << i << " closes after the client's EOF");
 			}
 			return srv.stop_and_check();
@@ -129,7 +138,7 @@ namespace oneport::test
 			CHECK(reps.empty(), "a complete header ends no detection on a dedicated port");
 			CHECK(t.received == text(http1::kResponse200), "the request after the header is answered");
 			run_and_wait(srv, Script{}.write(opcase::proxy_v2()).await_line().shutdown_write(), srv.port_of(detect::Proto::smtp), t);
-			CHECK(opcase::first_line(t.received) == "oneport M1 stub SMTP", "the SMTP stub speaks once the header is complete");
+			CHECK(t.received == text(apps::kSmtpGreeting), "the SMTP handler greets once the header is complete");
 			return srv.stop_and_check();
 		}
 
@@ -328,7 +337,7 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
-		// ---- Every flag combination M1 serves ----
+		// ---- Every flag combination served ----
 
 		Result flag_matrix()
 		{
@@ -359,14 +368,14 @@ namespace oneport::test
 									if (mode == Mode::one_port && fallback != Fallback::none)
 									{
 										run_and_wait(srv, Script{}.write(header).await_line().shutdown_write(), srv.port(), t);
-										const std::string want = fallback == Fallback::smtp ? "oneport M1 stub SMTP" : "oneport M1 stub SSH";
-										CHECK(opcase::first_line(t.received) == want, what << ": a silent client does not reach the fallback");
+										const std::string_view want = fallback == Fallback::smtp ? apps::kSmtpGreeting : apps::kSshBanner;
+										CHECK(t.received == text(want), what << ": a silent client does not reach the fallback");
 										CHECK(t.first_byte && *t.first_byte - t.before_connect >= a.t_fb, what << ": the fallback spoke before T_fb");
 									}
 									if (mode == Mode::dedicated)
 									{
 										run_and_wait(srv, Script{}.write(header).await_line().shutdown_write(), srv.port_of(detect::Proto::smtp), t);
-										CHECK(opcase::first_line(t.received) == "oneport M1 stub SMTP", what << ": the SMTP port");
+										CHECK(t.received == text(apps::kSmtpGreeting), what << ": the SMTP port");
 									}
 									if (auto bad = srv.stop_and_check()) return std::string(what + ": " + *bad);
 									++combos;
@@ -375,7 +384,7 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
-		// ---- Stop with a pending connection; configurations M1 does not serve ----
+		// ---- Stop with a pending connection; configurations not served yet ----
 
 		Result stop_with_pending()
 		{
@@ -400,13 +409,13 @@ namespace oneport::test
 		{
 			Config c = make_config(ServerArgs{});
 			c.backend = Backend::io_uring;
-			CHECK(server::not_served_in_m1(c) == std::optional<std::string>("the io_uring backend is M2"), "io_uring");
+			CHECK(server::not_served(c) == std::optional<std::string>("the io_uring backend is M2b"), "io_uring");
 			c.backend = Backend::epoll;
 			c.dispatch = Dispatch::relay;
-			CHECK(server::not_served_in_m1(c).has_value(), "relay");
+			CHECK(server::not_served(c).has_value(), "relay");
 			c.dispatch = Dispatch::inproc;
 			c.mode = Mode::stub;
-			CHECK(server::not_served_in_m1(c).has_value(), "stub mode");
+			CHECK(server::not_served(c).has_value(), "stub mode");
 			bool refused = false;
 			try
 			{
@@ -416,9 +425,9 @@ namespace oneport::test
 			{
 				refused = true;
 			}
-			CHECK(refused, "the server refuses a configuration M1 does not serve");
+			CHECK(refused, "the server refuses a configuration not served yet");
 			c.mode = Mode::one_port;
-			CHECK(!server::not_served_in_m1(c), "one-port epoll inproc is served");
+			CHECK(!server::not_served(c), "one-port epoll inproc is served");
 			CHECK(server::Server::conn_state_bytes() > 0, "the connection state has a size");
 			return std::nullopt;
 		}

@@ -1,7 +1,7 @@
 # The test suite: one CTest entry per (group, case), as in P1's suite. Every entry also runs in each
 # sanitizer build (hypotheses.md, section 11).
-add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp clienthello_tests.cpp server_tests.cpp case_tests.cpp
-               test_support.hpp harness.hpp)
+add_executable(oneport_tests unit_tests.cpp detect_tests.cpp http_tests.cpp apps_tests.cpp clienthello_tests.cpp server_tests.cpp handler_tests.cpp
+               case_tests.cpp test_support.hpp harness.hpp)
 target_link_libraries(oneport_tests PRIVATE oneport_server oneport_loop opcase)
 oneport_warnings(oneport_tests)
 
@@ -23,12 +23,14 @@ foreach(_backend IN LISTS ONEPORT_BACKENDS)
     endforeach()
 endforeach()
 
-# The detection table and the HTTP/1.1 parser: pure, on every platform.
+# The detection table, the HTTP/1.1 parser, the handlers' protocol steps and the ClientHello
+# reader on the recorded ClientHello: pure, on every platform.
 set(ONEPORT_PURE_TESTS
     detect.corpus_splits detect.first_bytes detect.order detect.hc16 detect.http1_methods detect.tls detect.mqtt
     detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets
     http.valid http.grammar http.bad_request http.incomplete http.responses
-    clienthello.recorded clienthello.fragments)
+    apps.smtp_lines apps.smtp_partial_and_limits apps.mqtt_connect_ping_disconnect apps.mqtt_streams_payload
+    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
     set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)
@@ -53,14 +55,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     endforeach()
     add_test(NAME server.binary_smoke COMMAND oneport_tests test server.binary_smoke $<TARGET_FILE:oneport>)
     set_tests_properties(server.binary_smoke PROPERTIES TIMEOUT 120 LABELS server)
+    # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
+    set(ONEPORT_HANDLER_TESTS
+        handlers.tls_context handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
+        handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
+    foreach(_test IN LISTS ONEPORT_HANDLER_TESTS)
+        add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+        set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS handlers)
+    endforeach()
 endif()
 
-# The 25 hard cases of hypotheses.md, Appendix A. How much of each frozen outcome M1 checks, by
-# label: full; stub (detection and timing checked, the exchange is an M1 stub handler's until M2);
-# partial (the detection checked, the rest of the outcome pending M2). Every case also has entries
-# for the dispatch modes and backends M1 does not serve, marked pending with the reason.
-set(_stub_cases 1 2 3 5 7 15)
-set(_partial_cases 20)
+# The 25 hard cases of hypotheses.md, Appendix A. How much of each frozen outcome an entry checks,
+# by label: full, or partial (the detection checked, the rest of the outcome pending). On epoll
+# with in-process dispatch every case is full since M2a. Every case also has entries for the
+# dispatch modes and backends not served yet, marked pending with the reason.
+set(_partial_cases)
 foreach(_n RANGE 1 25)
     if(_n LESS 10)
         set(_id HC0${_n})
@@ -68,20 +77,18 @@ foreach(_n RANGE 1 25)
         set(_id HC${_n})
     endif()
     set(_coverage full)
-    if(_n IN_LIST _stub_cases)
-        set(_coverage stub)
-    elseif(_n IN_LIST _partial_cases)
+    if(_n IN_LIST _partial_cases)
         set(_coverage partial)
     endif()
     foreach(_mode replay peek)
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             add_test(NAME case.${_id}.epoll.inproc.${_mode} COMMAND oneport_tests case ${_n} ${_mode})
             set_tests_properties(case.${_id}.epoll.inproc.${_mode} PROPERTIES TIMEOUT 600 LABELS "case;epoll;${_coverage}")
-            add_test(NAME case.${_id}.epoll.relay.${_mode} COMMAND oneport_tests pending ${_id}.epoll.relay.${_mode} pending M2: relay dispatch)
+            add_test(NAME case.${_id}.epoll.relay.${_mode} COMMAND oneport_tests pending ${_id}.epoll.relay.${_mode} pending M2b: relay dispatch)
             set_tests_properties(case.${_id}.epoll.relay.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
             foreach(_dispatch inproc relay)
                 add_test(NAME case.${_id}.io_uring.${_dispatch}.${_mode}
-                         COMMAND oneport_tests pending ${_id}.io_uring.${_dispatch}.${_mode} pending M2: the io_uring backend)
+                         COMMAND oneport_tests pending ${_id}.io_uring.${_dispatch}.${_mode} pending M2b: the io_uring backend)
                 set_tests_properties(case.${_id}.io_uring.${_dispatch}.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
             endforeach()
         elseif(WIN32)
@@ -106,14 +113,14 @@ oneport_cli_test(print_config 0 "detect replay.+dispatch inproc.+backend ${_firs
 oneport_cli_test(usage_error 2 "missing --detect, --dispatch, --backend" --mode one-port)
 oneport_cli_test(help 0 "usage: oneport" --help)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    oneport_cli_test(not_served_io_uring 3 "not served in M1: the io_uring backend is M2"
+    oneport_cli_test(not_served_io_uring 3 "not served yet: the io_uring backend is M2b"
                      --mode one-port --detect replay --dispatch inproc --backend io_uring)
-    oneport_cli_test(not_served_relay 3 "not served in M1: relay dispatch is M2"
+    oneport_cli_test(not_served_relay 3 "not served yet: relay dispatch is M2b"
                      --mode one-port --detect replay --dispatch relay --backend epoll)
-    oneport_cli_test(not_served_stub 3 "not served in M1: stub mode"
+    oneport_cli_test(not_served_stub 3 "not served yet: stub mode"
                      --mode stub --detect replay --dispatch inproc --backend epoll)
 else()
-    oneport_cli_test(not_served_iocp 3 "not served in M1: the IOCP backend is M6" ${_arm})
+    oneport_cli_test(not_served_iocp 3 "not served yet: the IOCP backend is M6" ${_arm})
 endif()
 
 # The records gate and the record writer (bench/), when a Python 3 interpreter is found.

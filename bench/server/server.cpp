@@ -1,5 +1,5 @@
-// oneport's server on epoll (design/proposal.md I3 to I5, I9 to I16, I20, I26, I27, I29; the
-// fallback rules of hypotheses.md, section 1).
+// oneport's server on epoll (design/proposal.md I3 to I5, I9 to I16, I20, I22 to I24, I26, I27,
+// I29; the fallback rules of hypotheses.md, section 1).
 //
 // One worker per thread, each with its own epoll set (bench/loop). The sockets are non-blocking
 // and registered edge-triggered with EPOLLRDHUP in both modes (the trigger mode is fixed in
@@ -95,6 +95,7 @@ namespace oneport::server
 		std::vector<std::vector<int>> fds;  // per worker (the shared layout repeats one list)
 		std::vector<int> owned;             // every listening socket, closed at the end
 		std::vector<std::uint16_t> ports;
+		tls::Ctx ssl_ctx;  // the server's TLS context (bench/tls), one for every worker
 		std::vector<std::unique_ptr<Worker>> workers;
 		std::vector<std::thread> threads;
 		bool started = false;
@@ -149,8 +150,10 @@ namespace oneport::server
 
 	Server::Server(const Config& config, Options options) : impl_(std::make_unique<Impl>())
 	{
-		if (auto why = not_served_in_m1(config)) throw std::invalid_argument("not served in M1: " + *why);
+		if (auto why = not_served(config)) throw std::invalid_argument("not served yet: " + *why);
 		impl_->config = config;
+		impl_->ssl_ctx = tls::server_ctx();
+		impl_->shared.ssl_ctx = impl_->ssl_ctx.get();
 		impl_->options = options;
 		impl_->specs = listener_specs(config);
 		impl_->shared.detect = config.detect;
@@ -253,7 +256,7 @@ namespace oneport::server
 
 	std::size_t Server::conn_state_bytes() noexcept { return sizeof(detail::Conn); }
 
-#else  // not Linux: M1 serves nothing here (IOCP is M6)
+#else  // not Linux: nothing is served here yet (IOCP is M6)
 
 	struct Server::Impl
 	{
@@ -262,8 +265,8 @@ namespace oneport::server
 
 	Server::Server(const Config& config, Options) : impl_(std::make_unique<Impl>())
 	{
-		if (auto why = not_served_in_m1(config)) throw std::invalid_argument("not served in M1: " + *why);
-		throw std::invalid_argument("not served in M1 on this platform");
+		if (auto why = not_served(config)) throw std::invalid_argument("not served yet: " + *why);
+		throw std::invalid_argument("not served yet on this platform");
 	}
 	Server::~Server() = default;
 	void Server::start() {}

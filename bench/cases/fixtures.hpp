@@ -1,8 +1,10 @@
 // opcase fixtures: the client byte strings of the hard cases (hypotheses.md, Appendix A).
 //
-// Each builder follows the message's specification (named beside it). The ClientHello is built
-// here from RFC 8446's structure for the M1 suite; the recorded ClientHello of proposal I18,
-// captured from OpenSSL with the settings of I24, replaces it in M2.
+// Each builder follows the message's specification (named beside it). The ClientHello is the
+// recorded one of proposal I18, captured once from OpenSSL with the settings of I24
+// (tests/fixtures/tls/clienthello.hex, made by bench/cases/record_clienthello.cpp); where a case
+// needs a handshake that completes, opcase runs a live OpenSSL client with the same settings
+// instead (script.hpp, TlsPlan).
 #pragma once
 
 #include "detect.hpp"
@@ -24,18 +26,13 @@ namespace oneport::opcase
 
 	/// "GET / HTTP/1.1", Host and Connection: close (RFC 9112 s3).
 	Bytes http_get(std::string_view leading = "");
-	/// The h2c preface and an empty SETTINGS frame (RFC 9113 s3.4, s6.5).
+	/// The h2c exchange of WL1 as one byte string: the preface, an empty SETTINGS frame, one
+	/// HEADERS frame with END_STREAM (GET / for oneport.test), and GOAWAY (RFC 9113 s3.4, s6).
 	Bytes h2c_opening();
 	/// An identification string (RFC 4253 s4.2), with an optional comment after a space.
 	Bytes ssh_line(std::string_view comment = "");
 	/// "EHLO" and "QUIT" lines of an SMTP client (RFC 5321).
 	Bytes smtp_line(std::string_view line);
-
-	/// A TLS 1.3 ClientHello (RFC 8446 s4.1.2) with SNI, X25519, ecdsa_secp256r1_sha256 and ALPN
-	/// http/1.1, in one record with legacy_record_version 03 `record_minor`, or, when `split` is
-	/// above 0, with its handshake bytes fragmented across two records after `split` bytes (HC20).
-	/// `first_record` receives the length of the first record with its header.
-	Bytes client_hello(std::uint8_t record_minor, std::string_view sni, std::size_t split = 0, std::size_t* first_record = nullptr);
 
 	/// The recorded ClientHello: one TLS record as OpenSSL 3.5.9 wrote it with the settings of I24,
 	/// SNI oneport.test and ALPN http/1.1 (tests/fixtures/tls/clienthello.hex).

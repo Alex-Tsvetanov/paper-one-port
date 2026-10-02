@@ -1,8 +1,8 @@
 // oneport: the paper's own one-port server (design/proposal.md, section 2).
 //
-// --print-config prints the configuration and exits 0. Serving: M1 serves the epoll backend with
-// in-process dispatch in one-port and dedicated mode; any other arm exits with kExitNotServed and
-// says which milestone serves it. The server listens on 127.0.0.1, prints one "listening" line per
+// --print-config prints the configuration and exits 0. Serving: the epoll backend with in-process
+// dispatch in one-port and dedicated mode; any other arm exits with kExitNotServed and says which
+// milestone serves it. The server listens on 127.0.0.1, prints one "listening" line per
 // port, and runs until SIGINT or SIGTERM; it then prints its counters (proposal I29) and exits 0.
 // This file does not read the mode (proposal I21): the listener setup does.
 #include "config.hpp"
@@ -42,9 +42,9 @@ int main(int argc, char** argv)
 		case oneport::Command::print_config: std::fputs(oneport::describe(cmd->config).c_str(), stdout); return 0;
 		case oneport::Command::serve: break;
 	}
-	if (const auto why = oneport::server::not_served_in_m1(cmd->config))
+	if (const auto why = oneport::server::not_served(cmd->config))
 	{
-		std::fprintf(stderr, "oneport: not served in M1: %s; the flags parsed as:\n%s", why->c_str(), oneport::describe(cmd->config).c_str());
+		std::fprintf(stderr, "oneport: not served yet: %s; the flags parsed as:\n%s", why->c_str(), oneport::describe(cmd->config).c_str());
 		return kExitNotServed;
 	}
 #if defined(__linux__)
@@ -85,7 +85,7 @@ int main(int argc, char** argv)
 		return kExitFailed;
 	}
 #else
-	std::fprintf(stderr, "oneport: not served in M1 on this platform\n");
+	std::fprintf(stderr, "oneport: not served yet on this platform\n");
 	return kExitNotServed;
 #endif
 }

@@ -13,16 +13,24 @@
 // The client side checks each timer from below on the same clock: an end that came "at T" came no
 // sooner than T after the client's own reference, which precedes the server's.
 //
-// Output: one line per variant (PASS, PASS with the M1 stub, PASS with a part pending), then a
-// summary. Nothing received is printed beyond counts and printable first lines.
+// Transcripts. "The transcript equals the dedicated port's" is checked byte for byte, except for
+// TLS: a handshake's wire bytes differ on every connection, so a TLS exchange is compared after
+// decryption, with what the handshake negotiated (design/status.md, M2a readings). Each dedicated
+// transcript is also checked against what its handler sends (I26), so the two cannot agree on a
+// wrong exchange.
+//
+// Output: one line per variant (PASS, or PASS-PARTIAL with a part pending), then a summary.
+// Nothing received is printed beyond counts and printable first lines.
 #include "test_support.hpp"
 
 #if defined(__linux__)
 
+#include "apps.hpp"
 #include "cases.hpp"
 #include "harness.hpp"
 #include "http1.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <map>
 #include <memory>
@@ -134,17 +142,102 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// Two TLS exchanges agree: both handshakes completed with the frozen settings, the same
+		/// ALPN, and the same decrypted bytes.
+		Result same_tls(const opcase::Transcript& t, const opcase::Transcript& d)
+		{
+			CHECK(t.tls && d.tls, "a TLS exchange has no TLS result");
+			for (const opcase::TlsResult* r : {&*t.tls, &*d.tls})
+			{
+				CHECK(r->handshake, "a handshake did not complete: " << r->error);
+				CHECK(r->version == "TLSv1.3" && r->cipher == "TLS_AES_128_GCM_SHA256" && r->group == "x25519",
+				      "negotiated " << r->version << ", " << r->cipher << ", " << r->group);
+				CHECK(r->sigalg == "ecdsa_secp256r1_sha256", "the server signed with " << r->sigalg);
+				CHECK(r->verified, "the server's certificate did not verify for oneport.test");
+				CHECK(!r->resumable, "a session ticket arrived (num_tickets is 0)");
+			}
+			CHECK(t.tls->alpn == d.tls->alpn, "ALPN " << t.tls->alpn << " against the dedicated port's " << d.tls->alpn);
+			CHECK(t.tls->plain == d.tls->plain, "the decrypted transcript differs from the dedicated port's: " << t.tls->plain.size() << " bytes ('"
+			                                                                                                  << opcase::first_line(t.tls->plain) << "') against "
+			                                                                                                  << d.tls->plain.size());
+			CHECK(t.tls->close_notify == d.tls->close_notify, "close_notify in one exchange only");
+			return std::nullopt;
+		}
+
+		/// A TLS server flight: the first record is a handshake record holding a ServerHello.
+		Result tls_flight(const opcase::Transcript& t)
+		{
+			const auto& b = t.received;
+			CHECK(b.size() >= 10, "no TLS record came back (" << b.size() << " bytes)");
+			CHECK(std::to_integer<int>(b[0]) == 0x16 && std::to_integer<int>(b[1]) == 0x03 && std::to_integer<int>(b[5]) == 0x02,
+			      "the first record is not a ServerHello");
+			CHECK(t.eof || t.reset, "the connection was not closed");
+			return std::nullopt;
+		}
+
+		bool starts_with(const opcase::Bytes& b, std::string_view prefix)
+		{
+			return b.size() >= prefix.size() && std::equal(prefix.begin(), prefix.end(), b.begin(), [](char c, std::byte x) { return static_cast<unsigned char>(c) == std::to_integer<unsigned char>(x); });
+		}
+
+		bool contains(const opcase::Bytes& b, std::string_view needle)
+		{
+			const opcase::Bytes n = opcase::text(needle);
+			return std::search(b.begin(), b.end(), n.begin(), n.end()) != b.end();
+		}
+
+		/// What the dedicated port of class `p` must have sent for the variant's script (I26).
+		Result dedicated_is_real(detect::Proto p, const Variant& v, const opcase::Transcript& d)
+		{
+			using detect::Proto;
+			switch (p)
+			{
+				case Proto::http1:
+					CHECK(d.received == opcase::text(http1::kResponse200), "the dedicated HTTP/1.1 port did not answer 200");
+					break;
+				case Proto::h2c:
+					CHECK(d.received.size() > 9 && std::to_integer<int>(d.received[3]) == 0x04, "the dedicated h2c port did not begin with SETTINGS");
+					CHECK(contains(d.received, "Hello, World!"), "the dedicated h2c port sent no body");
+					break;
+				case Proto::tls:
+					CHECK(d.tls && d.tls->handshake, "the dedicated TLS port did not complete the handshake");
+					CHECK(d.tls->plain == opcase::text(http1::kResponse200), "the dedicated TLS port did not answer 200");
+					break;
+				case Proto::mqtt:
+					CHECK(starts_with(d.received, std::string_view("\x20\x02\x00\x00", 4)) || starts_with(d.received, std::string_view("\x20\x03\x00\x00\x00", 5)),
+					      "the dedicated MQTT port did not answer CONNACK: " << d.received.size() << " bytes, eof " << d.eof << ", reset " << d.reset
+					                                                            << ", write failed " << d.write_failed);
+					break;
+				case Proto::ssh:
+					CHECK(d.received == opcase::text(apps::kSshBanner), "the dedicated SSH port did not send its line alone");
+					break;
+				case Proto::smtp:
+					CHECK(starts_with(d.received, apps::kSmtpGreeting), "the dedicated SMTP port did not greet");
+					if (v.id == "HC07.late") CHECK(contains(d.received, apps::kSmtpUnknown), "the request got no 500");
+					break;
+			}
+			return std::nullopt;
+		}
+
 		Result check_reply(Reply want, const opcase::Transcript& t, const opcase::Transcript* dedicated)
 		{
 			switch (want)
 			{
 				case Reply::dedicated:
 					CHECK(dedicated != nullptr, "no dedicated transcript");
-					CHECK(t.received == dedicated->received, "the transcript differs from the dedicated port's: " << t.received.size() << " bytes ('"
-					                                                                                            << opcase::first_line(t.received) << "') against "
-					                                                                                            << dedicated->received.size());
+					if (t.tls || dedicated->tls)
+					{
+						if (auto bad = same_tls(t, *dedicated)) return bad;
+					}
+					else
+					{
+						CHECK(t.received == dedicated->received, "the transcript differs from the dedicated port's: " << t.received.size() << " bytes ('"
+						                                                                                              << opcase::first_line(t.received) << "') against "
+						                                                                                              << dedicated->received.size());
+					}
 					CHECK(t.eof && !t.reset && dedicated->eof && !dedicated->reset, "both must end with the server's EOF");
 					return std::nullopt;
+				case Reply::tls_flight: return tls_flight(t);
 				case Reply::http200:
 					CHECK(t.received == opcase::text(http1::kResponse200) && t.eof, "no 200 then EOF: " << t.received.size() << " bytes");
 					return std::nullopt;
@@ -223,7 +316,6 @@ namespace oneport::test
 			switch (c)
 			{
 				case Coverage::full: return "PASS";
-				case Coverage::stub: return "PASS-STUB";
 				case Coverage::partial: return "PASS-PARTIAL";
 			}
 			return "?";
@@ -269,9 +361,10 @@ namespace oneport::test
 				{
 					Running& d = servers.dedicated(proxy);
 					bad = run_one(d, v.script, d.port_of(v.dedicated), ded, ded_reps);
-					if (!bad && v.dedicated == detect::Proto::http1 && ded.received != opcase::text(http1::kResponse200))
+					if (!bad) bad = dedicated_is_real(v.dedicated, v, ded);
+					if (bad)
 					{
-						bad = "the dedicated HTTP/1.1 port did not answer 200";
+						for (const auto& r : ded_reps) *bad += std::string("; the dedicated port's report: ") + std::string(server::name(r.outcome));
 					}
 				}
 				// Z2: the HTTP/1.1 grammar on invalid input in dedicated mode too.
@@ -319,8 +412,8 @@ namespace oneport::test
 			++failed;
 			std::printf("FAIL: %s %s: after the runs: %s\n", hcid, std::string(mode_name).c_str(), end->c_str());
 		}
-		std::printf("SUMMARY %s %s: variants %zu; full %d, stub %d, partial %d; failed %d\n", hcid, std::string(mode_name).c_str(), vs.size(), passed[Coverage::full],
-		            passed[Coverage::stub], passed[Coverage::partial], failed);
+		std::printf("SUMMARY %s %s: variants %zu; full %d, partial %d; failed %d\n", hcid, std::string(mode_name).c_str(), vs.size(), passed[Coverage::full],
+		            passed[Coverage::partial], failed);
 		std::fflush(stdout);
 		return failed == 0 ? 0 : 1;
 	}
@@ -335,7 +428,7 @@ namespace oneport::test
 {
 	int run_case(int, std::string_view)
 	{
-		std::printf("the M1 case suite runs on Linux\n");
+		std::printf("the case suite runs on Linux\n");
 		return 77;
 	}
 }  // namespace oneport::test

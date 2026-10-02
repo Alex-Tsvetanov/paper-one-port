@@ -10,12 +10,12 @@
 namespace oneport::server
 {
 
-	std::optional<std::string> not_served_in_m1(const Config& config)
+	std::optional<std::string> not_served(const Config& config)
 	{
-		if (config.backend == Backend::io_uring) return "the io_uring backend is M2";
+		if (config.backend == Backend::io_uring) return "the io_uring backend is M2b";
 		if (config.backend == Backend::iocp) return "the IOCP backend is M6 (Windows)";
-		if (config.dispatch == Dispatch::relay) return "relay dispatch is M2";
-		if (config.mode == Mode::stub) return "stub mode, the relay's backend, is M2";
+		if (config.dispatch == Dispatch::relay) return "relay dispatch is M2b";
+		if (config.mode == Mode::stub) return "stub mode, the relay's backend, is M2b";
 		return std::nullopt;
 	}
 
@@ -34,7 +34,7 @@ namespace oneport::server
 			specs.push_back(s);
 			return specs;
 		}
-		// Dedicated mode (and, from M2, stub mode): one port per class, in the order of I20.
+		// Dedicated mode (and, from M2b, stub mode): one port per class, in the order of I20.
 		for (const Proto p : {Proto::http1, Proto::h2c, Proto::tls, Proto::mqtt, Proto::ssh, Proto::smtp})
 		{
 			ListenerSpec s;

@@ -1,48 +1,91 @@
-// The worker's handlers (proposal I26: the HTTP/1.1 handler and the M1 stubs), its output and
-// its connections' lifecycle (see worker.hpp).
+// The worker's handlers (proposal I26), TLS termination (I22 to I24), its output and its
+// connections' lifecycle (see worker.hpp). The protocol steps are in apps.cpp and h2.cpp.
+//
+// Every handler runs the same code in both modes: entry differs (accept, classification or T_fb),
+// and so does where the first bytes are (in the buffer after replay, in the socket after peek),
+// and nothing after it. TLS reads the received bytes through the worker's BIO from the
+// connection's buffer, the one the handler would read into, and decrypts into a second buffer
+// (`plain`), from which the HTTP/1.1 or h2 handler reads as from the socket's bytes.
+//
+// Output: a step appends to out_ (for TLS, OpenSSL encrypts it into wire_); one send per step.
+// What the socket does not take is copied into the connection's `pend` and sent on EPOLLOUT;
+// while it waits, the connection reads nothing more, and the read resumes after the flush.
 #include "worker.hpp"
 
 #if defined(__linux__)
 
-#include "http1.hpp"
-
 #include <algorithm>
-#include <charconv>
 #include <cstring>
 
+#include <openssl/err.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 namespace oneport::server::detail
 {
 
+	using apps::Next;
+
 	// ---- Handlers (I26) ----
 
-	void Worker::init_handler(Conn* c)
+	bool Worker::start_handler(Conn* c, Proto p)
 	{
-		if (c->stage == Stage::http1)
+		c->stage = Stage::handler;
+		c->proto = p;
+		out_.clear();
+		switch (p)
 		{
-			c->h.http = HttpState{false};
+			case Proto::http1: c->app = App::http1; return true;
+			case Proto::h2c:
+				c->app = App::h2;
+				c->a.h2 = h2::open();
+				if (c->a.h2 == nullptr)
+				{
+					c->app = App::none;
+					close_conn(c);
+					return false;
+				}
+				return true;  // its SETTINGS leaves with the first output
+			case Proto::tls:
+			{
+				c->app = App::none;  // HTTP/1.1 or h2, by ALPN, once the handshake completes
+				c->ssl = SSL_new(shared_.ssl_ctx);
+				BIO* b = c->ssl != nullptr ? tls::new_bio(&bio_) : nullptr;
+				if (b == nullptr)
+				{
+					ERR_clear_error();
+					close_conn(c);
+					return false;
+				}
+				SSL_set_bio(c->ssl, b, b);
+				SSL_set_accept_state(c->ssl);
+				return true;
+			}
+			case Proto::mqtt:
+				c->app = App::mqtt;
+				c->a.mqtt = apps::MqttState{};  // every field zero: a union's {} sets only its first member
+				return true;
+			case Proto::ssh:
+				c->app = App::ssh;
+				c->a.ssh = apps::SshState{};
+				apps::append(out_, apps::kSshBanner);  // on entry: at accept, at classification or at T_fb (I28)
+				return commit(c, out_, Next::more);
+			case Proto::smtp:
+				c->app = App::smtp;
+				apps::append(out_, apps::kSmtpGreeting);
+				return commit(c, out_, Next::more);
 		}
-		else
-		{
-			c->h.stub = StubState{};
-			c->h.stub.hash = 14695981039346656037ull;  // FNV-1a 64 offset basis
-		}
+		return true;
 	}
 
 	void Worker::enter_handler(Conn* c, Proto p, Entry entry)
 	{
-		c->proto = p;
-		c->stage = p == Proto::http1 ? Stage::http1 : Stage::stub;
-		init_handler(c);
+		if (!start_handler(c, p)) return;
 		switch (entry)
 		{
 			case Entry::accept:
 			case Entry::fallback:
-				// Nothing received: an SSH or SMTP stub speaks first; the rest wait for bytes.
-				if (c->stage == Stage::stub) handler_readable(c, false, false);
-				return;
+				return;  // nothing received: wait for readiness
 			case Entry::replay:
 				// The bytes are in the buffer; read on only if the last read filled it.
 				handler_readable(c, c->observe_pass == pass_, c->last_read_full);
@@ -118,125 +161,227 @@ namespace oneport::server::detail
 
 	void Worker::handler_readable(Conn* c, bool rdhup, bool must_read)
 	{
+		if (rdhup) c->rdhup_seen = true;
 		for (;;)
 		{
+			if (!c->pend.empty())
+			{
+				if (must_read) c->read_deferred = true;  // resumed by flush()
+				return;
+			}
 			if (must_read && !c->eof_seen)
 			{
 				if (c->buf == nullptr) take_buffer(c);
-				const ReadResult rr = read_into(c, rdhup);
+				const ReadResult rr = read_into(c, c->rdhup_seen);
 				if (rr.error)
 				{
 					close_conn(c);
 					return;
 				}
 			}
-			const bool eof = c->eof_seen;
-			const bool open = c->stage == Stage::http1 ? http_consume(c, eof) : stub_consume(c, eof);
-			if (!open) return;
+			Next next = Next::more;
+			std::vector<std::byte>* wire = &out_;
+			if (c->proto == Proto::tls)
+			{
+				next = tls_step(c);
+				wire = &wire_;
+			}
+			else
+			{
+				out_.clear();
+				next = app_step(c, View{c->buf, c->beg, c->len}, c->eof_seen, out_);
+				if (next == Next::need_room)
+				{
+					c->last_read_full = true;  // the tail moved to the front: read on into the room
+					next = Next::more;
+				}
+			}
+			if (!commit(c, *wire, next)) return;
 			if (c->buf != nullptr && c->beg == c->len) drop_empty_buffer(c);
-			if (eof || c->out_len > 0 || !c->last_read_full) return;
+			if (c->eof_seen || !c->last_read_full) return;
 			must_read = true;  // the buffer was full: more may be queued
 		}
 	}
 
-	bool Worker::http_consume(Conn* c, bool eof)
+	Next Worker::app_step(Conn* c, View v, bool eof, std::vector<std::byte>& out)
 	{
-		while (c->out_len == 0 && c->buf != nullptr && c->beg < c->len)
+		const std::span<const std::byte> in = v.buf != nullptr ? std::span<const std::byte>(v.buf->data.data() + v.beg, v.len - v.beg)
+		                                                       : std::span<const std::byte>();
+		const apps::Room room{v.beg == 0, v.len == kRecvBuf};
+		apps::Step s;
+		switch (c->app)
 		{
-			const std::span<const std::byte> data(c->buf->data.data() + c->beg, c->len - c->beg);
-			const bool full = c->len == kRecvBuf;
-			const http1::Parsed p = http1::parse(data, full && c->beg == 0);
-			if (p.status == http1::Status::more && full && c->beg > 0)
+			case App::http1: s = apps::http1(in, room, eof, out); break;
+			case App::smtp: s = apps::smtp(in, room, eof, out); break;
+			case App::mqtt: s = apps::mqtt(c->a.mqtt, in, eof, out); break;
+			case App::ssh: s = apps::ssh(c->a.ssh, in, eof); break;
+			case App::h2:
 			{
-				// Make room: move the unparsed tail to the start, counted as a user-space copy.
-				std::memmove(c->buf->data.data(), data.data(), data.size());
-				c_.bytes_copied += data.size();
-				c->len = static_cast<std::uint32_t>(data.size());
-				c->beg = 0;
-				c->last_read_full = true;  // read on into the space made
-				return true;
+				const bool ok = in.empty() || h2::feed(c->a.h2, in);
+				s.used = static_cast<std::uint32_t>(in.size());
+				const bool sent = h2::drain(c->a.h2, out);
+				if (!ok || !sent || eof || h2::finished(c->a.h2)) s.next = Next::close_after_output;
+				break;
 			}
-			switch (p.status)
-			{
-				case http1::Status::more:
-					if (eof)
-					{
-						close_conn(c);
-						return false;
-					}
-					return true;
-				case http1::Status::bad_grammar:
-					close_conn(c);  // closed without a response, as the detector closes it
-					return false;
-				case http1::Status::bad_request:
-					c->beg = c->len;
-					return send(c, as_bytes(http1::kResponse400), true);
-				case http1::Status::request:
-					c->beg += p.length;
-					if (!send(c, as_bytes(http1::kResponse200), !p.keep_alive)) return false;
-					if (!p.keep_alive) return true;
-					break;
-			}
+			case App::none: s.next = Next::close_now; break;
 		}
-		if (eof && c->out_len == 0)
+		v.beg += s.used;
+		if (s.next == Next::need_room)
 		{
-			close_conn(c);
-			return false;
+			if (v.beg == 0) return Next::close_now;  // nothing to move: a step must decide a full buffer itself
+			// Move the incomplete tail to the start, counted as a user-space copy (I29).
+			const std::uint32_t n = v.len - v.beg;
+			std::memmove(v.buf->data.data(), v.buf->data.data() + v.beg, n);
+			c_.bytes_copied += n;
+			v.beg = 0;
+			v.len = n;
 		}
-		if (eof) c->close_after_out = true;
-		return true;
+		return s.next;
 	}
 
-	bool Worker::stub_consume(Conn* c, bool eof)
+	// ---- TLS (I22 to I24) ----
+
+	Next Worker::tls_step(Conn* c)
 	{
-		StubState& s = c->h.stub;
-		if (c->bytes_sent == 0 && c->out_len == 0 && !s.trailer_pending)
+		wire_.clear();
+		bio_.in = c->buf != nullptr ? c->buf->data.data() + c->beg : nullptr;
+		bio_.in_len = c->buf != nullptr ? c->len - c->beg : 0;
+		bio_.used = 0;
+		bio_.out = &wire_;
+		Next next = Next::more;
+		if (!c->tls_open)
 		{
-			if (!send(c, as_bytes(stub_marker(c->proto)), false)) return false;
-		}
-		if (c->buf != nullptr)
-		{
-			for (std::uint32_t i = c->beg; i < c->len; ++i)
+			ERR_clear_error();
+			const int r = SSL_do_handshake(c->ssl);
+			if (r == 1)
 			{
-				s.hash ^= std::to_integer<std::uint64_t>(c->buf->data[i]);
-				s.hash *= 1099511628211ull;  // FNV-1a 64 prime
+				c->tls_open = true;
+				if (tls::chosen(c->ssl) == tls::Alpn::h2)
+				{
+					c->a.h2 = h2::open();
+					c->app = c->a.h2 != nullptr ? App::h2 : App::none;
+				}
+				else
+				{
+					c->app = App::http1;
+				}
 			}
-			s.count += c->len - c->beg;
-			c->beg = c->len;
+			else
+			{
+				const int e = SSL_get_error(c->ssl, r);
+				ERR_clear_error();
+				if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) next = Next::close_after_output;  // with OpenSSL's alert, if any
+				else if (c->eof_seen) next = Next::close_after_output;  // the peer left mid-handshake: send what OpenSSL wrote, then close
+			}
 		}
-		if (!eof) return true;
-		const std::string_view name = detect::name(c->proto);
-		char* p = s.trailer.data();
-		char* const end = s.trailer.data() + s.trailer.size();
-		auto put = [&p](std::string_view t) {
-			std::memcpy(p, t.data(), t.size());
-			p += t.size();
-		};
-		put("oneport M1 stub ");
-		put(name);
-		put(" received ");
-		p = std::to_chars(p, end, s.count).ptr;
-		put(" bytes fnv1a64 ");
-		std::array<char, 16> hex{};
-		const auto hres = std::to_chars(hex.data(), hex.data() + hex.size(), s.hash, 16);
-		const auto hex_len = static_cast<std::size_t>(hres.ptr - hex.data());
-		for (std::size_t k = hex_len; k < 16; ++k) put("0");
-		put(std::string_view(hex.data(), hex_len));
-		put("\r\n");
-		s.trailer_len = static_cast<std::uint8_t>(p - s.trailer.data());
-		if (c->out_len > 0)
+		if (c->tls_open && next == Next::more) next = tls_app(c);
+		c->beg += static_cast<std::uint32_t>(bio_.used);
+		return next;
+	}
+
+	Next Worker::tls_app(Conn* c)
+	{
+		for (;;)
 		{
-			s.trailer_pending = true;  // sent when the marker is out
-			c->close_after_out = false;
-			return true;
+			// Decrypt what has arrived, as far as the plaintext buffer holds it.
+			bool full = false;
+			while (!c->tls_peer_done)
+			{
+				if (c->plain == nullptr)
+				{
+					c->plain = pool_.get();
+					c->pbeg = 0;
+					c->plen = 0;
+				}
+				if (c->plen == kRecvBuf)
+				{
+					full = true;
+					break;
+				}
+				std::size_t n = 0;
+				ERR_clear_error();
+				if (SSL_read_ex(c->ssl, c->plain->data.data() + c->plen, kRecvBuf - c->plen, &n) == 1)
+				{
+					c->plen += static_cast<std::uint32_t>(n);
+					continue;
+				}
+				const int e = SSL_get_error(c->ssl, 0);
+				ERR_clear_error();
+				if (e == SSL_ERROR_WANT_READ) break;
+				if (e == SSL_ERROR_ZERO_RETURN)
+				{
+					c->tls_peer_done = true;  // close_notify
+					break;
+				}
+				return Next::close_after_output;  // a fatal error; OpenSSL's alert, if any, is in wire_
+			}
+			const bool eof = c->tls_peer_done || (c->eof_seen && bio_.used == bio_.in_len && !full);
+			out_.clear();
+			Next next = app_step(c, View{c->plain, c->pbeg, c->plen}, eof, out_);
+			if (!out_.empty())
+			{
+				std::size_t w = 0;
+				ERR_clear_error();
+				if (SSL_write_ex(c->ssl, out_.data(), out_.size(), &w) != 1 || w != out_.size())
+				{
+					ERR_clear_error();
+					return Next::close_now;
+				}
+			}
+			if (c->plain != nullptr && c->pbeg == c->plen)
+			{
+				pool_.put(c->plain);
+				c->plain = nullptr;
+				c->pbeg = 0;
+				c->plen = 0;
+			}
+			if (next == Next::need_room) continue;  // the tail moved: decrypt more behind it
+			if (next == Next::close_after_output)
+			{
+				ERR_clear_error();
+				SSL_shutdown(c->ssl);  // close_notify, into wire_
+				ERR_clear_error();
+			}
+			if (next != Next::more || !full) return next;
 		}
-		return send(c, std::as_bytes(std::span<const char>(s.trailer.data(), s.trailer_len)), true);
 	}
 
 	// ---- Output ----
 
-	bool Worker::send(Conn* c, std::span<const std::byte> bytes, bool close_after)
+	bool Worker::commit(Conn* c, std::vector<std::byte>& wire, Next next)
 	{
+		if (!wire.empty())
+		{
+			const bool open = emit(c, wire);
+			wire.clear();
+			if (!open) return false;
+		}
+		switch (next)
+		{
+			case Next::close_now:
+				close_conn(c);
+				return false;
+			case Next::close_after_output:
+				if (c->pend.empty())
+				{
+					close_conn(c);
+					return false;
+				}
+				c->close_after_out = true;
+				return true;
+			case Next::more:
+			case Next::need_room: return true;
+		}
+		return true;
+	}
+
+	bool Worker::emit(Conn* c, std::span<const std::byte> bytes)
+	{
+		if (!c->pend.empty())
+		{
+			c->pend.insert(c->pend.end(), bytes.begin(), bytes.end());
+			return true;
+		}
 		const ssize_t w = ::send(c->fd, bytes.data(), bytes.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
 		++c_.send_calls;
 		if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
@@ -244,21 +389,12 @@ namespace oneport::server::detail
 			close_conn(c);
 			return false;
 		}
-		const auto done = static_cast<std::uint32_t>(std::max<ssize_t>(w, 0));
+		const auto done = static_cast<std::size_t>(std::max<ssize_t>(w, 0));
 		c_.bytes_sent += done;
 		c->bytes_sent += done;
-		if (done == bytes.size())
-		{
-			if (close_after)
-			{
-				close_conn(c);
-				return false;
-			}
-			return true;
-		}
-		c->out = bytes.data() + done;
-		c->out_len = static_cast<std::uint32_t>(bytes.size()) - done;
-		c->close_after_out = close_after;
+		if (done == bytes.size()) return true;
+		c->pend.assign(bytes.begin() + static_cast<std::ptrdiff_t>(done), bytes.end());
+		c->pend_off = 0;
 		if (!c->want_out)
 		{
 			loop_.modify(c->fd, kConnEvents | EPOLLOUT, tag_of(c));
@@ -270,7 +406,8 @@ namespace oneport::server::detail
 
 	bool Worker::flush(Conn* c)
 	{
-		const ssize_t w = ::send(c->fd, c->out, c->out_len, MSG_NOSIGNAL | MSG_DONTWAIT);
+		const std::size_t left = c->pend.size() - c->pend_off;
+		const ssize_t w = ::send(c->fd, c->pend.data() + c->pend_off, left, MSG_NOSIGNAL | MSG_DONTWAIT);
 		++c_.send_calls;
 		if (w < 0)
 		{
@@ -280,10 +417,10 @@ namespace oneport::server::detail
 		}
 		c_.bytes_sent += static_cast<std::uint64_t>(w);
 		c->bytes_sent += static_cast<std::uint64_t>(w);
-		c->out += w;
-		c->out_len -= static_cast<std::uint32_t>(w);
-		if (c->out_len > 0) return true;
-		c->out = nullptr;
+		c->pend_off += static_cast<std::size_t>(w);
+		if (c->pend_off < c->pend.size()) return true;
+		c->pend.clear();
+		c->pend_off = 0;
 		loop_.modify(c->fd, kConnEvents, tag_of(c));
 		++c_.epoll_ctl_calls;
 		c->want_out = false;
@@ -292,14 +429,11 @@ namespace oneport::server::detail
 			close_conn(c);
 			return false;
 		}
-		if (c->stage == Stage::stub && c->h.stub.trailer_pending)
-		{
-			c->h.stub.trailer_pending = false;
-			return send(c, std::as_bytes(std::span<const char>(c->h.stub.trailer.data(), c->h.stub.trailer_len)), true);
-		}
-		// Requests parsed while the output was blocked wait in the buffer.
-		if (c->stage == Stage::http1) return http_consume(c, false);
-		return true;
+		// Resume: a read that waited for this flush, or bytes left in the buffer by a full read.
+		const bool again = c->read_deferred || c->last_read_full;
+		c->read_deferred = false;
+		handler_readable(c, false, again);
+		return c->fd >= 0 && by_fd_[static_cast<std::size_t>(c->fd)] == c;
 	}
 
 	// ---- Connections ----
@@ -341,13 +475,30 @@ namespace oneport::server::detail
 	{
 		for (std::size_t k = 0; k < 3; ++k) disarm(c, static_cast<TimerKind>(k));
 		drop_empty_buffer(c);
+		if (c->plain != nullptr)
+		{
+			pool_.put(c->plain);
+			c->plain = nullptr;
+		}
+		if (c->ssl != nullptr)
+		{
+			SSL_free(c->ssl);  // and its BIO
+			c->ssl = nullptr;
+			ERR_clear_error();
+		}
+		if (c->app == App::h2 && c->a.h2 != nullptr)
+		{
+			h2::close(c->a.h2);
+			c->a.h2 = nullptr;
+		}
+		c->app = App::none;
 		if (shared_.hooks.closed != nullptr)
 		{
 			CloseReport r;
 			r.worker = index_;
 			r.conn = c->id;
 			r.peer_port = c->peer_port;
-			r.handled = c->stage == Stage::http1 || c->stage == Stage::stub;
+			r.handled = c->stage == Stage::handler;
 			r.proto = c->proto;
 			r.bytes_received = c->bytes_received;
 			r.bytes_sent = c->bytes_sent;
@@ -356,6 +507,8 @@ namespace oneport::server::detail
 		by_fd_[static_cast<std::size_t>(c->fd)] = nullptr;
 		::close(c->fd);  // also removes it from the epoll set
 		c->fd = -1;
+		c->pend.clear();
+		c->pend.shrink_to_fit();
 		++c_.closed;
 		--open_;
 		free_conns_.push_back(c);

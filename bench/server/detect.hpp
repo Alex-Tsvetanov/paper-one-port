@@ -29,7 +29,7 @@ namespace oneport::detect
 
 	/// B_dec: the most bytes after any PROXY header that a connection may need while undecided.
 	inline constexpr std::uint32_t kBDec = 24;
-	/// B_CH: the most bytes of a ClientHello reassembled in pass-through (relay mode, M2).
+	/// B_CH: the most bytes of a ClientHello reassembled in pass-through (relay mode, M2b).
 	inline constexpr std::uint32_t kBCh = 16384;
 	/// The longest PROXY v2 header accepted, the size both formats were designed to fit (survey 2.4).
 	inline constexpr std::uint32_t kProxyV2Max = 536;

@@ -1,9 +1,10 @@
 // oneport's server: listeners, workers, detection, timers, dispatch and handlers
 // (design/proposal.md, section 2; hypotheses.md, section 2.1).
 //
-// M1 serves the epoll backend with in-process dispatch, in one-port and dedicated mode, with both
-// detection modes, PROXY on or off, every fallback, both listener layouts and any worker count.
-// The io_uring backend, relay dispatch and stub mode are M2; IOCP is M6 (not_served_in_m1()).
+// Served: the epoll backend with in-process dispatch, in one-port and dedicated mode, with both
+// detection modes, PROXY on or off, every fallback, both listener layouts and any worker count,
+// and every handler of I26 (HTTP/1.1, h2, TLS, MQTT, SSH, SMTP). The io_uring backend, relay
+// dispatch and stub mode are M2b; IOCP is M6 (not_served()).
 //
 // The counters (proposal I29) are plain integers per worker, read after stop(). The reports and
 // hooks below are the test suite's view of each connection (tests/case_tests.cpp); with no hook
@@ -99,7 +100,7 @@ namespace oneport::server
 		std::uint64_t epoll_wait_calls = 0;
 		std::uint64_t epoll_ctl_calls = 0;
 		std::uint64_t zero_byte_recv_calls = 0;  // IOCP (M6)
-		std::uint64_t io_uring_enter_calls = 0;  // io_uring (M2)
+		std::uint64_t io_uring_enter_calls = 0;  // io_uring (M2b)
 		std::uint64_t gqcs_calls = 0;            // GetQueuedCompletionStatus (M6)
 		std::uint64_t peek_to_replay = 0;        // IOCP's switch (M6)
 		std::uint64_t lowat_sets = 0;
@@ -198,8 +199,8 @@ namespace oneport::server
 		std::string name;               // "one-port", or the class of a dedicated port
 	};
 
-	/// Why this configuration is not served in M1, or nullopt if it is.
-	std::optional<std::string> not_served_in_m1(const Config& config);
+	/// Why this configuration is not served yet, and in which milestone it is, or nullopt.
+	std::optional<std::string> not_served(const Config& config);
 
 	/// The listeners of a configuration, in port order: one in one-port mode; in dedicated mode
 	/// HTTP/1.1, h2c, TLS, MQTT, SSH and SMTP on consecutive ports (proposal I20).
@@ -213,7 +214,8 @@ namespace oneport::server
 	class Server
 	{
 	public:
-		/// Throws std::invalid_argument when the configuration is not served in M1.
+		/// Throws std::invalid_argument when the configuration is not served yet, and
+		/// std::runtime_error when the TLS context cannot be made.
 		explicit Server(const Config& config, Options options = {});
 		~Server();
 		Server(const Server&) = delete;

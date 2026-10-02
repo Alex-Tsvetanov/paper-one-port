@@ -15,22 +15,7 @@ namespace oneport::opcase
 			put8(b, v >> 8);
 			put8(b, v);
 		}
-		void put24(Bytes& b, unsigned v)
-		{
-			put8(b, v >> 16);
-			put16(b, v);
-		}
 		void append(Bytes& b, const Bytes& more) { b.insert(b.end(), more.begin(), more.end()); }
-
-		/// A TLS extension: type, length, body.
-		Bytes extension(unsigned type, const Bytes& body)
-		{
-			Bytes e;
-			put16(e, type);
-			put16(e, static_cast<unsigned>(body.size()));
-			append(e, body);
-			return e;
-		}
 
 		Bytes record(std::uint8_t minor, const Bytes& fragment)
 		{
@@ -89,7 +74,20 @@ namespace oneport::opcase
 	Bytes h2c_opening()
 	{
 		Bytes b = text(detect::kH2Preface);
+		// SETTINGS, empty (RFC 9113 s6.5).
 		for (const unsigned v : {0x00u, 0x00u, 0x00u, 0x04u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u}) put8(b, v);
+		// HEADERS on stream 1, END_STREAM and END_HEADERS (s6.2): GET http://oneport.test/ in
+		// static-table fields (RFC 7541 Appendix A): :method GET (index 2), :scheme http (6),
+		// :path / (4), and :authority (1) with a literal value, without indexing (s6.2.2).
+		const Bytes block = cat({Bytes{std::byte{0x82}, std::byte{0x86}, std::byte{0x84}, std::byte{0x01}, std::byte{0x0C}}, text("oneport.test")});
+		put8(b, 0);
+		put16(b, static_cast<unsigned>(block.size()));
+		for (const unsigned v : {0x01u, 0x05u, 0x00u, 0x00u, 0x00u, 0x01u}) put8(b, v);
+		append(b, block);
+		// GOAWAY (s6.8): last stream 0, NO_ERROR. The client is done; the server still answers
+		// stream 1, which the client opened.
+		for (const unsigned v : {0x00u, 0x00u, 0x08u, 0x07u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u}) put8(b, v);
+		for (int i = 0; i < 8; ++i) put8(b, 0);
 		return b;
 	}
 
@@ -106,61 +104,6 @@ namespace oneport::opcase
 	}
 
 	Bytes smtp_line(std::string_view line) { return text(std::string(line) + "\r\n"); }
-
-	Bytes client_hello(std::uint8_t record_minor, std::string_view sni, std::size_t split, std::size_t* first_record)
-	{
-		Bytes body;
-		put16(body, 0x0303);                                // legacy_version
-		for (unsigned i = 0; i < 32; ++i) put8(body, i);    // random
-		put8(body, 32);                                     // legacy_session_id
-		for (unsigned i = 0; i < 32; ++i) put8(body, 0x20 + i);
-		put16(body, 2);                                     // cipher_suites: TLS_AES_128_GCM_SHA256
-		put16(body, 0x1301);
-		put8(body, 1);                                      // legacy_compression_methods: null
-		put8(body, 0);
-		Bytes exts;
-		{
-			Bytes sn;  // server_name (RFC 6066 s3)
-			put16(sn, static_cast<unsigned>(sni.size() + 3));
-			put8(sn, 0);
-			put16(sn, static_cast<unsigned>(sni.size()));
-			append(sn, text(sni));
-			append(exts, extension(0x0000, sn));
-		}
-		append(exts, extension(0x000A, Bytes{std::byte{0}, std::byte{2}, std::byte{0}, std::byte{0x1D}}));   // supported_groups: x25519
-		append(exts, extension(0x000D, Bytes{std::byte{0}, std::byte{2}, std::byte{4}, std::byte{3}}));      // signature_algorithms
-		append(exts, extension(0x002B, Bytes{std::byte{2}, std::byte{3}, std::byte{4}}));                    // supported_versions: TLS 1.3
-		{
-			Bytes ks;  // key_share: one X25519 entry; the key bytes are a fixed pattern
-			put16(ks, 36);
-			put16(ks, 0x001D);
-			put16(ks, 32);
-			for (unsigned i = 0; i < 32; ++i) put8(ks, 0x40 + i);
-			append(exts, extension(0x0033, ks));
-		}
-		{
-			Bytes alpn;  // application_layer_protocol_negotiation (RFC 7301): http/1.1
-			put16(alpn, 9);
-			put8(alpn, 8);
-			append(alpn, text("http/1.1"));
-			append(exts, extension(0x0010, alpn));
-		}
-		put16(body, static_cast<unsigned>(exts.size()));
-		append(body, exts);
-		Bytes hs;
-		put8(hs, 0x01);  // client_hello
-		put24(hs, static_cast<unsigned>(body.size()));
-		append(hs, body);
-		if (split == 0 || split >= hs.size())
-		{
-			Bytes r = record(record_minor, hs);
-			if (first_record != nullptr) *first_record = r.size();
-			return r;
-		}
-		Bytes first = record(record_minor, slice(hs, 0, split));
-		if (first_record != nullptr) *first_record = first.size();
-		return cat({first, record(record_minor, slice(hs, split, hs.size()))});
-	}
 
 	Bytes recorded_client_hello()
 	{

@@ -261,7 +261,7 @@ namespace oneport
 		       "                  T_fb, T_dec, T_hdr in whole milliseconds >= 1, default " + std::to_string(kDesignTimerMs) + "\n"
 		       "  --print-config  print the parsed configuration and exit\n"
 		       "  --help          print this text and exit\n"
-		       "Each flag and value has one spelling, case-sensitive. M1 serves --backend epoll with\n"
+		       "Each flag and value has one spelling, case-sensitive. Served so far: --backend epoll with\n"
 		       "--dispatch inproc in one-port and dedicated mode, on 127.0.0.1.\n";
 	}
 

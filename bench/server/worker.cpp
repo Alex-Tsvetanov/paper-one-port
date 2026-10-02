@@ -114,11 +114,11 @@ namespace oneport::server::detail
 				else on_detect_readable(c, rdhup);
 				audit_pending(fd, gen);
 				return;
-			case Stage::http1:
-			case Stage::stub:
-				if ((events & EPOLLOUT) != 0 && c->out_len > 0)
+			case Stage::handler:
+				if (rdhup) c->rdhup_seen = true;
+				if ((events & EPOLLOUT) != 0 && !c->pend.empty())
 				{
-					if (!flush(c)) return;  // closed
+					if (!flush(c)) return;  // closed; a flush that empties the queue resumes the handler
 				}
 				if ((events & (EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) != 0) handler_readable(c, rdhup, true);
 				return;
@@ -219,8 +219,7 @@ namespace oneport::server::detail
 			}
 			c_.bytes_received += r.at;
 			c->bytes_received += r.at;
-			header_complete(c, r);
-			if (c->stage != Stage::detect) return;
+			if (!header_complete(c, r) || c->stage != Stage::detect) return;
 			// The application bytes of the same peek are still queued; decide on them now.
 			const std::size_t app = static_cast<std::size_t>(n) - r.at;
 			if (app == 0)
@@ -261,7 +260,7 @@ namespace oneport::server::detail
 			return;
 		}
 		c->beg += r.at;
-		header_complete(c, r);
+		if (!header_complete(c, r)) return;
 		if (c->stage == Stage::detect)
 		{
 			if (c->len == c->beg)
@@ -279,7 +278,7 @@ namespace oneport::server::detail
 		handler_readable(c, rdhup, c->last_read_full);
 	}
 
-	void Worker::header_complete(Conn* c, const detect::ProxyResult& r)
+	bool Worker::header_complete(Conn* c, const detect::ProxyResult& r)
 	{
 		disarm(c, TimerKind::t_hdr);
 		c->has_proxy = true;
@@ -289,13 +288,11 @@ namespace oneport::server::detail
 			c->stage = Stage::detect;
 			start_detection_timers(c, Clock::now());  // T_fb and T_dec start when the header is complete
 			if (peeks(c) && c->lowat != 1) set_lowat(c, 1);
-			return;
+			return true;
 		}
-		// A dedicated listener: the handler enters now (SSH and SMTP speak at entry).
-		const Proto p = c->listener->spec->proto;
-		c->stage = p == Proto::http1 ? Stage::http1 : Stage::stub;
-		c->proto = p;
-		init_handler(c);
+		// A dedicated listener: the handler enters now (SSH and SMTP speak at entry); the caller
+		// hands it the bytes after the header.
+		return start_handler(c, c->listener->spec->proto);
 	}
 
 	// ---- Detection (I9 steps 2 and 3, I11) ----

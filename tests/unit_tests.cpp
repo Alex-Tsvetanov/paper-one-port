@@ -2,9 +2,9 @@
 //
 //   oneport_tests flags <case>              the flag parser (bench/server/config.cpp)
 //   oneport_tests loop <backend> <case>     the event loop (bench/loop) on one compiled backend
-//   oneport_tests test <name> [binary]      detect.*, http.*, server.* (tests/*_tests.cpp)
+//   oneport_tests test <name> [binary]      detect.*, http.*, apps.*, clienthello.*, server.*, handlers.*
 //   oneport_tests case <n> <replay|peek>    hard case n on epoll, in-process (tests/case_tests.cpp)
-//   oneport_tests pending <id> <reason>     a case M1 cannot run: prints why, exits kSkip
+//   oneport_tests pending <id> <reason>     a case not run yet: prints why, exits kSkip
 //
 // Exit 0 and "PASS: ..." on success; exit 1 and "FAIL: <file>:<line>: <reason>" on a failed check;
 // exit 2 on a usage error; kSkip (77, CTest's SKIP_RETURN_CODE) for a pending entry. The flag
@@ -607,7 +607,9 @@ int main(int argc, char** argv)
 		oneport::test::register_detect_tests(registry);
 		oneport::test::register_http_tests(registry);
 		oneport::test::register_server_tests(registry);
+		oneport::test::register_apps_tests(registry);
 		oneport::test::register_clienthello_tests(registry);
+		oneport::test::register_handler_tests(registry);
 		if (a.size() == 3) oneport::test::binary_path() = std::string(a[2]);
 		const auto it = registry.find(a[1]);
 		if (it == registry.end()) return usage_error("no such test");
