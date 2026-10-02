@@ -31,6 +31,11 @@ foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)
 endforeach()
 
+# The structural test of proposal I21: only the parser and the listener setup read the mode.
+add_test(NAME structure.mode_readers
+         COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_mode_readers.cmake)
+set_tests_properties(structure.mode_readers PROPERTIES TIMEOUT 60 LABELS structure)
+
 # The binary's command line: its exit code and output, through run_expect.cmake. The arm uses
 # the first backend this platform compiles.
 list(GET ONEPORT_BACKENDS 0 _first_backend)
@@ -43,9 +48,18 @@ function(oneport_cli_test name expect_exit expect_output)
     set_tests_properties(cli.${name} PROPERTIES TIMEOUT 60 LABELS cli)
 endfunction()
 oneport_cli_test(print_config 0 "detect replay.+dispatch inproc.+backend ${_first_backend}" ${_arm} --print-config)
-oneport_cli_test(serve_not_implemented 3 "serving is not implemented in M0" ${_arm})
 oneport_cli_test(usage_error 2 "missing --detect, --dispatch, --backend" --mode one-port)
 oneport_cli_test(help 0 "usage: oneport" --help)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    oneport_cli_test(not_served_io_uring 3 "not served in M1: the io_uring backend is M2"
+                     --mode one-port --detect replay --dispatch inproc --backend io_uring)
+    oneport_cli_test(not_served_relay 3 "not served in M1: relay dispatch is M2"
+                     --mode one-port --detect replay --dispatch relay --backend epoll)
+    oneport_cli_test(not_served_stub 3 "not served in M1: stub mode"
+                     --mode stub --detect replay --dispatch inproc --backend epoll)
+else()
+    oneport_cli_test(not_served_iocp 3 "not served in M1: the IOCP backend is M6" ${_arm})
+endif()
 
 # The records gate and the record writer (bench/), when a Python 3 interpreter is found.
 find_package(Python3 COMPONENTS Interpreter)
