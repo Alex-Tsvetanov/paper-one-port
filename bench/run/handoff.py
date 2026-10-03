@@ -17,7 +17,18 @@ other rules (window.finish).
 
 A session is X Y Y X of the server's relay (arm A) and one proxy (arm B), X drawn per session;
 `window.guard_pair` refuses any other pairing. The session ratio is server / proxy (section 5.3).
-Every row is development data, journaled as such.
+Every row of this command line is development data, journaled as such.
+
+The frozen runners (M7c: bench/run/m_run.py, s_run.py, rule_e.py) run this window with more of
+its options, each a key of the window's cfg: the server's relay copy ("relay_copy", rule E's,
+which also gives HAProxy option splice-auto when it is splice); the front's backend ("backend",
+io_uring for section 10's relay cells); the server in one-port mode with in-process dispatch as
+the front ("one-port-inproc", M2's in-process arm, which has no backend process); a backend in
+dedicated mode instead of the stub ("backend_kind": "dedicated", M2's relay arm: "a backend that
+terminates" TLS, 5.3), on the cell's backend; an open-loop rate ("rate", WL6's M2_RATE and section
+10's TTFB at a fixed load), with WL6's CPU per connection then over the exchanges due in the
+window that completed; listen overflows invalidating the window ("overflow_invalidates", every
+family but M3, section 7).
 
     handoff.py --build DIR --out DIR --job NAME --competitors nginx,haproxy --protos tls-stub,http1
                --seed N --k-src 16 [--sessions 1]
@@ -75,8 +86,12 @@ def group_snapshot(pgid: int) -> dict:
     return snap
 
 
-def start_stub(build: Path, port: int, raw: Path, tag: str, backend: str = "epoll"):
-    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "stub", "--detect", "replay", "--dispatch", "inproc",
+def start_stub(build: Path, port: int, raw: Path, tag: str, backend: str = "epoll", mode: str = "stub"):
+    """The backend of a hand-off window on CPUs 10 and 12, two workers: stub mode (M3, B3; I18), or
+    dedicated mode (M2's relay arm, the backend that terminates TLS, 5.3; and the hard cases)."""
+    if mode not in ("stub", "dedicated"):
+        raise ValueError(f"backend mode {mode!r}")
+    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", mode, "--detect", "replay", "--dispatch", "inproc",
            "--backend", backend, "--workers", str(STUB_WORKERS), "--port", str(port)]
     proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, BACKEND_CPUS))] + cmd, stdout=subprocess.PIPE,
                             stderr=open(raw / f"{tag}.stub.err", "wb"), start_new_session=True, cwd=raw,
@@ -94,15 +109,28 @@ def start_stub(build: Path, port: int, raw: Path, tag: str, backend: str = "epol
 DETECTS = ("replay", "peek")
 
 
+RELAY_COPIES = ("user-space", "splice")
+SERVER_INPROC = "one-port-inproc"
+
+
 def server_front_cmd(build: Path, port: int, stub_port: int, kind: str = "m3", backend: str = "epoll",
-                     detect: str = "replay") -> list[str]:
+                     detect: str = "replay", relay_copy: str = "user-space", dispatch: str = "relay") -> list[str]:
     """The server's front in M3: one-port mode, relay dispatch to the stub, a detection mode (replay,
-    the proposed default, unless asked) and rule E's proposed relay copy (user space); B3 sets every
-    timer to 60 s (section 1)."""
+    the proposed default, unless asked) and a relay copy (user space, rule E's proposed default,
+    unless asked); B3 sets every timer to 60 s (section 1). With dispatch inproc (M2's in-process
+    arm), the server alone, in one-port mode with in-process dispatch."""
     if detect not in DETECTS:
         raise ValueError(f"detection mode {detect!r}, not one of {DETECTS}")
-    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", detect, "--dispatch", "relay",
-           "--relay-copy", "user-space", "--backend", backend, "--port", str(port), "--relay-port", str(stub_port)]
+    if relay_copy not in RELAY_COPIES:
+        raise ValueError(f"relay copy {relay_copy!r}, not one of {RELAY_COPIES}")
+    if dispatch == "inproc":
+        cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", detect, "--dispatch", "inproc",
+               "--backend", backend, "--port", str(port)]
+    elif dispatch == "relay":
+        cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", detect, "--dispatch", "relay",
+               "--relay-copy", relay_copy, "--backend", backend, "--port", str(port), "--relay-port", str(stub_port)]
+    else:
+        raise ValueError(f"dispatch {dispatch!r}")
     if kind == "b3":
         cmd += ["--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "60000"]
     return cmd
@@ -112,14 +140,15 @@ class Front:
     """The front of a hand-off window: the server's relay or a competitor, on PL.server."""
 
     def __init__(self, arm_name: str, build: Path, port: int, stub_port: int, raw: Path, tag: str, kind: str = "m3",
-                 backend: str = "epoll", detect: str = "replay"):
+                 backend: str = "epoll", detect: str = "replay", relay_copy: str = "user-space", splice: bool = False):
         self.name = arm_name
         self.port = port
         self.lines: list[str] = []
         self.out = None
         self.running = None
-        if arm_name == SERVER:
-            cmd = server_front_cmd(build, port, stub_port, kind, backend, detect)
+        if arm_name in (SERVER, SERVER_INPROC):
+            cmd = server_front_cmd(build, port, stub_port, kind, backend, detect, relay_copy,
+                                   "relay" if arm_name == SERVER else "inproc")
             self.proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, PL.server))] + cmd, stdout=subprocess.PIPE,
                                          stderr=open(raw / f"{tag}.front.err", "wb"), start_new_session=True, cwd=raw,
                                          preexec_fn=comp.raise_nofile)
@@ -130,7 +159,7 @@ class Front:
                 raise window.WindowError(f"the server's front did not start: {self.out.lines[-3:]}")
             self.command = cmd
         else:
-            self.running = comp.start(arm_name, kind, port, stub_port, list(PL.server), raw / f"{tag}.front")
+            self.running = comp.start(arm_name, kind, port, stub_port, list(PL.server), raw / f"{tag}.front", splice=splice)
             self.proc = self.running.proc
             self.command = self.running.command
 
@@ -169,11 +198,17 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
     stub_port = port + STUB_OFFSET
     tag = f"{session['id']}-p{position}-{arm}"
     raw.mkdir(parents=True, exist_ok=True)
+    server_arm = system in (SERVER, SERVER_INPROC)
+    rate = cfg.get("rate")
+    backend_kind = None if system == SERVER_INPROC else cfg.get("backend_kind", "stub")
+    relay_copy = cfg.get("relay_copy", "user-space")
     row: dict = {
-        "job": session["job"], "session": session["id"], "cell": cfg["cell"], "workload": "churn", "proto": proto,
-        "backend": cfg.get("backend", "epoll"), "detect": cfg.get("detect", "replay") if system == SERVER else None,
-        "arm": arm, "system": system, "position": position, "development": True,
-        "family": "M3", "port": port, "stub_port": stub_port, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "job": session["job"], "session": session["id"], "cell": cfg["cell"], "workload": "open" if rate else "churn", "proto": proto,
+        "backend": cfg.get("backend", "epoll"), "detect": cfg.get("detect", "replay") if server_arm else None,
+        "arm": arm, "system": system, "position": position, "development": True, "rate": rate,
+        "dispatch": ("relay" if system == SERVER else "inproc") if server_arm else None,
+        "relay_copy": relay_copy if system == SERVER else None, "backend_kind": backend_kind,
+        "family": cfg.get("family", "M3"), "port": port, "stub_port": stub_port, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "warmup_ms": window.WARMUP_MS, "duration_ms": window.DURATION_MS, "conns": window.CONNS_PER_CORE,
         "k_src": cfg["k_src"], "front_cpus": list(PL.server), "front_idle_siblings": list(PL.server_siblings),
         "backend_cpus": list(BACKEND_CPUS), "backend_idle_siblings": list(BACKEND_IDLE_SIBLINGS), "generator_cpus": list(PL.gen),
@@ -188,7 +223,12 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
     ct0 = window.conntrack()
     tw0 = window.time_wait_count()
     ns0 = window.nstat()
-    stub, stub_out = start_stub(build, stub_port, raw, tag, cfg.get("stub_backend", "epoll"))
+    stub = stub_out = None
+    if backend_kind is not None:
+        # M3's stub runs on epoll (M4a reading 8); M2's dedicated backend on the cell's backend (M7c).
+        bk = cfg.get("stub_backend", "epoll") if backend_kind == "stub" else cfg.get("backend", "epoll")
+        stub, stub_out = start_stub(build, stub_port, raw, tag, bk, backend_kind)
+        row["backend_server_backend"] = bk
     front = None
     gen_report = None
     snaps: dict = {}
@@ -197,15 +237,19 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
     stub_lines: list[str] = []
     front_lines: list[str] = []
     try:
-        front = Front(system, build, port, stub_port, raw, tag, "m3", cfg.get("backend", "epoll"), cfg.get("detect", "replay"))
+        front = Front(system, build, port, stub_port, raw, tag, "m3", cfg.get("backend", "epoll"), cfg.get("detect", "replay"),
+                      relay_copy, splice=relay_copy == "splice" and system == "haproxy")
         row["front_command"] = front.command
         row["probe"] = window.probe(build, proto, port, base, cfg["k_src"], PL.gen)
         if row["probe"]["exit"] != 0:
             reasons.append(f"probe failed: {row['probe']['detail']}")
         out_json = raw / f"{tag}.opgen.json"
+        threads = PL.open_gen_threads if rate else PL.gen
         cmd = ["taskset", "-c", ",".join(map(str, PL.gen))] + window.opgen_cmd(build, proto, port, base, cfg["k_src"]) + [
-            "--cpus", ",".join(map(str, PL.gen)), "--conns", str(window.CONNS_PER_CORE), "--warmup-ms", str(window.WARMUP_MS),
+            "--cpus", ",".join(map(str, threads)), "--conns", str(window.CONNS_PER_CORE), "--warmup-ms", str(window.WARMUP_MS),
             "--duration-ms", str(window.DURATION_MS), "--out", str(out_json)]
+        if rate:
+            cmd += ["--rate", repr(float(rate))]
         row["opgen_cmd"] = cmd
         all_cpus = list(PL.server) + list(BACKEND_CPUS) + list(PL.gen)
         gen = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=open(raw / f"{tag}.opgen.err", "wb"))
@@ -214,13 +258,15 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
         def marker(line: str) -> bool:
             if line.startswith("MEASURE_START"):
                 snaps["s0"] = group_snapshot(front.pgid)
-                snaps["b0"] = window.proc_snapshot(stub.pid)
+                if stub is not None:
+                    snaps["b0"] = window.proc_snapshot(stub.pid)
                 snaps["stat0"] = window.cpu_times()
                 snaps["irq0"] = window.interrupts()
                 mhz.append(window.cpu_mhz(all_cpus))
             elif line.startswith("MEASURE_END"):
                 snaps["s1"] = group_snapshot(front.pgid)
-                snaps["b1"] = window.proc_snapshot(stub.pid)
+                if stub is not None:
+                    snaps["b1"] = window.proc_snapshot(stub.pid)
                 snaps["stat1"] = window.cpu_times()
                 snaps["irq1"] = window.interrupts()
                 mhz.append(window.cpu_mhz(all_cpus))
@@ -244,13 +290,16 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
             front_alive = front.alive()
             code, front_lines = front.stop()
             row["front_exit"] = code
-        _, stub_lines = window.stop_process(stub, stub_out)
-        row["stub_exit"] = stub.returncode
+        if stub is not None:
+            _, stub_lines = window.stop_process(stub, stub_out)
+            row["stub_exit"] = stub.returncode
+        else:
+            row["stub_exit"] = None
         blocks.release(base)
     # The front's own exit status after the runner's SIGTERM differs by system; what section 7 asks
     # is that the front did not fail, so a front alive until the runner stopped it counts as exit 0.
     row["server_exit"] = 0 if front_alive else row.get("front_exit")
-    row["server_counters"] = window.parse_counters(front_lines) if system == SERVER else {}
+    row["server_counters"] = window.parse_counters(front_lines) if server_arm else {}
     row["backend_counters"] = window.parse_counters(stub_lines)
     row["time_wait_start"] = tw0
     row["time_wait_end"] = window.time_wait_count()
@@ -261,9 +310,9 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
                               "end": (ct1 or {}).get("count")}
     if ct0 and ct1:
         row["conntrack_delta"] = {k: ct1[k] - ct0[k] for k in window.CT_STAT_KEYS}
-    if row["stub_exit"] != 0:
+    if stub is not None and row["stub_exit"] != 0:
         reasons.append(f"backend exit {row['stub_exit']}")
-    window.finish(row, gen_report, snaps, mhz, session, reasons, placement=PL, overflow_invalidates=False)
+    window.finish(row, gen_report, snaps, mhz, session, reasons, placement=PL, overflow_invalidates=bool(cfg.get("overflow_invalidates")))
     finish_handoff(row, snaps, gen_report)
     row["window_wall_s"] = time.monotonic() - t_start
     return row
@@ -271,13 +320,21 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
 
 def finish_handoff(row: dict, snaps: dict, g: dict | None, hz: int | None = None) -> dict:
     """The backend's part of a hand-off row: its CPU time, WL6's CPU per connection of front and
-    backend together, and section 7's backend rule (a backend core more than 90% busy)."""
-    if "b0" not in snaps or "b1" not in snaps or "stat0" not in snaps or g is None or not g.get("ok"):
+    backend together, and section 7's backend rule (a backend core more than 90% busy). The
+    connections completed are the window's (closed loop), or the exchanges due in it that completed
+    (open loop, as WL4's CPU per exchange; M3 entry, item 7). A front with no backend process (M2's
+    in-process arm) has WL6 = its own CPU time per connection (analysis/rows.py: "the server alone
+    in-process")."""
+    if "stat0" not in snaps or g is None or not g.get("ok"):
+        return row
+    exchanges = g["due_completed"] if row.get("workload") == "open" else g["measure"]["completed"]
+    if "b0" not in snaps or "b1" not in snaps:
+        if row.get("backend_kind", "stub") is None and exchanges and row.get("server_cpu_s") is not None:
+            row["wl6_cpu_us_per_exchange"] = 1e6 * row["server_cpu_s"] / exchanges
         return row
     hz = hz or window.clk_tck()
     span = snaps["b1"]["t"] - snaps["b0"]["t"]
     row["backend_cpu_s"] = (snaps["b1"]["cpu_ticks"] - snaps["b0"]["cpu_ticks"]) / hz
-    exchanges = g["measure"]["completed"]
     if exchanges:
         row["backend_cpu_us_per_exchange"] = 1e6 * row["backend_cpu_s"] / exchanges
         if row.get("server_cpu_s") is not None:

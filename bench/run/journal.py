@@ -13,7 +13,9 @@ summary holds each cell's session ratios (server / proxy) instead of an A/A spre
 a job of b3.py windows (WL7's layout; M5): each window's system, case, backend and detection mode,
 its validity, W at both samples and U, Kq and Ks at sample 2, in the fields of M4b's B3 lines.
 --kind perf names a job of perfrec.py profiles (M5): each profile's front, protocol and detection
-mode, perf's exit and opgen's count under perf; it times no cell.
+mode, perf's exit and opgen's count under perf; it times no cell. --kind runner names a job of a
+frozen runner (M7c: pilot_run.py, cost_run.py, b3_run.py, m_run.py, rule_e.py, s_run.py,
+hardcase_run.py): every row of the job in the run's directory, a development stub marked.
 """
 from __future__ import annotations
 
@@ -25,7 +27,38 @@ from pathlib import Path
 
 
 KINDS = {"aa": "A/A (dedicated against dedicated)", "m3": "M3 cells (the server's one-port relay against the proxies)",
-         "b3": "B3 windows (WL7's layout)", "perf": "profiles of M3's fronts under load (perf record)"}
+         "b3": "B3 windows (WL7's layout)", "perf": "profiles of M3's fronts under load (perf record)",
+         "runner": "a frozen runner's development run (M7c's end-to-end check)"}
+
+
+def runner_entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str, job: str | None) -> dict:
+    """A job of a frozen runner (bench/run/sessions.py's rows, the pilot's parts, the hard cases):
+    every window or run of the job, with its cell, session, arm and position, its metric, its
+    validity, and whether it was a development stub (which ran nothing)."""
+    rows: list[dict] = []
+    for name in ("windows.jsonl", "parts.jsonl", "hardcases.jsonl", "competitor_cases.jsonl"):
+        f = job_dir / name
+        if f.exists():
+            rows += [json.loads(ln) for ln in f.read_text().splitlines() if ln.strip()]
+    if job is not None:
+        rows = [r for r in rows if r.get("job") == job]
+    cells = []
+    for r in rows:
+        m = r.get("metric") or {}
+        cells.append({k: v for k, v in {
+            "runner": r.get("runner"), "kind": r.get("kind") or r.get("part"), "cell": r.get("cell") or r.get("id"), "session": r.get("session"),
+            "arm": r.get("arm"), "position": r.get("position"), "system": r.get("system"), "mode": r.get("mode"), "detect": r.get("detect"),
+            "backend": r.get("backend"), "entry": r.get("entry"), "replicate": r.get("replicate"), "metric": m.get("value") if isinstance(m, dict) else None,
+            "metric_name": m.get("name") if isinstance(m, dict) else None, "valid": r.get("valid", r.get("passed")), "stub": r.get("stub"),
+            "invalid_reasons": r.get("invalid_reasons") or r.get("b1"), "started": r.get("started") or r.get("recorded")}.items() if v is not None})
+    fp = [r.get("fingerprint") or {} for r in rows]
+    prov = next((r["provenance"] for r in rows if (r.get("provenance") or {}).get("binaries")), {})
+    return {"date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "paper": "P3", "host": next((f.get("host") for f in fp if f.get("host")), "alex-laptop"),
+            "run": f"development, {milestone} {KINDS['runner']}: {run}", "code_commit": commit or prov.get("commit") or "", "variant": variant,
+            "summary": {"rows": len(rows), "valid": sum(1 for r in rows if r.get("valid") or r.get("passed")),
+                        "stubs": sum(1 for r in rows if r.get("stub")), "seeds": sorted({r.get("seed") for r in rows if r.get("seed") is not None}),
+                        "notrack_windows": sum(1 for f in fp if (f.get("notrack") or {}).get("active")), "binaries": prov.get("binaries")},
+            "cells": cells, "note": note}
 
 
 def perf_entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str) -> dict:
@@ -61,7 +94,10 @@ def b3_entry(rows: list[dict], run: str, variant: str, note: str, commit: str | 
             "cells": cells, "note": note}
 
 
-def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str = "M3", kind: str = "aa") -> dict:
+def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str = "M3", kind: str = "aa",
+          job: str | None = None) -> dict:
+    if kind == "runner":
+        return runner_entry(job_dir, run, variant, note, commit, milestone, job)
     if kind == "perf":
         return perf_entry(job_dir, run, variant, note, commit, milestone)
     rows = [json.loads(ln) for ln in (job_dir / "windows.jsonl").read_text().splitlines() if ln.strip()]
@@ -102,9 +138,11 @@ def main(argv=None) -> int:
     ap.add_argument("--note", default="")
     ap.add_argument("--commit")
     ap.add_argument("--milestone", default="M3", help="the milestone named in `run`")
-    ap.add_argument("--kind", default="aa", choices=sorted(KINDS), help="aa: aa.py's A/A job; m3: handoff.py's M3 job; b3: b3.py's windows; perf: perfrec.py's profiles")
+    ap.add_argument("--kind", default="aa", choices=sorted(KINDS),
+                    help="aa: aa.py's A/A job; m3: handoff.py's M3 job; b3: b3.py's windows; perf: perfrec.py's profiles; runner: a frozen runner's job (M7c)")
+    ap.add_argument("--job", help="--kind runner: only this job's rows")
     a = ap.parse_args(argv)
-    print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit, a.milestone, a.kind), ensure_ascii=False))
+    print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit, a.milestone, a.kind, a.job), ensure_ascii=False))
     return 0
 
 

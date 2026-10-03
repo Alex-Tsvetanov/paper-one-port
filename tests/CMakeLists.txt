@@ -198,6 +198,10 @@ if(Python3_FOUND)
     # The window runner's readers and rules (bench/run), on samples recorded on L.
     add_test(NAME run.test_runner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_runner.py)
     set_tests_properties(run.test_runner PROPERTIES TIMEOUT 120 LABELS run)
+    # The frozen runners (M7c): their rows against analysis/rows.py, the session engine, the freeze
+    # guard on a temporary git repository, rule E, the rates, the hard cases' judge.
+    add_test(NAME run.test_frozen COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_frozen.py)
+    set_tests_properties(run.test_frozen PROPERTIES TIMEOUT 300 LABELS run)
     # The competitors' configurations, the probe's judgement and the hand-off rows (M4a); on Linux
     # also the probe of the server's relay and one short hand-off window per M3 protocol, with
     # this build's oneport and opgen (bench/competitors/test_competitors.py).

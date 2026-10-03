@@ -168,10 +168,18 @@ def cpu_mask(cpu: int, ncpus: int = 16) -> str:
     return "".join("1" if i == cpu else "0" for i in reversed(range(ncpus)))
 
 
-def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers: str = "matched") -> dict[str, str]:
+# Rule E (hypotheses.md section 8): "If rule E chooses `splice`, HAProxy gets `option splice-auto`"
+# (Appendix B; section 5.3). HAProxy's M3 and B3 configurations hold the field SPLICE_AUTO, filled by
+# the window's runner from the relay copy of the server's arm in the same cell (M7c).
+SPLICE_AUTO = {True: "option splice-auto              # rule E chose splice for the server's relay (section 8; Appendix B)",
+               False: "# option splice-auto: not set; rule E's relay copy is user space (section 8)"}
+
+
+def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers: str = "matched", splice: bool = False) -> dict[str, str]:
     """The fields of a configuration, written between @ signs. The admin port (caddy-l4) is the front port + 50, a
     design choice inside the run's port block. `stub_port` is the backend's first port: the stub's in M3 and B3,
-    the server's in dedicated mode in the cases (its listeners in the order of I20, as the stub's)."""
+    the server's in dedicated mode in the cases (its listeners in the order of I20, as the stub's). `splice`: the
+    server's relay in the same cell splices (rule E), so HAProxy gets option splice-auto."""
     if kind not in KINDS:
         raise ValueError(f"kind {kind!r}, not one of {KINDS}")
     if timers not in TIMERS:
@@ -189,6 +197,7 @@ def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers
         "N_PEND_X2": str(2 * N_PEND),
         "TIMER_MS": str(TIMER_S[kind] * 1000),
         "REPO": str(REPO),
+        "SPLICE_AUTO": SPLICE_AUTO[bool(splice)],
     }
     if kind in CASES_KINDS:
         out["PORT_PROXY"] = str(port + PROXY_PORT_OFFSET)
@@ -214,9 +223,10 @@ def render_text(text: str, values: dict[str, str]) -> str:
     return out
 
 
-def render(system: str, kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers: str = "matched") -> str:
+def render(system: str, kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers: str = "matched",
+           splice: bool = False) -> str:
     s = SYSTEMS[system]
-    return render_text(s.template(kind).read_text(), fields(kind, port, stub_port, cpu, run_dir, timers))
+    return render_text(s.template(kind).read_text(), fields(kind, port, stub_port, cpu, run_dir, timers, splice))
 
 
 # ---------------------------------------------------------------- processes (Linux)
@@ -264,13 +274,13 @@ class Running:
 
 
 def start(system: str, kind: str, port: int, stub_port: int, cpus: list[int], run_dir: Path, timers: str = "matched",
-          harness: Path | None = None) -> Running:
+          harness: Path | None = None, splice: bool = False) -> Running:
     """Starts a system fresh on `cpus` (the front core) and waits for its port. A library's harness
     is found in `harness` (harness_dir of the build); its stub_port is unused (it serves in-process)."""
     s = SYSTEMS[system]
     run_dir.mkdir(parents=True, exist_ok=True)
     config = run_dir / f"{kind}.{s.template(kind).name.split('.', 1)[1]}"
-    config.write_text(render(system, kind, port, stub_port, cpus[0], run_dir, timers))
+    config.write_text(render(system, kind, port, stub_port, cpus[0], run_dir, timers, splice))
     cmd = ["taskset", "-c", ",".join(map(str, cpus))] + s.command(config, run_dir, harness)
     env = dict(os.environ)
     if system == "caddy-l4":

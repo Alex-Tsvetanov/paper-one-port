@@ -420,13 +420,15 @@ class RelaySystem:
     """A relay system of B3 on CPU 14 in front of the stub on CPUs 10 and 12: a proxy in its B3
     configuration, or the server's one-port relay with every timer at 60 s (section 1)."""
 
-    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll", detect: str = "replay"):
+    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll", detect: str = "replay",
+                 relay_copy: str = "user-space", splice: bool = False):
         import handoff  # the hand-off runner's stub and front (section 4.1's placement)
         self.system = system
         self.port = port
         self.stub, self.stub_out = handoff.start_stub(build, port + STUB_OFFSET, raw, tag)
         try:
-            self.front = handoff.Front(system, build, port, port + STUB_OFFSET, raw, tag, "b3", backend, detect)
+            self.front = handoff.Front(system, build, port, port + STUB_OFFSET, raw, tag, "b3", backend, detect, relay_copy,
+                                       splice=splice and system == "haproxy")
         except Exception:
             window.stop_process(self.stub, self.stub_out)
             raise
@@ -631,7 +633,9 @@ class InProcessSystem:
 
 
 def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, system: str = "ophold",
-        backend: str = "epoll", detect: str = "replay", tools: Path | None = None) -> dict:
+        backend: str = "epoll", detect: str = "replay", tools: Path | None = None, relay_copy: str = "user-space") -> dict:
+    """One window. `relay_copy` (M7c, rule E's): the server's relay copy in its relay arm, and
+    HAProxy's option splice-auto in a HAProxy window when it is splice (section 8)."""
     if system not in SYSTEMS:
         raise ValueError(f"system {system!r}, not one of {SYSTEMS}")
     out.mkdir(parents=True, exist_ok=True)
@@ -651,13 +655,14 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
         row["detect"] = detect
     if relay:
         row["stub_port"] = port + STUB_OFFSET
+        row["relay_copy"] = relay_copy
     row["gap_wait_s"] = wait_after_other_windows(blocks_file)
     row["conntrack_wait_s"], _ = window.wait_conntrack()
     row["time_wait_wait_s"], row["time_wait_before"] = wait_time_wait_zero()
     row["fingerprint"] = window.pin_fingerprint()
     ns0 = window.nstat()
     if relay:
-        sysm = RelaySystem(build, system, port, out, tag, backend, detect)
+        sysm = RelaySystem(build, system, port, out, tag, backend, detect, relay_copy, splice=relay_copy == "splice")
     elif inproc:
         sysm = InProcessSystem(build, system, port, out, tag, backend, detect)
     else:
