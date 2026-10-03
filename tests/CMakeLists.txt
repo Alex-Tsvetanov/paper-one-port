@@ -118,7 +118,7 @@ if(WIN32)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
         set_tests_properties(${_test} PROPERTIES TIMEOUT 120 LABELS "iocp;pin")
     endforeach()
-    foreach(_test iocp.receive_forms iocp.check_byte_wins.replay_zero_byte iocp.check_byte_wins.replay_posted
+    foreach(_test iocp.receive_forms iocp.silent_buffer iocp.check_byte_wins.replay_zero_byte iocp.check_byte_wins.replay_posted
                   iocp.check_byte_wins.peek iocp.peek_switch iocp.accept_forms iocp.stub_mode iocp.stop_with_pending
                   iocp.not_served)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})

@@ -199,7 +199,15 @@ namespace oneport::server::detail
 	{
 		if (c->fd < 0 || c->zombie) return;  // closed
 		if (c->stage != Stage::proxy && c->stage != Stage::detect) return;
-		if (c->buf != nullptr && c->len == c->beg && !(c->recv_into == Into::own && (c->posted & bit(Op::recv)) != 0)) c->buffer_while_silent = true;
+		if (c->buf == nullptr || c->len != c->beg) return;
+		// An empty buffer that a posted receive writes into (io_uring's receive into the room of a
+		// buffer the connection holds) is exempt only once a byte has arrived: io_uring takes one
+		// only after bytes did (a PROXY header the front consumed, say). A connection that has
+		// received no byte holds no data buffer (B2(d); section 2.1); IOCP's posted form holds the
+		// handler's buffer from accept, so it is reported here, the B2(d) violation that keeps it
+		// out of rule E (the coordinator's decision of 2026-10-03, hypotheses.md revision log).
+		const bool written_by_receive = c->recv_into == Into::own && (c->posted & bit(Op::recv)) != 0;
+		if (!written_by_receive || c->bytes_received == 0) c->buffer_while_silent = true;
 	}
 
 	void Worker::handler_readable(Conn* c, bool rdhup, bool must_read)

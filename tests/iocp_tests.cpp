@@ -1,8 +1,10 @@
 // IOCP (Windows, M6a): the Windows behaviour the IOCP backend rests on, pinned before use as
 // proposal I11 asks ("Both are pinned by tests before use") and as RK4 pinned io_uring's; then the
-// server on IOCP where the hard cases do not reach: both receive forms of rule E, the check of
-// 1(b) in both its forms with a byte in the pass of the expiry, the switch to replay, both AcceptEx
-// forms, every mode of the binary, a stop with a pending connection, and the binary itself.
+// server on IOCP where the hard cases do not reach: both receive forms (the zero-byte form, rule E's
+// only candidate, and the posted form, section 10's secondary variant) and B2(d) in each, the check
+// of 1(b) in both its forms with a byte in the pass of the expiry, the switch to replay, both
+// AcceptEx forms, every mode of the binary, a stop with a pending connection, and the binary
+// itself.
 // Untimed: no test measures a rate. Nothing received is printed beyond counts.
 #include "test_support.hpp"
 
@@ -400,7 +402,7 @@ namespace oneport::test
 
 		std::string form_name(IocpReceive f) { return f == IocpReceive::posted ? "posted" : "zero-byte"; }
 
-		/// Both receive forms of rule E (I31 E2) in every arm: HTTP/1.1 keep-alive with pipelining,
+		/// Both receive forms (I31 E2) in every arm: HTTP/1.1 keep-alive with pipelining,
 		/// TLS with a request, h2c, an SMTP fallback (one-port) or port (dedicated), and an SSH line.
 		/// The posted form holds the handler's buffer while it waits (I15), so a silent connection
 		/// holds one; the zero-byte form never does.
@@ -443,6 +445,37 @@ namespace oneport::test
 						CHECK(c.zero_byte_recv_calls > 0, label << ": the zero-byte form made no zero-byte receive");
 					}
 					CHECK(c.gqcs_calls >= c.passes && c.passes > 0, label << ": GetQueuedCompletionStatusEx calls " << c.gqcs_calls << ", passes " << c.passes);
+				}
+			}
+			return std::nullopt;
+		}
+
+		/// B2(d) in each receive form: a silent pending connection, closed at T_dec ("silent", 1(f)),
+		/// held no data buffer in the zero-byte form, in either detection mode, and held the
+		/// handler's buffer in the posted form in replay, which the audit reports. That violation is
+		/// why rule E may not choose the posted form (the coordinator's decision of 2026-10-03,
+		/// hypotheses.md revision log); section 10 keeps it as a secondary, descriptive variant. In
+		/// peek mode no receive is posted with a buffer during detection, in either form.
+		Result silent_buffer()
+		{
+			for (const IocpReceive form : {IocpReceive::zero_byte, IocpReceive::posted})
+			{
+				for (const Detect detect : {Detect::replay, Detect::peek})
+				{
+					const std::string label = form_name(form) + (detect == Detect::peek ? " peek" : " replay");
+					ServerArgs args;
+					args.detect = detect;
+					args.iocp_receive = form;
+					Running srv(args);
+					std::vector<server::DetectionReport> reps;
+					const opcase::Transcript t = run_and_wait(srv, Script{}.await_close(), srv.port(), &reps);
+					CHECK(!t.timed_out && t.received.empty(), label << ": the server did not close the silent connection without a byte");
+					CHECK(reps.size() == 1, label << ": " << reps.size() << " detection reports");
+					CHECK(reps[0].outcome == server::Outcome::silent, label << ": not closed as silent");
+					const bool holds = form == IocpReceive::posted && detect == Detect::replay;
+					CHECK(reps[0].buffer_while_silent == holds,
+					      label << (holds ? ": the posted form's buffer while silent was not reported (B2 d)" : ": held a data buffer while no byte had arrived (B2 d)"));
+					if (auto bad = srv.stop_and_check()) return label + ": " + *bad;
 				}
 			}
 			return std::nullopt;
@@ -767,6 +800,7 @@ namespace oneport::test
 		r["iocp.pin_close_completes"] = pin_close_completes;
 		r["iocp.pin_acceptex"] = pin_acceptex;
 		r["iocp.receive_forms"] = on_iocp(receive_forms);
+		r["iocp.silent_buffer"] = on_iocp(silent_buffer);
 		r["iocp.check_byte_wins.replay_zero_byte"] = on_iocp([] { return check_byte_wins(Detect::replay, IocpReceive::zero_byte); });
 		r["iocp.check_byte_wins.replay_posted"] = on_iocp([] { return check_byte_wins(Detect::replay, IocpReceive::posted); });
 		r["iocp.check_byte_wins.peek"] = on_iocp([] { return check_byte_wins(Detect::peek, IocpReceive::zero_byte); });

@@ -12,10 +12,11 @@
 // pass-through are in relay.cpp.
 //
 // On Windows (M6a) the worker runs on IOCP (iocp.cpp), completion-based like io_uring: a zero-byte
-// WSARecv is the readiness of the peek path and of rule E's zero-byte form, then a synchronous
-// recv or MSG_PEEK on the non-blocking socket; rule E's posted form posts the WSARecv with the
-// handler's buffer. Output is the synchronous send; what the socket does not take waits in the
-// connection's queue for an overlapped WSASend of it. Accept is AcceptEx, N_ACCEPTEX outstanding
+// WSARecv is the readiness of the peek path and of the zero-byte receive form, then a synchronous
+// recv or MSG_PEEK on the non-blocking socket; the posted form (section 10's secondary variant, no
+// rule E candidate since it breaks B2(d)) posts the WSARecv with the handler's buffer. Output is
+// the synchronous send; what the socket does not take waits in the connection's queue for an
+// overlapped WSASend of it. Accept is AcceptEx, N_ACCEPTEX outstanding
 // per listener. Relay dispatch is Linux only (hypotheses.md, section 2.1).
 #pragma once
 
@@ -269,7 +270,7 @@ namespace oneport::server::detail
 #if defined(_WIN32)
 	/// IOCP: one overlapped operation of a connection, its OVERLAPPED first, so a completion's
 	/// pointer is the operation's. The ops it uses: Op::poll_in, the zero-byte WSARecv (readiness);
-	/// Op::recv, the WSARecv with the handler's buffer (rule E's posted form); Op::poll_out, the
+	/// Op::recv, the WSARecv with the handler's buffer (the posted form); Op::poll_out, the
 	/// overlapped WSASend of the output queue (the wait for writability).
 	struct IoOp
 	{
@@ -512,7 +513,7 @@ namespace oneport::server::detail
 		bool splice = false;                                // --relay-copy splice
 		std::array<sockaddr_in, detect::kProtos> backends{};  // by class, the backend's ports in the order of I20
 #if defined(_WIN32)
-		IocpReceive iocp_receive = IocpReceive::zero_byte;  // rule E's receive form
+		IocpReceive iocp_receive = IocpReceive::zero_byte;  // the receive form (config.hpp)
 		IocpAccept iocp_accept = IocpAccept::no_buffer;     // the AcceptEx form
 #endif
 	};
@@ -769,7 +770,7 @@ namespace oneport::server::detail
 		// ---- IOCP (iocp.cpp) ----
 		// post_recv, post_poll_in, pending_io, want_read, reap_for, cancel_all, want_out and flush
 		// above have IOCP implementations there too: post_poll_in posts the zero-byte WSARecv,
-		// post_recv the WSARecv with the handler's buffer (rule E's posted form), want_out the
+		// post_recv the WSARecv with the handler's buffer (the posted form), want_out the
 		// overlapped WSASend of the queue, and flush continues after its completion.
 
 		void run_iocp();

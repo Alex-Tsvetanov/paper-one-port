@@ -43,7 +43,7 @@ namespace oneport::test
 		std::chrono::milliseconds t_dec{300};
 		std::chrono::milliseconds t_hdr{300};
 #if defined(_WIN32)
-		IocpReceive iocp_receive = IocpReceive::zero_byte;  // rule E's receive form (M6a)
+		IocpReceive iocp_receive = IocpReceive::zero_byte;  // the IOCP receive form (M6a)
 		IocpAccept iocp_accept = IocpAccept::no_buffer;     // the AcceptEx form (M6a)
 #endif
 	};

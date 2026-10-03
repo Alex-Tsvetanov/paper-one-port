@@ -50,8 +50,12 @@ namespace oneport
 		iocp,  // spelled IOCP
 	};
 
-	/// Rule E's IOCP receive form: a zero-byte WSARecv then recv into the handler's buffer, or a
-	/// WSARecv with the buffer posted at once.
+	/// The IOCP receive form: a zero-byte WSARecv then recv into the handler's buffer (the default),
+	/// or a WSARecv with the buffer posted at once. The posted form holds the handler's buffer while
+	/// no byte has arrived, against B2(d) and section 2.1, so rule E may not choose it (the
+	/// coordinator's decision of 2026-10-03, hypotheses.md revision log): rule E's only IOCP
+	/// candidate is the zero-byte form. The flag stays for section 10's secondary cell ("the receive
+	/// form rule E did not choose"), descriptive only.
 	enum class IocpReceive
 	{
 		zero_byte,

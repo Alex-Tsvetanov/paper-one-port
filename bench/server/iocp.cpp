@@ -10,11 +10,16 @@
 // packet: it is handled from a queue in the same pass (settle).
 //
 // A connection's input:
-//   zero-byte form (rule E's default)  a zero-byte WSARecv, completed when bytes (or the peer's
-//                                      end) arrive, then a synchronous recv into the handler's
+//   zero-byte form (the default, and   a zero-byte WSARecv, completed when bytes (or the peer's
+//   the only form rule E may choose)   end) arrive, then a synchronous recv into the handler's
 //                                      buffer, as epoll reads on readiness;
 //   posted form                        a WSARecv with the handler's buffer, posted at once, so a
-//                                      pending connection holds that buffer (I15);
+//                                      pending connection holds that buffer (I15). That breaks
+//                                      B2(d) and section 2.1's "no data buffer while no byte has
+//                                      arrived", so rule E may not choose it (the coordinator's
+//                                      decision of 2026-10-03, hypotheses.md revision log); it is
+//                                      kept for section 10's secondary cell, descriptive only, and
+//                                      pending_io() reports the held buffer (buffer_while_silent);
 //   peek                               the zero-byte WSARecv, then a synchronous recv(MSG_PEEK)
 //                                      into the worker's scratch buffer (I11). Windows has no
 //                                      SO_RCVLOWAT, so an undecided peek switches the connection
@@ -515,7 +520,11 @@ namespace oneport::server::detail
 			audit_pending(c);
 		}
 		if (peeks(c) || !posted_form()) post_poll_in(c);
-		else post_recv(c);
+		else
+		{
+			post_recv(c);
+			audit_pending(c);  // the state it waits in: the posted form holds the handler's buffer (B2 d)
+		}
 	}
 
 	void Worker::want_read(Conn* c)
