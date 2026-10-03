@@ -769,3 +769,32 @@ running; no build, suite or job of this session is running.
     7051dd1fce46525f8a486539cfdcafe72d3cbc1582a0884884938da458275ecd  w-aa\waa1.done
     7ff455be3f24fe96ae8b02000a0326c92499c3939c91c02b2f0c19cc4c0496b5  m6b\estimate.py
     9264a15c41688469e29b51e5aed3020367e396fa9b4fb373c8a85dbd966ef6eb  m6b\wlaunch.ps1
+
+### The night launcher (wnight.py, 78c2ea4), started 2026-10-03 23:58:56 +0300
+
+The coordinator's task after the refusal: an unattended, delayed, retrying launcher. Its readings
+(23:53, two standalone quiet checks) did not support the Defender-read lead, so the harness is
+unchanged. `bench/run/wnight.py`, copied to `C:\Users\alext\lab\p3\m6b\wnight.py` (sha256
+3c916d10a42d9a52ab23cfe6e41ee9d84f69269fd7451b7c85b5ed684b8c8fb6, equal to the commit's), started
+detached through WMI (`m6b\wlaunch.ps1`), pid 22372:
+
+    "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\m6b\wnight.py --dir C:\Users\alext\lab\p3\m6b --src C:\Users\alext\lab\p3\src-0698947 --build C:\Users\alext\lab\p3\build-0698947 --freq-src C:\Users\alext\lab\p3\src-0c1420a --first-delay-s 900 --retry-s 600 --settle-s 120 --no-aa-after 2026-10-04T05:00 --no-start-after 2026-10-04T07:45 --cutoff 2026-10-04T08:00
+
+- First attempt 2026-10-04 00:13:56 +0300. Each loop: the retest (from `src-0c1420a`, a clone at
+  0c1420a, `wfreq.py --control cap --require-quiet`, its own quiet check; the cap plan "oneport W
+  cap50") unless it completed or failed; then the A/A job `wjob.py run --dir
+  C:\Users\alext\lab\p3\w-aa --name waa2` with waa1's arguments (src-0698947, build-0698947, the 12
+  cells, 6 sessions, seed 861, K_SRC 16; `--out ...\w-aa\waa2 --job waa2`). After a quiet refusal
+  (wjob exit 90 or 92, wfreq exit 3) it logs the reasons, top processes and each CPU's idle, renames
+  a refused job's files to `waa2-refusedN.*`, sleeps 600 s and loops. After the job, 120 s, then the
+  retest again if it has not completed.
+- No A/A start after 2026-10-04 05:00; nothing started after 07:45; at 08:00 it exits, and asks a
+  job still running to stop (`wjob.py stop`) first. Nothing weakened, nothing elevated, no process
+  ended by name.
+- Files in `C:\Users\alext\lab\p3\m6b\`: `wnight.pid`, `wnight.log` (JSON lines), `wnight.done`;
+  the stop file `wnight.stop` ends it at its next loop or sleep tick. A running job is stopped with
+  `wjob.py stop --dir C:\Users\alext\lab\p3\w-aa --name waa2`.
+- Tested before the launch with stub scripts and second-long times (scratch, not committed): a
+  refusal of each then success; the A/A window already past; the stop file; the cutoff during a
+  running job (stop asked, job exit 130); the retest refused until its no-start time; a retest that
+  fails outright (not tried again).
