@@ -13,7 +13,7 @@ has run.
 | M2a | h2c, TLS, PROXY, SSH, MQTT and SMTP handlers on epoll in-process; the pinned OpenSSL and nghttp2; the recorded ClientHello; every hard case full on epoll in-process | done, 2026-10-02 (below) |
 | M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | done, 2026-10-02 (below) |
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | done, 2026-10-03 (below) |
-| M4 | Competitors | next |
+| M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b (the libraries) next |
 | M5 | Iterate until it wins | |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) open |
 | M7 | Code freeze | |
@@ -2304,6 +2304,10 @@ Each is a reading of the frozen text met while building IOCP; none changes a har
 
 ### Open for the coordinator
 
+- **Decided (2026-10-03):** the coordinator's decision is in the revision log ("The coordinator's
+  decision on M6a's reading 7"): rule E may choose only B2(d)-conforming forms, so the posted form
+  leaves rule E and stays section 10's secondary, descriptive cell (M4a, step 0, 2). The item as M6a
+  wrote it:
 - **Rule E's posted form and "no data buffer while no byte has arrived".** Section 2.1 states, as a
   design property, "no data buffer while no byte has arrived, on every backend", and B2(d) tests
   it. Rule E's posted form holds the handler's buffer from accept by construction; only the
@@ -2535,6 +2539,412 @@ NOTRACK needs L to boot an installed kernel. What that decides beyond NOTRACK:
   `ONEPORT_NOTRACK=off`; with it the job runs tracked, the wait applies, and the time plan of M3
   holds.
 
+## M4a, 2026-10-03
+
+M4a: step 0 (the host change, the coordinator's decision on M6a's reading 7, NOTRACK's first run on
+kernel 7.2.6 and the A/A re-check), then the five proxies of M3 and B3: their installation, their M3
+and B3 configurations, a probe per proxy, the hand-off runner, and a few development windows of the
+server's one-port relay against them. Nothing in this section is a result: every window is
+development data, journaled as such, and the suites are development checks, not records.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 76ebac2 | fix: notrack.sh writes its record when it refuses a job (exit 90, 91), and lab_job.sh writes the done file of a job stopped by a signal to its process group |
+| d1d7665 | fix: the B2(d) audit reports a pending connection that holds a data buffer while no byte has arrived in IOCP's posted receive form; test iocp.silent_buffer |
+| 55b2cb8 | chore: pin the five proxies of section 2.3 in pins.cmake, and bench/competitors/install.sh |
+| e528256 | feat: the proxies' M3 and B3 configurations, competitors.py, probe.py, the hand-off runner, guard_pair, stop_on_signals; tests run.test_competitors |
+| 7001e91 | docs: hypotheses.md revision log, the host change before the code freeze, and the coordinator's decision on M6a's reading 7 |
+| c357f3a | feat: journal.py --kind m3 journals a hand-off job |
+| 097cec4 | test: gen.failures holds its refused port bound and not listening while opgen connects to it |
+| 7c75628 | docs: hypotheses.md revision log, the host-change entry's MHz drift range corrected (2.9% to 58%) |
+
+Checks (below): each code commit up to e528256 built alone from a clone of the lab remote on L
+(Debug, clang 22.1.8, Ninja, no warning) and passed its own suite; 7c75628's suites on L (Debug and
+ASan+UBSan, green), after 7001e91's ASan+UBSan suite failed twice beside its Debug suite, a test race
+that 097cec4 fixes; 7001e91's suites on W (Debug, ASan, green). After 7001e91 the code changes only in
+`bench/run/journal.py` (no test runs it) and in the Linux-only part of `tests/gen_tests.cpp`, so W's
+result stands for 7c75628. Nothing is pushed to origin; the `lab` remote has every commit.
+
+### Step 0, 1: the host change (revision log)
+
+L moved from 7.2.3-arch1-2 to 7.2.6-arch2-1 by kexec at 2026-10-03 11:30:41 (Alex's decision; boot
+-1 ended 11:30:36). The revision-log entry "Host change before the code freeze" (7001e91) holds what
+was read after the switch (the merged skb cache `:0000512` with `pool_workqueue` and `sgpool-16`,
+aliases 2, listed as `pool_workqueue`; `skbuff_head_cache` and `skbuff_small_head` under their own
+names; `CONFIG_SLUB_DEBUG=y`, `CONFIG_SLAB_MERGE_DEFAULT=y`; `kernel.io_uring_disabled` 0; page size
+4096; the command line unchanged), the split of data by kernel, and the check of every cited v7.2
+line at v7.2.6:
+- `patch-7.2.6.xz` (sha256 2aef3c30a571ed806c69e90428b229409a43c235aa2540a24593b7e7a8b126cf) equals
+  its line in kernel.org's `sha256sums.asc`, whose signature verified good (autosigner key B886 8C80
+  BA62 A1FF FAF5 FDA9 632D 3A06 589D A6B1, fetched by WKD into a scratch keyring on W). A script
+  parsed every hunk of the six files it touches; the six files were also fetched at both tags from
+  the stable tree and their 31 cited slices (the frozen text's and the proposal's) compared: all
+  equal. Line numbers move only in `net/core/skbuff.c` (+2 from line 5176), `mm/slub.c` (+6) and
+  `kernel/workqueue.c` (line 7995 at 8025).
+
+**Found: section 7's MHz rule fails every window on 7.2.6 (open, for the coordinator and Alex).**
+Between 7.2.3 and 7.2.6 `drivers/cpufreq/amd-pstate.c` changed the floor it sets for the
+performance policy: MinPerf was the nominal performance and is now the BIOS's minimum where one
+exists (both files fetched from git.kernel.org; the diff's comment: "When bios_min_perf is
+available, users have profiled their workloads to understand the best idling frequency. Use that
+instead."). On L now (amd-pstate-epp, active, the performance governor, boost off):
+`scaling_min_freq` 1,102,866 kHz (= `amd_pstate_lowest_nonlinear_freq`), `scaling_max_freq`
+3,201,000 kHz; an idle CPU's `cpu MHz` reads 1102.9, a loaded one about 3169. `pin.sh`'s
+`mean_mhz`, which `window.py` takes as the session's value (t1.py's rule; M3 reading 8), is read
+with the host idle, so it reads 2,006 to 2,522 MHz, and each of M4a's 108 windows drifts 2.9% to 58%
+from it (the least in sslh-ev's windows, whose CPUs were partly idle, so their own mean read low). In
+M3 on 7.2.3 the same reading gave 3,172 to 3,186 MHz against 3,165.9 to 3,184.3 MHz loaded. Within
+any A/A session of the re-check (aa-nt3), whose windows load every CPU they read, the windows' MHz
+moved at most 0.016%, and the throughput is M3's (below).
+Options, none taken: (a) restore 7.2.3's floor for the length of each lab job by writing
+`scaling_min_freq` = `scaling_max_freq` on the used CPUs (a non-persistent sysfs write, as `pin.sh`
+writes the governor; a change of the lab procedure, Alex's); (b) a reading that takes the session's
+value as the loaded MHz of the session's first window; (c) leave it, and no window on L is valid.
+The floor also matters beyond the rule: in open-loop cells (C3, the M family's TTFB) the server's
+core idles between exchanges, so its frequency now ramps up from 1.1 GHz, which it did not on 7.2.3.
+
+### Step 0, 2: the coordinator's decision on M6a's reading 7
+
+In the revision log (7001e91): rule E may choose only IOCP receive forms that satisfy B2(d), so the
+posted form leaves rule E, rule E has nothing to choose on IOCP (the zero-byte form stays), section 8
+step 4 runs no sessions for it, section 9.2 names the zero-byte form, and section 10's secondary cell
+"the receive form rule E did not choose" is the posted form, descriptive, its B2(d) violation stated.
+M6a's "Open for the coordinator" item on it is closed by that entry.
+
+Code and tests (d1d7665):
+- `Worker::audit_pending` (handlers.cpp): its exemption for an empty buffer that a posted receive
+  writes into (written for io_uring's receive into the room of a buffer the connection holds) now
+  needs a byte received (`bytes_received > 0`). io_uring takes such a buffer only after bytes arrived,
+  so Linux behaviour is unchanged (the L suites pass, below). The IOCP worker audits a posted-form
+  connection right after posting its receive (`pending_io`), the state it waits in; before, the audit
+  ran only after a read, so a silent posted-form connection was never audited.
+- `iocp.silent_buffer`: a silent connection closed at T_dec in each receive form and detection mode;
+  the zero-byte form holds no data buffer (replay and peek), the posted form in replay is reported
+  holding the handler's buffer (`buffer_while_silent`), in peek no buffer is posted during
+  detection. Passed on W in the work tree's trial build (88 IOCP entries, 0 warnings) and in 7001e91's
+  checks.
+- Comments: `config.hpp`, `iocp.cpp`, `worker.hpp`, `harness.hpp`, `iocp_tests.cpp` no longer call the
+  posted form a rule E option. The flag stays.
+
+### Step 0, 3: NOTRACK's first run on 7.2.6
+
+After the kexec the raw table did not exist at all (before it, it held an empty PREROUTING chain), so
+the add creates the table and both base chains and the teardown must delete all three: a path never
+run before. One lab job with no window per path (`~/lab/p3/notrack-726/`, scripts of e005709):
+- n1, add and removal: both rules added (`iptables-nft -t raw -S` listed them during the job), 200
+  loopback connections left the conntrack count at 10 (loopback untracked), and the teardown removed
+  both rules and deleted OUTPUT, PREROUTING and the table; `rules_gone` and `ruleset_restored` true.
+- n2, refusal: the job's command was a second `notrack.sh`, which found the outer rules and refused
+  (exit 91) without touching them; the outer one then removed them.
+- n3, a signal: SIGTERM to the job's process group (`kill -TERM -- -PGID`, the pid file's) while the
+  rules were in place. `notrack.sh` ran its teardown (job_exit 143, rules gone, ruleset restored).
+  During the job the lock file was open in flock, `notrack.sh` and the job (inherited descriptor), so
+  the lock outlives flock's death until the teardown ends; the lock was free after.
+- In each, `nft -s list ruleset`, Docker's four tables (`ip nat`, `ip filter`, `ip6 nat`, `ip6 filter`)
+  and the table list were byte-identical before and after.
+Two gaps found and fixed (76ebac2): the refusal wrote no record (now it does, with its reason), and
+`lab_job.sh` killed by SIGTERM wrote no done file (now it traps the signal, waits at most 60 s for the
+record to name the removal, and writes `{"exit": 143, "signal": "TERM"}`). Both fixes ran again on L
+before the commit (`~/lab/p3/notrack-726/fix/`, n2 and n3: the inner record names its refusal; the
+done file is written). Every window and probe job of M4a ran through `lab_job.sh` with NOTRACK on
+(aa-nt1 to aa-nt3, probes1 to probes3, m3dev1, checks1, rerun1, checks2), and each record shows both
+rules removed and the ruleset restored; the downloads, the installs and one test run used the lock alone.
+
+Record sha256 (first run, then the fix's): n1.notrack.json
+903592caf63f250400599062978e2bb7c4c40eb6817dc7926a18300ecd090c1f, n2.notrack.json
+0c696ddecada381a20967a0dd203ccc8871c8166caaa236b321ff13f42565304, n3.notrack.json
+e959d03faa2a3c126195b48e59f09b417d28e85b8d557059418b08852566f0a8; fix/n2-inner.notrack.json
+ca0333cd7d91af91749b7b5ee84fef9163b84372ed97a02d23205de1e4454db5, fix/n2.notrack.json
+1ef5ae44446918efb4f8926715f100b2df1a0e96abc8b9de5c360b73639970c6, fix/n3.notrack.json
+5948b36a47b993d7822facf6d96901c01b6df2c21e65479a2efe473cf22bb34f, fix/n3.done
+040dafe7d1db633f1abe3669d9629ea8849b7f0b67e2ff61fd9444a3ff2b1fc5.
+
+### Step 0, 3: the A/A re-check with NOTRACK
+
+Dedicated against dedicated only, from a clone of the lab remote at 76ebac2 (Release, clang 22.1.8),
+`aa.py` with K_SRC 16, under the lock, `pin.sh` and NOTRACK, journaled as development (Papers
+52d39da). Three jobs: aa-nt1 (seed 801), stopped after 16 windows once every window showed the MHz
+failure; aa-nt2 (seed 802), stopped after 9 windows: its arm-B servers could not bind, because aa-nt1's
+arm-B server was still running (below); aa-nt3 (seed 803), complete: 4 sessions per cell, 48 windows.
+
+All 48 of aa-nt3's windows are invalid by the MHz rule and by nothing else (step 0, 1). Ignoring that
+rule, development data:
+
+| Cell | Job | Sessions | Median | Range | Log SD | Outside [0.98, 1.02] | Metric per window |
+|---|---|---|---|---|---|---|---|
+| churn, HTTP/1.1, epoll | aa-nt3 | 4 | 1.0026 | 0.9954 to 1.0040 | 0.0040 | 0 | 44,270 to 44,887 conn/s |
+| churn, HTTP/1.1, epoll | M3 aa1 | 6 | 1.0013 | 0.9976 to 1.0032 | 0.0020 | 0 | 44,495 to 44,949 conn/s |
+| churn, HTTP/1.1, io_uring | aa-nt3 | 4 | 0.9988 | 0.9971 to 1.0008 | 0.0015 | 0 | 52,392 to 53,242 conn/s |
+| churn, HTTP/1.1, io_uring | M3 aa3 | 6 | 1.0007 | 0.9968 to 1.0042 | 0.0028 | 0 | 52,776 to 53,372 conn/s |
+| keep-alive, TLS, io_uring | aa-nt3 | 4 | 0.9960 | 0.9924 to 1.0047 | 0.0054 | 0 | 106,075 to 108,665 req/s |
+| keep-alive, TLS, io_uring | M3 aa4 | 8 | 0.9998 | 0.9823 to 1.0197 | 0.0108 | 0 | 104,153 to 107,781 req/s |
+
+- With 4 sessions the spreads are within M3's order (churn epoll wider, the other two narrower); the
+  throughput per window is M3's. Nothing here enters a rule.
+- NOTRACK in every session's fingerprint; the conntrack wait took at most 0.0003 s before any window,
+  the table held at most 7 entries at any window's start or end, and nothing was dropped.
+- Time per window: consecutive windows started 6 s or 7 s apart (whole-second timestamps), 294 s for
+  the 47 intervals, 6.3 s per window (1 s warm-up and 5 s window, and the start, probe and stop). In M3 a churn or open-loop
+  window waited a median 122 s to 126 s for the table first (about 125 s per window, M3's time plan).
+- Every window saturated the server: its core at least 99.6% busy, the generator rule at most 39.3%.
+
+**Found and fixed: a stopped job left its servers running.** The window runner starts each server in
+a session of its own, so a SIGTERM to the job's process group (how jobs are stopped) never reached
+it, and Python's default SIGTERM ended the runner before its `finally` blocks stopped the server.
+aa-nt1's arm-B server (port 20100) and aa-nt2's arm-A server (20000) kept running; they were found
+with `ss` and stopped by their pids. `window.stop_on_signals()` (e528256) turns SIGTERM, SIGINT and
+SIGHUP into `SystemExit`, so the `finally` blocks run; `aa.py`, `b3.py`, `ksrc_sweep.py`,
+`handoff.py` and `probe.py` install it.
+
+### The proxies: installation
+
+Downloaded on L into `~/opt/src` from the official release URLs (`~/lab/p3/m4a/fetch.log`, under the
+lock); every sha256 pinned in `bench/cmake/pins.cmake` (55b2cb8), which changes the pins file's hash
+the gate reads (no record exists yet). `bench/competitors/install.sh` checks each archive against its
+pin and builds into `~/opt` (`~/opt/build/logs/<system>.log`); it ran under the lock. No package was
+added: libev 4.33-5, libconfig 1.8.2-2, pcre2 10.48-1 and their headers, gcc 16.2.1 and go1.27.1 were
+on L.
+
+| System | Version | Archive sha256 | Published check | Build | Binary sha256 |
+|---|---|---|---|---|---|
+| nginx | 1.30.5 (nginx.org tarball) | 6c20565aa2325cb82216ae804f4a4ff1875179014759a381c42ddc8e11c4906d | none published; the `.asc` verified good, Sergey Kandaurov's key (nginx.org/keys/pluknet.key, D678 6CE3 03D9 A902 2998 DC6C C846 4D54 9AF7 5C0A) | `--with-stream --with-stream_ssl_preread_module --without-http --with-cc-opt=-O2`, gcc 16.2.1 | 8ba2ed7e23259003c2ab52f6b8555e5c5f8e899d9ea3b42e88c6f8316fb36f7e |
+| HAProxy | 3.4.6-56332c5 (2026/09/28) | 791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b | `.sha256` beside it, equal | `make TARGET=linux-glibc` (CFLAGS `-O2 -g -fwrapv`), no OPTIONS | 1b7923189364126e77499899674dd6e1dcd289d598acf77828ef13e0a7851a16 |
+| Envoy | 1.39.2 (018f6bf0, RELEASE, BoringSSL) | d2f1a9f4f19b7fc064e75b4e52d191754c49a4de1ae2145462c0c7e19a860e1b | `checksums.txt.asc` and the GitHub asset digest, equal; signature good ("Envoy maintainers", 0AFC E836 BA4D 1D35 763C 8523 D8CD C375 0181 F31F, from keyserver.ubuntu.com, no trust path) | the release binary as it is | the archive's |
+| caddy-l4 | v0.1.2 = 42db5690 on Caddy v2.11.4 | (Go modules: go.sum, sha256 2e01b4677445cdd6cfa9360d90a0a4162c9b4450a3af1ff5a2019b709b11d5ab) | the Go checksum database (GOSUMDB sum.golang.org, GOPROXY proxy.golang.org) | xcaddy 0.4.7, go1.27.1, `GOTOOLCHAIN=local`; xcaddy's `-ldflags -w -s -trimpath -tags nobadger,nomysql,nopgx`; the commit resolved to the v0.1.2 tag | fcbeb330bb90245947ad21aed77ea64074ae14b2432bd3fe4ea388275a2bbe6c |
+| xcaddy | 0.4.7 (latest, 2026-08-17) | e6d2882fb751b9697cdb73b0da8b8a7393f0d7f2cb47afa79a23982c4c61d2d4 | `checksums.txt` (SHA-512) and the GitHub digest, equal | unpacked | |
+| sslh-ev | 2.3.1 (tag d39388d1) | 51a5516ec5cb01823633b4d8cacdeee4efa0c56ef620d1c996d4f52ca51a601b | none published; the author's tarball's tree equals the tag archive's (`diff -r`) | `./configure; make sslh-ev` (ENABLE_REGEX, LIBCONFIG, libev, `-O2`; links libcap and libbsd, found by configure) | 3ec886cb943b08750ac9d72aa679fa924b858a13710bda863a907f47547fe92e |
+
+- nginx's level: its `auto/cc/gcc` defaults to `-O`; nginx.org's own Linux package of 1.30.5
+  (`nginx_1.30.5-1~trixie_amd64.deb`, its `nginx -V`) builds with `-O2` (and hardening flags), and
+  HAProxy's and sslh's Makefiles default to `-O2`, so the three proxies built from source share `-O2`.
+  The modules: stream and ssl_preread, the only ones the configurations use.
+- caddy-l4's build: `bench/competitors/caddy-l4/go.mod` (sha256
+  e2b2552c3b2b75442c061535c94818ea5396d6cc3409833d7d33411087f11b54) and `go.sum` (581 lines) are the
+  build's own, the record of every module used. Caddy v2.11.4's and caddy-l4's `go.mod` ask go 1.25.1.
+  `caddy list-modules` shows the layer4 tls, http, ssh and regexp matchers and the sni and alpn
+  handshake matchers Appendix B's cases need.
+
+### The proxies: configurations
+
+`bench/competitors/<system>/m3.*` and `b3.*` (e528256), rendered per run by `competitors.py`. Every
+non-default setting carries a comment citing Appendix B, section 1 or 5.3, WL7, the proposal or the
+system's own documents; plumbing (pid file, logs, foreground) is marked as such. Highlights:
+
+| System | M3 | B3 adds |
+|---|---|---|
+| nginx | `worker_processes 1`, `worker_cpu_affinity` CPU 14, `multi_accept on`, `ssl_preread on`, `map $ssl_preread_server_name` (oneport.test to the TLS stub, default to the HTTP stub), `preread_timeout 3s`, no access log, backlog default (511) | `worker_connections` and `worker_rlimit_nofile` 20,000, `listen ... backlog=10000`, `preread_timeout 60s`; buffers kept |
+| HAProxy | `mode tcp`, `inspect-delay 3s`, `accept if { req.ssl_hello_type 1 }` and `accept if HTTP`, `use_backend` on `req.ssl_sni`, `default_backend` HTTP stub, no log, one thread from taskset, timeouts unset (startup warning), no splice | global `maxconn 20000` (also the backlog), `inspect-delay 60s`, `option use-small-buffers` in both backends |
+| Envoy | `--concurrency 1`, `--disable-hot-restart`, tls_inspector, a chain by `server_names` and `transport_protocol: tls`, the default chain to the HTTP stub, tcp_proxy, `listener_filters_timeout 3s`, circuit breaking off (the FAQ's 1000000000 at both priorities), no admin and no access log, default statistics | `tcp_backlog_size 10000`, `listener_filters_timeout 60s`, `per_connection_buffer_limit_bytes 32768` on the listener and both clusters, tls_inspector `initial_read_buffer_size 256` |
+| caddy-l4 | Caddyfile: `matching_timeout 3s` (its default too), `@tls tls sni oneport.test` to the TLS stub, a route with no matcher to the HTTP stub, admin on a run port, log level default (INFO); GOMAXPROCS 1 from taskset; Caddy's adaptation to JSON kept per run (`adapted.json`) | `matching_timeout 60s` |
+| sslh-ev | `verbose-connections 0`, `numeric: true`, `log_level 0` on both protocols, `timeout 3`, `on-timeout "http"`, tls with `sni_hostnames` then http last | `timeout 60`; `max_connections` unset |
+
+Every process of a front runs on CPU 14 (taskset; nginx's master and worker, Envoy's and Go's
+threads), with the soft open-file limit raised to the hard one (524,288), in M3 as in B3 and for both
+arms alike. The stub behind every front, the server's included, is `oneport --mode stub --backend
+epoll --workers 2` on CPUs 10 and 12.
+
+### The proxies: probes
+
+`bench/competitors/probe.py` with a `probe.sh` per proxy (e528256): fresh stub and front per check, as
+a window starts them. Routes: `opgen --probe` through the front with the TLS stub exchange and with
+HTTP/1.1, and the stub must have accepted exactly those two. Silent and partial: a client that sends
+nothing, or WL7's 108-byte partial ClientHello, watched 6 s (M3) or 32 s (B3) for the front's close and
+for a new socket on the stub's ports (`/proc/net/tcp`, sockets present before the watch excluded), which
+must agree with the stub's accept count. The expected behaviour per system comes from the survey; where
+it says nothing (sslh-ev in M3) the probe records only. Job probes3 (~/lab/p3/m4a/probes, the development
+tree that became e528256), all twelve runs exit 0:
+
+| Front | M3 routes | M3 silent (3 s timer) | M3 partial | B3 routes | B3 silent and partial (60 s) |
+|---|---|---|---|---|---|
+| server's relay | both, stub 2 | closed at 3.044 s, not routed | closed at 3.025 s, not routed | both | held 32 s, not routed |
+| nginx | both, stub 2 | closed at 3.016 s, not routed | closed (reset) at 3.053 s | both | held |
+| HAProxy | both, stub 2 | routed to the HTTP stub at 3.075 s, held | routed at 3.059 s, the client closed at 3.016 s | both | held |
+| Envoy | both, stub 2 | closed at 3.001 s, not routed | closed (reset) at 3.007 s | both | held |
+| caddy-l4 | both, stub 2 | closed at 3.000 s | closed at 3.001 s | both | held |
+| sslh-ev | both, stub 2 | held 6 s, not routed (observed only) | held, not routed (observed only) | both | held |
+
+- sslh-ev, at runtime: with `timeout 3` neither the silent nor the partial client was closed or routed
+  in 6 s, which confirms the survey's reading of its code (2.8: the probe timeout is checked only on
+  read activity; "Runtime behaviour: not verified").
+- An earlier run judged the server's B3 partial check "routed at 0.001 s" with no accept: a TIME-WAIT
+  socket of HAProxy's M3 partial check on the same port block. The probe now ignores sockets present
+  before the watch and requires the two observations to agree.
+
+### Runner integration
+
+- `bench/run/handoff.py` (e528256): a hand-off window in section 4.1's placement, and sessions X Y Y X
+  of the server's one-port relay (arm A, ports 22000, stub 22010) against one proxy (arm B, 22100,
+  stub 22110). Per window: the source block, the conntrack wait, the stub and the front started fresh
+  (pid files), the probe through the front, opgen on CPUs 2 to 9 (8 workers, C = 64), at the markers
+  the CPU time of the front's whole process group and of the stub, `/proc/stat`, MHz, interrupts; the
+  front stopped by its process group, the stub's counters. The row: conn/s; CPU per connection of the
+  front, of the backend and of both (WL6); the backend cores' busy share with section 7's 90% rule;
+  listen overflows recorded, not a rule in M3; section 7's other rules through `window.finish` with the
+  hand-off placement. The session ratio is server / proxy.
+- `window.py`: `Placement` (in-process and hand-off), taken by `finish()` and `probe()`;
+  `guard_pair`, checked per session: dedicated against dedicated, or the one-port relay against a
+  proxy, and nothing else (one-port against dedicated refused; in M4a dedicated against a competitor
+  refused too, so no FC5 pair can arise); `stop_on_signals`.
+- `competitors.py`: rendering, start under taskset in a session of its own with the open-file limit
+  raised and a pid file, readiness read from `/proc/net/tcp` (no connection, which HAProxy would route
+  to its default backend at the end of its inspect-delay), stop by process group.
+- `journal.py --kind m3` (c357f3a).
+- Not built in M4a: B3 with a proxy as the system (`b3.py`: U over the proxy's processes, the stub left
+  out, the partial case), caddy-l4's heap profile before each sample, and section 10's untimed
+  `perf trace -s` windows.
+
+### Development windows: the server's relay against the proxies
+
+Job m3dev1 (seed 811): one session of each of the ten M3 cells, the server in one-port mode with relay
+dispatch on epoll (replay, the user-space relay copy, timers 3 s) against each proxy in its M3
+configuration, from a clone at 7001e91 (Release, clang 22.1.8), NOTRACK on, journaled as development
+(Papers 52d39da). Only one-port mode was timed against the proxies; dedicated mode never was, so no
+FC5 pair exists. All 40 windows are invalid by the MHz rule; the sslh-ev windows also by the error rule.
+Ratios over windows invalid by the MHz rule alone, server / proxy, one session each:
+
+| Cell | Server's relay, conn/s | Proxy, conn/s | Ratio | Proxy CPU per connection (front) |
+|---|---|---|---|---|
+| TLS by SNI, nginx | 12,919 and 12,953 | 12,616 and 12,637 | 1.0245 | 49.7 to 49.9 us (relay 48.3 to 48.6) |
+| TLS by SNI, HAProxy | 12,921 and 12,917 | 12,378 and 12,504 | 1.0384 | 54.1 to 54.8 us |
+| TLS by SNI, Envoy | 12,839 and 12,889 | 6,081 and 6,129 | 2.1071 | 129.6 to 130.9 us |
+| TLS by SNI, caddy-l4 | 12,863 and 12,854 | 6,547 and 6,532 | 1.9663 | 119.4 to 119.5 us |
+| TLS by SNI, sslh-ev | 12,925 and 12,787 | 9,215 and 9,518 | none (errors) | 68.3 to 68.8 us |
+| HTTP/1.1, nginx | 13,007 and 12,917 | 12,787 and 12,697 | 1.0173 | 49.0 to 49.3 us |
+| HTTP/1.1, HAProxy | 12,952 and 12,901 | 12,145 and 12,331 | 1.0563 | 55.3 us |
+| HTTP/1.1, Envoy | 12,942 and 12,991 | 6,245 and 6,350 | 2.0590 | 124.1 to 126.8 us |
+| HTTP/1.1, caddy-l4 | 12,982 and 12,928 | 6,808 and 6,802 | 1.9038 | 114.0 to 114.4 us |
+| HTTP/1.1, sslh-ev | 12,891 and 12,970 | 10,131 and 10,256 | none (errors) | 60.6 to 60.8 us |
+
+- Every front was saturated (CPU 14 at least 99.6% busy) except sslh-ev (92.8% to 96.2%); the backend
+  cores 2% to 38% busy; the generator rule at most 17.1%; no connect failed and no listen overflow in
+  any window. WL6 (front and backend) per connection: the relay 70.1 to 70.7 us; nginx 70.9 to 71.8;
+  HAProxy 77.4 to 79.0; caddy-l4 137.5 to 143.0; Envoy 146.5 to 152.6; sslh-ev 84.5 to 92.5.
+- nginx is within 2.5% of the relay in this one session; the margin of the frozen M3 test is 1.00, and
+  16 sessions decide it. Development data; no claim.
+- **sslh-ev loses exchanges at saturation (open).** In each of its four windows 309 or 310 exchanges
+  (0.60% to 0.67%) timed out at opgen's 1 s with no connect failure, no reset and no listen overflow or
+  drop; the others were fast (median TTFB 0.15 ms). Each stalled exchange holds a client slot for 1 s,
+  about 62 of the 64 slots on average, which is what sets sslh-ev's rate. sslh-ev logged nothing
+  (verbosity 0). The cause was not isolated. As configured, every sslh-ev window is invalid by section
+  7's 0.1% error rule, so both sslh-ev cells of M3 would have no valid session (M5).
+- Time per window: 6.2 s for the relay's windows, 6.5 s to 7.5 s for the proxies' (their start), apart
+  from the job's first, which waited for 30,648 tracked entries left by a test run made under the lock
+  outside `lab_job.sh` (so tracked) to expire.
+
+### Tests
+
+- `run.test_competitors` (`bench/competitors/test_competitors.py`; 18 checks): every configuration
+  renders with every field filled and holds its kind's settings (timers, WL7's limits and buffers in B3
+  only, M3's settings); the command lines; the affinity mask; the LISTEN reader; `guard_pair`'s allowed
+  and refused pairs; the partial opening (108 bytes); the probe's judgement (early, late, routed,
+  disagreeing observations); the TIME-WAIT exclusion; the hand-off row's backend rule and WL6; the
+  session ratio. On Linux with `--build`: the probe of the server's relay (routes, silent and partial
+  closed at 3 s) and one short hand-off window of the relay per M3 protocol (stub, front, probe, opgen,
+  readings, the row). On W it runs the pure checks.
+- `iocp.silent_buffer` (W, above).
+
+### Checks
+
+| Host | Build | Commit | Build | CTest | Report lines |
+|---|---|---|---|---|---|
+| L | Debug, clang 22.1.8 | d1d7665, alone | 0 warnings | 373 passed | 0 |
+| L | Debug | 55b2cb8, alone | 0 warnings | 373 passed | 0 |
+| L | Debug | e528256, alone | 0 warnings | 374 passed | 0 |
+| L | Debug | 7001e91, beside ASan+UBSan | 0 warnings | 374 passed | 0 |
+| L | ASan+UBSan | 7001e91, beside Debug | 0 warnings | 372 passed, 2 failed (`gen.failures`, `server.kernel_uring_recv_select`) | 0 |
+| L | ASan+UBSan | 7001e91, alone | the same build | 374 passed; each of the two 10 of 10 alone, and 10 of 10 in Debug | 0 |
+| L | Debug | 7c75628, beside ASan+UBSan | 0 warnings | 374 passed | 0 |
+| L | ASan+UBSan | 7c75628, beside Debug | 0 warnings | 374 passed | 0 |
+| W | Debug, MSVC 19.51.36246 | 7001e91 | 0 warnings | 138 passed | 0 |
+| W | ASan | 7001e91 | 0 warnings | 138 passed | 0 |
+
+- W: an exported copy of 7001e91 (`C:\Users\alext\lab\p3\m4a-check\`), MSVC 19.51.36246, Ninja,
+  `ctest -V -j 4`, ASan with M6a's `ASAN_OPTIONS`; 138 entries (M6a's and M3's, plus `iocp.silent_buffer`
+  and `run.test_competitors`).
+- L: each code commit from a clone (`~/lab/p3/m4a-check/commits/<sha>/`, `ctest -j 6`), then the work
+  tree with `~/lab/p3/sancheck.sh` (Debug and ASan+UBSan at once, `ctest -V -j 8`), as lab jobs
+  (checks1 at 7001e91, rerun1, checks2 at 7c75628; NOTRACK on).
+- The two failures of 7001e91's ASan+UBSan suite were one race between two tests run at once (tests
+  160 and 164 finished one after the other): `gen.failures` bound a loopback port, closed it, and sent
+  14,747 connects to it in 200 ms, expecting each refused; `server.kernel_uring_recv_select`'s loopback
+  pair was given that freed port for its listener, so it accepted opgen's connections (its receive
+  completed before any byte of its own, "a receive completed with no data") and opgen's connects
+  succeeded ("refused: completed 0, connect failures 14747", with other errors beside them). The race
+  is M3's (0a21e7c's `refused_port()`), not M4a's code; 097cec4 keeps the refused port bound and not
+  listening while opgen runs, which still refuses every connect and holds the port.
+
+Log sha256 (L, `~/lab/p3/m4a-check/`; W, `C:\Users\alext\lab\p3\m4a-check\7001e91\`):
+
+    995a28441c1d4bd96b0c274c205c3704e50a2ee8ee45a670ddf7b2f1e12ab058  L commits/d1d7665/debug-d1d7665.ctest.log
+    305e73aadd4c145bb4d7a5ed6486d20baf956c1bd86ffffbeef1c953fab8bc21  L commits/55b2cb8/debug-55b2cb8.ctest.log
+    75ea275353af121b219fc5ab6d445cd89d6a13ea2227b588fe5c8220f8db87b6  L commits/e528256/debug-e528256.ctest.log
+    1726db753e90eaead9eefc91eb3d868a0d7d4461a325d890b634123c96c5e44d  L 7001e91/debug-7001e91.ctest.log
+    2c15b5d77e17b57023df7a2a2e2262b92cc1e7c4999566eb3bbfa2511eb2b569  L 7001e91/asan-7001e91.ctest.log
+    e1917de8e250b4bcf4e46a56086601cfa92b8863770646d137b90d5e9f6452d2  L 7001e91/asan-alone.ctest.log
+    36b246ba8ad78ad10d3c353a0c35aaa4278f4332f3e4ede2ec92aa2ea54456e4  L 7c75628/debug-7c75628.build.log
+    43fcc5d4198bed48c4dbb4984f834222095c68fd57928540eef59970a875f42a  L 7c75628/debug-7c75628.ctest.log
+    276e476f446216292cc19340d015a0f315db0208092e79fc58c009323018a477  L 7c75628/asan-7c75628.build.log
+    acfc8e79295b944b149bb3e6887a5b66d3dac98abda23e084a3b97ac466c5334  L 7c75628/asan-7c75628.ctest.log
+    58709a849f0ec74dbaec81541bed04090485defb9a407d46f9037dcf41866382  W debug-7001e91.build.log
+    ce1a5b68b8707e66de548eaacc5ed1a3de038bd71bf9c033d0286d74ec22994c  W debug-7001e91.ctest.log
+    477b1cc5562bbbe3ea1edeaad7fd8fb48f65b7792cd9ac9eca604e33ab34fed7  W asan-7001e91.build.log
+    2248124a1422086394ea107e69723febc084dc892e35185caf066f007a140930  W asan-7001e91.ctest.log
+
+### Readings of the frozen text in M4a (for the revision log)
+
+Choices the configurations and the runner make where the frozen text leaves room; each is in the
+files' comments. For the coordinator to accept or overrule, and to log at M4b's step 0:
+1. M3's TLS route is "by SNI" (section 5.3): the proxies' M3 and B3 configurations match the SNI
+   oneport.test only. The server's own route table also checks ALPN (absent, or offering http/1.1 or h2);
+   the cell's ClientHello offers http/1.1, so it passes both. ALPN routing belongs to the cases
+   configurations (Envoy's `application_protocols`, Appendix B).
+2. Appendix B's Envoy line names tls_inspector and http_inspector: M3 and B3 configure tls_inspector
+   alone, since no M3 route reads HTTP (the benchmarking FAQ: filter chains reflecting the compared
+   features); http_inspector belongs to the cases configuration.
+3. HAProxy's `tcp-request content accept if HTTP` (Appendix B's `req.proto_http`) in M3 and B3: without
+   it plaintext HTTP/1.1 waits the whole inspect-delay before `default_backend`.
+4. HAProxy's client, server and connect timeouts stay unset (HAProxy's default, infinite, accepted with
+   a startup warning), since no value is documented for this use and the client timeout must cover the
+   inspection delay.
+5. "Connection logging is off" (5.3) for sslh-ev is `verbose-connections 0` (Appendix B) plus `numeric:
+   true` and `log_level 0` on each protocol, both documented: without them sslh resolves the backend's
+   address for its connect-try message on every connect whatever the verbosity.
+6. sslh-ev's `on-timeout` names the HTTP route, M3's "everything else"; its default names a protocol
+   M3 does not configure.
+7. M3's timers are matched to the server's 3 s T_dec, as Appendix B matches them in the cases
+   configurations.
+8. WL7's raise of the soft open-file limit applies to every process the hand-off runner and the probe
+   start, in M3 too, both arms alike.
+9. A front's every process and thread runs on the front core (taskset), including nginx's master,
+   Envoy's non-worker threads and Go's runtime threads.
+10. The M3 stub behind every front is the server's stub mode on epoll with two workers on CPUs 10 and 12.
+11. M3's C = 64 is per front core (one), with opgen's eight closed-loop workers on CPUs 2 to 9.
+
+### Design choices of M4a
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| Hand-off ports | arm A 22000, arm B 22100; the stub 10 above; caddy-l4's admin 50 above | `handoff.py`, `competitors.fields` | off the ephemeral range; every change of arm changes port |
+| Probe ports | routes 23000, silent 23100, partial 23200 (each with its stub 10 above); test 23500 | `probe.py`, `test_competitors.py` | one block per check |
+| Probe watch | 6 s (M3), 32 s (B3) | `probe.WATCH_S` | past the 3 s timer; past B3's 30 s window |
+| "At the timer" | from 50 ms before to 1 s after | `probe.EARLY_S`, `LATE_S` | the loop's grain; coarse timer wheels |
+| Stub | stub mode, epoll, 2 workers, CPUs 10 and 12 | `handoff.start_stub` | section 4.1's backend CPUs |
+| Readiness | LISTEN in `/proc/net/tcp`, at most 20 s | `competitors.wait_port` | no connection reaches a front before its window |
+| Done file after a signal | waits at most 60 s for the record's removal | `lab_job.sh` | the teardown is sub-second |
+| nginx build | stream and ssl_preread only, `-O2` | `install.sh` | nginx.org's package level; the modules the configurations use |
+
+### Lab journal and raw data
+
+Four lines in the Papers repo's `lab/journal.jsonl` (Papers 52d39da, local, not pushed): aa-nt1, aa-nt2,
+aa-nt3 and m3dev1, each marked development. The rows, raw opgen reports, logs, rendered
+configurations, probe results and the NOTRACK records stay on L under `~/lab/p3/m4a/` and
+`~/lab/p3/notrack-726/`, archived in `~/lab/runs-archive/p3-m4a-20261003T125207.tar.gz` (sha256
+7678260defe3f01db40f4fff0c1c8ebcdd140989326443d251fe41227381d1e0, beside it in a `.sha256` file; 1,055
+members; made under the lab lock); build trees, source clones, extracted sources and scratch keyrings are
+left out.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
@@ -2545,6 +2955,10 @@ NOTRACK needs L to boot an installed kernel. What that decides beyond NOTRACK:
 - The readings of the frozen text are in the revision log of hypotheses.md: M1's (c8a0525), M2a's
   with the coordinator's three decisions (30b5be4), and M2b's with the rule of I29 (89a96c5).
 - No lab-journal line for the merge or for NOTRACK: no window ran.
+- M4a's lab journal: 4 lines in the Papers repo's `lab/journal.jsonl`, Papers commit 52d39da (local,
+  not pushed), every one marked development.
+- M4a's readings of the frozen text (M4a, "Readings of the frozen text in M4a") and the open MHz rule
+  on kernel 7.2.6 are for the coordinator.
 
 ## What M1 starts from
 
@@ -2697,3 +3111,28 @@ NOTRACK needs L to boot an installed kernel. What that decides beyond NOTRACK:
   - `RELAY_BUF`, `IORING_OP_SEND` and splice's worker threads: M2b's engineering options for M5.
 - Nothing blocks M4's competitor builds; their windows inherit the connection-tracking wait, and
   their lab jobs need `ONEPORT_NOTRACK=off` until the reboot.
+
+## What M4b starts from
+
+- The proxies are installed in `~/opt` on L (`bench/competitors/install.sh`, the pins of 55b2cb8), each
+  with its M3 and B3 configuration and a probe that passes (M4a). The hand-off runner
+  (`bench/run/handoff.py`) times the server's one-port relay against them; `window.guard_pair` refuses
+  one-port against dedicated, and in M4a dedicated against a competitor.
+- For M4b, the libraries of section 2.3 (Netty, Jetty, cmux, hyper-util): their pins (the JDK, the Rust
+  toolchain), harnesses with cases and B3 configurations, their Go and Rust harnesses' ASan+UBSan and
+  TSan records (section 11), and a probe each; `probe.py`'s expectations take new systems.
+- Not built yet: the proxies' cases configurations (every route their features cover, the matched
+  timers, the fallback; Appendix B), which section 10's competitor hard cases need; B3 with a
+  competitor as the system in `b3.py` (U over its processes, the stub left out, the partial case, the
+  collectors' steps, caddy-l4's heap profile); section 10's untimed `perf trace -s` windows.
+- Open for the coordinator and Alex:
+  - section 7's MHz rule on kernel 7.2.6: every window on L fails it (revision log, "Host change before
+    the code freeze", item 4; M4a, step 0, 1). Until it is decided, no window on L is valid;
+  - sslh-ev loses 0.6% of exchanges at M3's saturation (timeouts at 1 s), so its M3 windows fail the
+    0.1% error rule as configured; the cause is not isolated (M4a, "Development windows");
+  - M4a's eleven readings of the frozen text, for the revision log;
+  - from before: the per-connection decision record WL8 needs against a server in its own process;
+    `RELAY_BUF`, `IORING_OP_SEND` and splice's worker threads (M5); more than one worker on IOCP (M6b).
+- M5 can time the server's relay against nginx, HAProxy, Envoy and caddy-l4 as soon as the MHz rule is
+  settled; in one development session each (m3dev1) the relay was ahead of all four, nginx by the least
+  (ratios 1.017 and 1.025).
