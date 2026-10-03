@@ -2950,6 +2950,420 @@ configurations, probe results and the NOTRACK records stay on L under `~/lab/p3/
 members; made under the lab lock); build trees, source clones, extracted sources and scratch keyrings are
 left out.
 
+## M4b-1, 2026-10-03
+
+M4b-1: step 0 (the clock floor on kernel 7.2.6, the coordinator's option (a), and the revision log),
+step 1 (sslh-ev's stalled exchanges), step 2 (what M4a left unbuilt for the proxies: their cases
+configurations, B3 with a relay system as the measured system, section 10's untimed `perf trace`
+windows). Nothing in this section is a result: every window and check is development data,
+journaled as such, and the suites are development checks, not records.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| e49cb63 | feat: clockfloor.sh holds every CPU's scaling_min_freq at its scaling_max_freq for a lab job and sets each back; lab_job.sh runs it; the session fingerprint's clock_floor; tests |
+| b77dd44 | docs: hypotheses.md revision log, the host clock floor, M4a's nine readings and the two accepted deviations, the note on sslh-ev's stalled exchanges |
+| f0ec965 | feat: b3.py runs WL7's window with a relay system as the measured system; tests |
+| cdb9068 | feat: systrace.py, section 10's untimed windows with perf trace -s; tests |
+| f1f87f3 | fix: b3.py leaves no TIME-WAIT socket of its own after the baseline |
+| 5975446 | feat: the proxies' cases configurations, cases_check.py, diag/ (the sslh-ev stall diagnostic); tests |
+| e790f0c | fix: systrace.py's start-up offsets (idle pass), perf stat beside perf trace, 3 s attach |
+| ebef0bc | fix: diag/'s three scripts in LF |
+| ee8be62 | fix: the cases configurations as cases_check found them (nginx without PCRE, sslh-ev without PROXY, HAProxy's defaults recorded) |
+| 7865f4c | feat: systrace.py's perf trace buffer from SYSTRACE_MMAP_PAGES |
+| 279b410 | feat: systrace.py's agrees_with_perf_stat beside the check against perf trace -s |
+
+Papers: no `lab/bin` change (`pin.sh` is byte-identical; the floor is a P3 wrapper), so no Papers
+commit for it; one Papers commit for the lab journal (below). Nothing is pushed to origin; the `lab`
+remote has every one-port commit.
+
+### Step 0: the clock floor
+
+**The cause, found before any change: the hardware floor did not move; the reported idle value did.**
+M4a's reading (amd-pstate's performance floor moved from nominal to the BIOS minimum) does not hold
+on L. Read under the lab lock (`~/lab/p3/m4b1/clock/`, `clock_probe.sh`, `state.py`):
+- The CPPC request register of every CPU (MSR 0xC00102B3, read only, as root) holds MinPerf = MaxPerf
+  = 119, EPP 0, DesPerf 0, before, during and after every change; `acpi_cppc/nominal_perf` is 119
+  (3,201 MHz), `lowest_nonlinear_perf` 41, `lowest_perf` 15.
+- amd-pstate.c at v7.2.6 (fetched from the stable tree; sha256 985a694c...0e02): under the performance
+  policy `amd_pstate_update_min_max_limit` (line 693) takes the BIOS minimum if there is one, else the
+  nominal performance, and ignores `scaling_min_freq`. A BIOS minimum would have to be 119 (the
+  register says so), and then `amd_pstate_verify` (line 662) would set the policy minimum to its
+  frequency, 3,201,000 kHz. It reads 1,102,866 kHz = `lowest_nonlinear_freq`, which `verify` sets
+  only without a BIOS minimum. So there is none on this boot, and the floor is the nominal performance,
+  as 7.2.3's code gives.
+- An idle CPU's `cpu MHz` is the policy's current value, not a clock: /proc/cpuinfo (proc.c line 89)
+  takes APERF/MPERF only from a sample at most 20 ms old (aperfmperf.c lines 504 to 535), else
+  `cpufreq_quick_get`, which returns `policy->cur` for a driver without `get`; the EPP driver sets
+  `policy->cur = policy->min` (line 2049).
+- The active clock, cycles over task clock of a process on CPU 14 (`perf stat`): busy throughout
+  3,169.0 MHz; 0.3 ms bursts after 5 ms sleeps 3,091.4 MHz; after 50 ms sleeps 3,106.3 MHz. With the
+  floor set: 3,169.0, 3,091.5 and 3,107.0 MHz. The floor changes the report, not the clock.
+- Why 7.2.3's idle reading was near the loaded one is not established; the same code implies a policy
+  minimum near 3,201,000 kHz then (a BIOS minimum at that cold boot). No cpufreq shutdown hook was
+  found in cpufreq.c at v7.2.6 to tie its loss to the kexec, so that stays open.
+- The brief's other controls were not needed: EPP is 0 and under the performance policy only 0 is
+  accepted (`store_energy_performance_preference`); `amd_pstate_floor_freq` does not exist on L (the
+  docs show it only with CPPC performance priority). The driver's mode was not touched.
+
+**The change (option (a)): a P3 wrapper, `bench/run/clockfloor.sh` (e49cb63).** Chosen over an
+opt-in flag of the shared `lab/bin/pin.sh`: the floor must be set back at the job's end, also on a
+signal, which needs a process that lives as long as the job (as `notrack.sh` does), while `pin.sh`
+runs once per session and exits. `pin.sh` is byte-identical, so P1 and P2 are untouched and there is
+no Papers `lab/bin` commit. `lab_job.sh` runs `clockfloor.sh` inside the lock and outside
+`notrack.sh`; it writes each CPU's `scaling_max_freq` into `scaling_min_freq`, runs the job, and writes
+the values it read back on EXIT (INT, TERM and HUP end it so the trap runs); exit 95 if a floor
+cannot be set (the job does not run), 96 if a floor does not come back. Its record
+`<job>.clock.json` holds, per CPU, the floor, ceiling, governor, EPP and the CPPC request before, set
+and after. `lab_job.sh` waits after a signal for both records to name their teardowns.
+`window.pin_fingerprint()` adds `clock_floor` to each session's fingerprint: the floors before the job
+(from the record, through `ONEPORT_CLOCK_RECORD`) and the floor and ceiling now, and `held`. Writing
+the read value back leaves a user frequency request at 1,102,866 kHz where the driver's default was;
+it reads the same. `ONEPORT_CLOCK_FLOOR=off` runs a job without it, said in the record.
+
+**The check.**
+
+| Check | Result |
+|---|---|
+| Idle host, `pin.sh` `mean_mhz` (clock_probe, lock) | 2,263 before; 3,181 with the floor; 2,135 after it was set back |
+| Idle host, mean `cpu MHz` 2 s after | 2,006.1; 3,188.5; 1,877.6 |
+| Job c1 (lab_job.sh, a session's fingerprint) | `mean_mhz` 3,180; `clock_floor.held` true; 16 floors at 3,201,000, back at 1,102,866 after |
+| Job c2, SIGTERM to its process group after 6 s | done file exit 143, signal TERM; record `restored` true; floors back; NOTRACK rules gone, ruleset restored; lock free |
+| A/A set aa-floor1 (e49cb63, Release, seed 821, 2 sessions x 3 cells, NOTRACK, lock) | 24 of 24 windows valid; MHz drift 0.32% to 0.53% (sessions 3,179 to 3,185 MHz, windows 3,168.2 to 3,168.8 MHz) |
+
+aa-floor1's cells, development data:
+
+| Cell | Session ratios (B / A) | Per window |
+|---|---|---|
+| churn, HTTP/1.1, epoll | 1.0032, 1.0001 | 44,655 to 44,980 conn/s |
+| churn, HTTP/1.1, io_uring | 1.0015, 1.0002 | 53,000 to 53,245 conn/s |
+| keep-alive, TLS, io_uring | 0.9934, 0.9960 | 106,404 to 108,453 req/s |
+
+Record sha256 (`~/lab/p3/m4b1/`): aa-floor1.clock.json
+7cc67deff016729beed6081b99b029165fb3c3528a1d31766fb7f38f346e8be1, aa-floor1.notrack.json
+030573fd913e2c8712b0810c43bcf7cb2d9bbc23a3f43a8a7401ba53b59e3e8d, aa-floor1.done
+b9df9f5b598b608552a1e88c71e299f542b0164b4cc1ff5b62552a1513fe4971, aa/aa-floor1/windows.jsonl
+2e76d76685d85a21910f086077dad887fff06601366024086d7ceaa9ad2cbd2c; floorjobs/c1.clock.json
+ee9254e1defa9ca708ccb632ffe56cb8b33064c2e34f6bd616f09492aadb379f, floorjobs/c2.clock.json
+877200e546bd5161196b9bc11b7dcc8d13951845c59b1ee579d5a24d4b22f395, floorjobs/c2.done
+d02ab5c0c56ec41b69d41d05e9e7a52b0e6b3a1a642a0ef7ddf4e97855f2da21.
+
+### Step 0: the revision log (b77dd44)
+
+Three entries, after the coordinator's decision on M6a's reading 7:
+- "Host clock floor before the code freeze": the cause above (superseding the mechanism of the
+  host-change entry's item 4, whose readings stand), the change and the check.
+- "Readings fixed during engineering (M4a)": M4a's readings 3 to 11 as items 1 to 9, each with why it
+  follows; then the coordinator's two accepted deviations as items 10 and 11: TLS by SNI alone in M3
+  and B3 (section 5.3), and Envoy without http_inspector. Appendix B's Envoy line names
+  http_inspector without saying in which configuration, so item 11 records leaving it out as a
+  reading of the line's own "filter chains only for the compared features" (the benchmarking FAQ):
+  no M3 route reads HTTP. No reading contradicts the frozen text.
+- "sslh-ev's stalled exchanges": a note, not a reading (step 1).
+
+### Step 1: sslh-ev's stalled exchanges: an sslh defect
+
+**Cause.** sslh-ev keeps one libev watcher per descriptor number and calls `ev_io_init` only the first
+time it sees that number (`watchers_add_read`, sslh-ev.c lines 92 to 103 at v2.3.1; unchanged on
+sslh's master on 2026-10-03, and 2.3.1 is the latest tag). libev's manual (ev(3) of libev 4.33-5 on
+L, "The special problem of disappearing file descriptors") says libev treats a descriptor as new only
+when `ev_io_set` or `ev_io_init` is called. When one loop pass closes a connection (`tidy_connection`)
+and then accepts a new one onto the same number, no `epoll_ctl` is issued for it: the kernel dropped
+the old one from the epoll set at close, and libev believes nothing changed. sslh never reads that
+connection, never closes it (it stays in CLOSE_WAIT after the client gives up), and the client times
+out. Not a configuration issue: sslh has no setting for it; the configuration stays as frozen, and
+sslh-ev's M3 cells stand as section 7 decides them (the 0.1% error rule), with the narrowing order of
+section 12 (M3 first).
+
+**Evidence**, development diagnostics (`bench/competitors/diag/stall_run.py`), sslh-ev's M3
+configuration in front of the stub, handoff placement, C = 64, 1 s warm-up and 2 s measure, under
+`lab_job.sh` (lock, floor, NOTRACK), from the e49cb63 build:
+
+| Job | Protocol, libev backend, tool | Timeouts (measure) | Other | Census after opgen |
+|---|---|---|---|---|
+| sslhdiag2 | HTTP/1.1, epoll, tcpdump | 124 of 17,613 (0.70%) | 545,645 packets, 0 dropped by the kernel | |
+| sslhdiag3 | HTTP/1.1, epoll, none | 124 | no listen overflow | 186 CLOSE_WAIT on sslh's port; listen queue 0; sslh holds 192 descriptors; no backend socket |
+| sslhdiag4 | HTTP/1.1, epoll, strace | 117 (strace slows sslh: 16 listen drops, 5 connect failures) | strace: 176 accepts onto a number closed earlier in the same pass, none with `epoll_ctl`, none read, all open at the end; 5,276 other accepts each registered, read, closed | 176 CLOSE_WAIT |
+| sslhdiag5 | HTTP/1.1, poll (`LIBEV_FLAGS=2`), strace | 0 (22 connect failures, 33 listen drops: strace) | every accepted descriptor read and closed | 0 CLOSE_WAIT |
+| sslhdiag6 | TLS stub, epoll, none | 124 | | 185 CLOSE_WAIT |
+| sslhdiag7 | HTTP/1.1, poll (`LIBEV_FLAGS=2`), none | 0 | 12,244 exchanges per second; 40 listen overflows and drops, 22 connect failures | 0 CLOSE_WAIT |
+
+- The capture (sslhdiag2, `diag/pcap_flows.py`): each stalled exchange's request (57 bytes) is
+  acknowledged by the kernel and nothing follows from sslh, not even after the client's FIN at about
+  1 s (the kernel acknowledges that too, 40 ms later). The connect had completed: opgen counts a
+  deadline during connect as a connect error, and there were none.
+- The m3dev1 rows already showed the stall's shape: every error "timeout", none in the warm-up, 309
+  or 310 per 5 s window, no listen overflow or drop. The count is structural: with a stall
+  probability p per exchange and a 1 s timeout nearly every slot sits in a stall, so a window's
+  timeouts come to about 64 x 5 x 0.97 whatever p is.
+- libev's poll backend polls each descriptor by number every pass, so the defect does not arise
+  (sslhdiag5, sslhdiag7). It is libev's environment variable, not sslh's configuration, and it moves
+  sslh-ev off epoll (section 5.3: "the accept model all five use"); and with the stalls gone sslh's
+  hard-coded backlog of 50 overflows under M3's 64 slots (sslhdiag7: 22 connect failures in 2 s),
+  which section 7's connect rule would invalidate anyway. So it is not applied.
+- tcpdump 4.99.6-1 was installed for the capture (`sudo pacman -S --needed tcpdump`, the install
+  policy; libpcap 1.11.0-1 was present; `/usr/bin/tcpdump` sha256
+  6070c59b7dfe43e16b43078e00aecf7cc53c54fa82bcce71fd3bed7fc573b5de).
+
+### Step 2: the proxies' cases configurations
+
+`bench/competitors/<system>/cases.*` (5975446, fixed in ee8be62), one file per system, rendered by
+`competitors.py` in two kinds and two timer settings:
+- kinds: "cases", no fallback; "cases-fallback", the SMTP fallback, for the three systems that have
+  one (HAProxy's `default_backend`, Envoy's default chain with `continue_on_listener_filters_timeout`,
+  sslh's `on-timeout` naming its "timeout" entry). A line that starts with the field FALLBACK is a
+  comment in "cases".
+- timers (section 10: "at matched timers and at their defaults"): "matched", every detection timer at
+  the server's 3 s; "default", the timer lines left out. A line that starts with the field MATCHED is a
+  comment at the defaults.
+- routes, every one each system's features cover (Appendix B; the survey), to a backend that is the
+  server in dedicated mode with PROXY off (M2b reading 6), its listeners from BACKEND in the order of
+  I20: TLS for oneport.test whose ALPN offers h2 or http/1.1 (the server's pass-through route table
+  less its no-ALPN route, which no hard case sends), h2c, HTTP/1.1, SSH, MQTT 3.1.1 and 5.0.
+- a second listener, PORT + 1, that requires the PROXY header (v1 and v2), on the four systems that
+  read it.
+
+| System | Routes (judged) | PROXY listener | Fallback | Timers matched / default |
+|---|---|---|---|---|
+| nginx | TLS by SNI and ALPN; everything else to HTTP/1.1 | `listen ... proxy_protocol` | none | `preread_timeout`, `proxy_protocol_timeout` 3s / 30s |
+| HAProxy | TLS, h2c (the preface by `req.payload(0,24)`), HTTP/1.1, SSH, MQTT (`mqtt_is_valid`) | `accept-proxy` | `default_backend` | `tcp-request inspect-delay`, `timeout client-hs` 3s / none (no delay; client-hs falls back to the unset client timeout) |
+| Envoy | TLS (`server_names`, `application_protocols` h2, http/1.1), h2c and HTTP/1.x (http_inspector's `application_protocols`) | proxy_protocol listener filter | default chain | `listener_filters_timeout` 3s / 15s |
+| caddy-l4 | TLS (sni, alpn), SSH, MQTT (regexp on the hex of 12 bytes), h2c (`http protocol http/2`), HTTP/1.1 | `proxy_protocol` matcher, handler, subroute | none | `matching_timeout`, the handler's `timeout` 3s / 3s and zero |
+| sslh-ev | TLS (`sni_hostnames`, `alpn_protocols`), SSH, MQTT (regex), HTTP | none | `on-timeout` "timeout", last | `timeout` 3 / 5 |
+
+Found on L and fixed (ee8be62):
+- nginx's route first used a `map` regex; the pinned build has no PCRE (`--without-http`: configure's
+  "PCRE library is not used"), so the key was matched as a literal and TLS went to the HTTP/1.1 port.
+  A throwaway stream server that returned the variables for the recorded ClientHello read
+  `name=[oneport.test] alpn=[http/1.1]`, and every regex key failed while the literal key matched.
+  The route now lists the ALPN lists as strings: http/1.1, h2, and both in either order.
+- sslh-ev refused to start with a PROXY listener: "Uses proxyprotocol, but libproxyprotocol support
+  was not compiled in" (the pinned build of install.sh). Appendix B names no PROXY for sslh, so its
+  cases configuration has no PROXY listener and the PROXY cases are not covered for sslh-ev.
+- HAProxy at its defaults has no inspect delay and decides on the bytes at hand, which its documents
+  call racy; in the check it did not route TLS there (and in one run not MQTT). Its routes at the
+  defaults are recorded, not judged.
+
+`bench/competitors/cases_check.py` (the route check): per system, kind and timer setting, fresh
+processes (the backend on CPUs 10 and 12, the system on CPU 14), `opgen --probe` for HTTP/1.1, h2c,
+TLS, MQTT and SSH on the plain listener, a PROXY v1 and a PROXY v2 header each followed by an
+HTTP/1.1 request on the PROXY listener, and in cases-fallback a silent client that must get the SMTP
+greeting. Job casecheck2 (ee8be62, lab job, NOTRACK, floor): every judged check passed.
+
+| System, kind | Matched: routes / PROXY / fallback | Default: routes / PROXY / fallback |
+|---|---|---|
+| nginx, cases | HTTP/1.1, TLS (h2c, MQTT, SSH to HTTP/1.1: not covered) / v1, v2 | the same |
+| HAProxy, cases | all five / v1, v2 | all but TLS (recorded) / v1, v2 |
+| HAProxy, cases-fallback | all five / v1, v2 / SMTP at 3.02 s | HTTP/1.1, h2c, SSH (recorded) / v1, v2 / SMTP at 0.00 s |
+| Envoy, cases | HTTP/1.1, h2c, TLS / v1, v2 | the same |
+| Envoy, cases-fallback | the same / v1, v2 / SMTP at 3.00 s | the same / SMTP at 15.00 s |
+| caddy-l4, cases | all five / v1, v2 | the same |
+| sslh-ev, cases | HTTP/1.1, TLS, MQTT, SSH (h2c to HTTP/1.1) | the same |
+| sslh-ev, cases-fallback | the same / silent client held, no greeting (recorded: the probe timeout runs only on read activity) | the same |
+
+The competitors' hard cases themselves (section 10, `R_COMP_CASES` = 3 replicates per case and
+setting) run after the pilot entry; `opcase` runs the cases in-process in the suite and has no mode
+for a system by port yet, which that run needs.
+
+### Step 2: B3 with a relay system as the measured system
+
+`bench/run/b3.py --system` (f0ec965, fixed in f1f87f3): ophold as before, or a relay system, a proxy
+in its B3 configuration or the server's one-port relay with its timers at 60 s, in front of the stub:
+- the stub on CPUs 10 and 12 (left out of U, WL7), the front on CPU 14 (section 4.1);
+- U over the front's process group (nginx's master and worker), Kq and the established count on the
+  front's port;
+- the probe: one TLS stub exchange through the front (the recorded ClientHello, the stub's 13 bytes
+  to EOF), the client closing by reset; the stub closes first, so a TIME-WAIT socket of the probe's
+  stub connection can exist, and the baseline waits until the host's TIME-WAIT count has held 2 s;
+- caddy-l4: a heap profile with gc=1 at its admin endpoint a second before each reading, the
+  baseline included, on an HTTP/1.1 connection closed by reset.
+
+Functional windows, job b3dev1 (f0ec965, lab job, NOTRACK, floor; development data):
+
+| System | Case | Valid | W at sample 1 and 2 (bytes per pending connection) | U, Kq, Ks at sample 2 | Invalid by |
+|---|---|---|---|---|---|
+| nginx | silent | no | 14,801.7; 16,010.4 | 8,232.1; 0.0; 7,778.3 | settling (U grew) |
+| nginx | partial | no | 15,859.5; 17,031.3 | 8,377.5; 1,068.0; 7,585.8 | settling (U grew) |
+| HAProxy | silent | no | 10,661.1; 10,670.1 | 3,133.8; 0.0; 7,536.2 | TIME-WAIT 1, then 2 (the probe's) |
+| HAProxy | partial | no | 15,816.3; 16,873.9 | 9,445.0; 0.0; 7,428.9 | settling (U grew) |
+| Envoy | silent | yes | 17,453.5; 17,462.9 | 10,087.6; 0.0; 7,375.3 |  |
+| Envoy | partial | yes | 18,855.7; 18,868.8 | 10,503.0; 1,068.0; 7,297.8 |  |
+| caddy-l4 | silent | no | 20,191.6; 20,209.7 | 12,910.2; 0.0; 7,299.5 | TIME-WAIT 2, 3, 4 (the heap profile requests) |
+| caddy-l4 | partial | no | 22,070.1; 22,285.1 | 15,061.4; 0.0; 7,223.7 | TIME-WAIT 2, 3, 4 (the same) |
+| sslh-ev | silent | yes | 7,691.5; 7,644.0 | 399.8; 0.0; 7,244.2 |  |
+| sslh-ev | partial | yes | 7,653.0; 7,657.5 | 524.3; 0.0; 7,133.2 |  |
+| server's relay | silent | yes | 7,534.2; 7,622.2 | 407.1; 0.0; 7,215.1 |  |
+| server's relay | partial | yes | 11,767.0; 11,773.1 | 4,670.7; 0.0; 7,102.5 |  |
+
+- The runner's own TIME-WAIT sockets made three windows invalid: caddy-l4's heap profile requests
+  closed normally (one TIME-WAIT socket per reading: 2, 3, 4), and one of HAProxy's probe connections
+  closed after the baseline (1, then 2). Both fixed in f1f87f3. Section 7's TIME-WAIT rule counts the
+  whole host, so nothing else may open a TCP connection on L during a B3 window, an ssh session to
+  L included; in M4b-1 status polls ran over one held ssh session while windows ran.
+- Every probe passed (the stub's 13 bytes, then EOF), every window held 10,000 established
+  sockets at both samples, and no listen overflow or drop occurred. Kq is 1,068 bytes per pending
+  connection where the front leaves the partial ClientHello in the socket (nginx's and Envoy's peek
+  paths, survey 2.1 and 2.5) and 0 where it reads it.
+- The settling failures are the host's: the fronts' RSS rises in steps while every connection is
+  idle (open, "B3 on L and transparent huge pages"). b3diag2 and b3diag3 (5975446, 7865f4c) ran nginx
+  silent and HAProxy partial again with a sampler of the front's RSS, AnonHugePages and accept queue
+  every second: the accept queue stayed 0 (both accept at once), and each RSS step came with a step
+  of AnonHugePages about 10 s apart (khugepaged's interval). In b3diag2 both windows settled (the
+  steps fell outside 20 s to 25 s); in b3diag3 nginx did not (W 13,733.9, then 14,943.0), HAProxy did.
+- B3's timing (section 8, step 7) runs later; these windows only show that the runner works for
+  every relay system.
+
+### Step 2: section 10's untimed perf trace windows
+
+The frozen text defines them for the proxies and for the cost cells (section 10: "system calls per
+connection for the proxies, from `perf trace -s` over untimed windows. On L, one untimed window per
+cost cell checks the server's system-call counters against `perf trace -s`"). `bench/run/systrace.py`
+(cdb9068; e790f0c, 7865f4c, 279b410):
+- kind proxy: a front of M3 (a proxy in its M3 configuration, or the server's relay) in front of the
+  stub, hand-off placement; `perf trace -s` and `perf stat` on the front's process group; system calls
+  per connection, over the connections the stub accepted; for the server's relay its counters are
+  checked too;
+- kind cost: the server alone in a cost cell's arm (one-port or dedicated, in-process, replay, the
+  cell's backend), in-process placement; I29's counters that name a system call against perf's
+  counts: accept4, recvfrom (receive, peek and 1(b)'s check), sendto, setsockopt, epoll_ctl,
+  epoll_pwait2, connect, shutdown, splice on epoll; sendto, setsockopt, the synchronous peek and check,
+  io_uring_enter on io_uring (its receives and accepts are ring operations);
+- untimed: churn at an open-loop 2,000 exchanges per second for 2 s after 0.5 s, keep-alive with two
+  connections for 0.5 s; rows hold counts only (opgen's completed and errors), never a rate or a time.
+  Untimed counter checks are not windows (the frozen text's Words), so one-port mode runs here.
+
+What the functional runs found:
+- tracedev1 (cdb9068): every check differed. Two causes. (1) Start-up: the counters include calls
+  made while the server starts, which perf, attached after the listeners are up, cannot see: epoll_ctl
+  by the number of listeners (6 in dedicated mode, 1 in one-port), io_uring_enter by 3. e790f0c
+  measures that offset per arm in an idle pass (start, attach, 2 s with no load, stop). (2) A
+  shortfall of perf trace itself.
+- tracedev2 (e790f0c), with perf stat on the same system calls' entry tracepoints beside perf trace:
+  after the start-up offsets, perf stat equals the server's counters in all 178 checks (22 rows:
+  the relay on two protocols, and churn HTTP/1.1, h2c, TLS and MQTT and keep-alive HTTP/1.1 on epoll
+  and io_uring, each arm), while perf trace -s agrees in 146; it falls short of perf stat by at most
+  0.31% of a call's count, and reports no lost event (no "LOST" line in its output or its stderr).
+- tracedev3 (7865f4c), the worst rows again with perf trace's ring buffer at `-m 8192`: perf stat
+  agrees in 86 of 86 checks, perf trace in 57, short by at most 0.42%. A larger buffer does not remove
+  it.
+So the counters are exact; `perf trace -s` (perf 7.2.6 on L) undercounts at these rates without
+saying so. Each row now holds `agrees` (section 10's check, against perf trace -s) and
+`agrees_with_perf_stat` (279b410). Which one section 10's check is read as is open (below). The
+proxies' rows (system calls per connection, all five and the relay, both protocols) are in
+`~/lab/p3/m4b1/trace/tracedev2/trace.jsonl`; their perf trace counts carry the same shortfall, which
+perf stat beside them measures.
+
+### Tests
+
+New or changed, all in `run.test_runner` and `run.test_competitors` (CTest):
+- `ClockFloor` (5): the fingerprint's `clock_floor`; `read_floors`; clockfloor.sh on a copy of the
+  cpufreq tree: the floor held and restored, a SIGTERM to its group restores (exit 143), a floor that
+  cannot be set refuses the job (exit 95) and sets back the ones it set, and ONEPORT_CLOCK_FLOOR=off.
+- `B3Relay` (4): the exchange probe against a stand-in stub (13 bytes, then EOF; a wrong reply fails),
+  caddy-l4's heap profile request against a stand-in admin endpoint, the systems list.
+- `Trace` (4): the perf trace -s summary parser (two thread blocks, a LOST line), the counter checks
+  per backend with the wait slack, the start-up offset, perf stat's parser and `stat_agrees`, counts
+  without time.
+- `Cases` (6) in test_competitors: timers matched and at the defaults, every route and the PROXY
+  listener per system, ALPN where a system routes by it, the fallback only in its kind, sslh's list
+  well formed in both kinds, the check's PROXY headers.
+On W (Python 3, the pure parts): run.test_runner 39 checks, run.test_competitors 24 (2 skipped,
+Linux).
+
+### Checks
+
+| Host | Build | Commit | Build | CTest | Report lines |
+|---|---|---|---|---|---|
+| L | Debug, clang 22.1.8 | 279b410 | 0 warnings | 374 passed | 0 |
+| L | ASan+UBSan | 279b410 | 0 warnings | 374 passed | 0 |
+| W | Python 3 (pure parts) | 279b410's tree | | run.test_runner 39, run.test_competitors 24 (2 skipped) | |
+
+- L: lab job checks279 (`~/lab/p3/sancheck.sh` from a clone of the lab remote at 279b410, Debug and
+  ASan+UBSan at once, `ctest -V -j 8`; NOTRACK and the clock floor on). The suite's integration part
+  of run.test_competitors (the probe of the server's relay and a short hand-off window per M3
+  protocol) ran in both. The C++ code is unchanged since b3d41a6, so the binaries' tests are M4a's.
+- Log sha256 (L, `~/lab/p3/m4b1/check/279b410/`): debug-279b410.build.log
+  5882e2cf13b2c6a801711dba901264e7f59bc6b437119e6abb6613c4f00875cd, debug-279b410.ctest.log
+  4cb5a6a9e7b04c163f5d081e0c5265dfa6b30884559d740a9ca10a69c5d48ed8, asan-279b410.build.log
+  31e1edb1f518e8c30017b7e348db358655b639b92667061b5a50f1676238d97b, asan-279b410.ctest.log
+  c4dc3b77bb06b7324ef6c15f9a6229a15570350427985af66b3d38d23b3f9be5.
+
+### Readings of the frozen text in M4b-1 (for the coordinator)
+
+1. B3 with a relay system: U over the front's process group (nginx's master and worker), the stub left
+   out (WL7: "The stub backend of the relay systems holds no pending connection and is left out"); Kq
+   and the established count on the front's port.
+2. WL7's probe for a relay system is one TLS stub exchange through the front whose client closes by
+   reset (section 4.1: "checks one exchange of each protocol the cell uses"; WL7: "The probe's client
+   closes by reset"); the stub closes its side first, so the probe can leave one TIME-WAIT socket on
+   the stub's connection, and the baseline waits until the host's count holds 2 s.
+3. caddy-l4's heap profile with gc=1 "before each sample" also precedes the baseline, a second ahead
+   of each reading, on a connection closed by reset (no TIME-WAIT socket).
+4. The cases configurations' TLS route is SNI oneport.test with an ALPN list that offers h2 or
+   http/1.1; the server's route also takes a ClientHello without ALPN, which no hard case sends.
+5. "At their defaults" (section 10) is each system's own timer defaults; HAProxy's is no inspect delay,
+   with which it decides on the bytes at hand (its documents: racy, not recommended), so its routes
+   there are recorded, not judged.
+6. The fallback lives in a second kind of the cases configuration, cases-fallback (HAProxy, Envoy,
+   sslh-ev), since HC5, HC7 and HC15 use a listener with a fallback and HC6 one without.
+7. A second listener requires the PROXY header (nginx, HAProxy, Envoy, caddy-l4). sslh's pinned build
+   cannot read it (no libproxyprotocol) and Appendix B names no PROXY for sslh: its PROXY cases are not
+   covered.
+8. HAProxy's cases route h2c by its preface (`req.payload(0,24)`), a route its features cover beyond
+   Appendix B's list.
+9. Section 10's untimed windows: churn at 2,000 exchanges per second open loop, keep-alive with two
+   connections; the start-up offset from an idle pass is subtracted before the comparison.
+
+### Open for the coordinator and Alex
+
+- **Section 10's check against `perf trace -s` (a question about the frozen text, not logged):** on L
+  perf trace -s undercounts system calls by up to 0.42% at these rates with no lost event reported,
+  also with a larger buffer, while perf stat on the same tracepoints matches the counters exactly
+  (264 of 264 checks in tracedev2 and tracedev3). Read literally, the check fails on perf's side.
+  Options: read section 10's perf trace -s as its tracepoint counts (perf stat), or keep perf trace -s
+  with a stated tolerance, or lower the rate until perf trace loses nothing (not found yet).
+- **B3 on L and transparent huge pages (a host condition):** L runs THP `enabled=always`,
+  khugepaged every 10 s (`scan_sleep_millisecs` 10000, `pages_to_scan` 4096, `max_ptes_none` 511). In
+  B3 windows the fronts' RSS rose in steps of 7 to 12 MB about 10 s apart with every connection idle,
+  each step with a step of AnonHugePages (b3diag3: nginx 62 to 74 MB as huge pages went 10 to 26 MB,
+  then 74 to 85 MB, 26 to 42 MB; HAProxy 85 to 92, 2 to 14 MB, then 92 to 102, 14 to 30 MB). A step
+  between t = 20 s and 25 s fails section 7's settling rule (b3dev1: nginx in both cases, HAProxy
+  partial; b3diag3: nginx), and every step adds to U memory the system never touched. It will weigh
+  more on the JVM and Go systems of M4b-2. Like the clock floor, a per-job setting (THP `madvise` or
+  khugepaged paused for the job, restored after) would be a change of the lab procedure, Alex's
+  decision; nothing was changed.
+- **sslh-ev's M3 cells:** invalid by the error rule as configured (step 1, the revision-log note).
+- From before: the per-connection decision record WL8 needs against a server in its own process;
+  `RELAY_BUF`, `IORING_OP_SEND` and splice's worker threads (M5); more than one worker on IOCP (M6b).
+
+### Design choices of M4b-1
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| Clock floor exits | 95 (not set; the job does not run), 96 (not restored) | `clockfloor.sh` | beside notrack.sh's 90 to 93 |
+| B3 front port | 21100; the stub 10 above; caddy-l4's admin 50 above | `b3.B3_PORT` | off the ephemeral range, apart from ophold's 21000 and the hand-off ports |
+| TIME-WAIT steady before the baseline | held 2 s, at most 10 s | `b3.TW_STEADY_S`, `TW_STEADY_MAX_S` | a probe connection closed late lands in the baseline |
+| caddy-l4's collector lead | 1 s before each reading | `b3.COLLECT_LEAD_S` | the collection ends before the reading |
+| Untimed load | churn open loop 2,000 per s, 0.5 s and 2 s; keep-alive 2 connections, 0.5 s | `systrace.TRACE_*` | low enough for perf; counts only |
+| perf attach, idle pass | 3 s; 2 s | `systrace.ATTACH_S`, `IDLE_S` | perf trace's start-up on L takes over 1.5 s |
+| Wait slack | 2 per worker | `systrace.WAIT_SLACK` | a wait in progress at attach and at stop |
+| Trace ports | cost 24000, proxy 24100 (stub 10 above) | `systrace.PORTS` | off the ephemeral range |
+| Cases ports | front 25000, PROXY listener 25001, backend 25010 | `cases_check` | off the ephemeral range |
+| Fallback check | the system's timer + 2 s | `cases_check.FALLBACK_LATE_S` | a timer wheel's grain |
+| Cases PROXY listener | the front port + 1 | `competitors.PROXY_PORT_OFFSET` | one configuration serves both kinds of case |
+
+### Lab journal and raw data
+
+Five lines in the Papers repo's `lab/journal.jsonl` (Papers b651c97, local, not pushed), each
+marked development: aa-floor1 (the A/A set), b3dev1, b3diag2 and b3diag3 (B3 windows), and the
+sslh-ev diagnostics (sslhdiag2 to sslhdiag7). No line for the host checks (clock_probe, c1, c2), the
+route checks (casecheck1, casecheck2), the untimed trace runs (tracedev1 to tracedev3) or the nginx
+map debug: no window ran. b3diag1 ran no window (its job script had CRLF line ends). Everything
+stays on L under `~/lab/p3/m4b1/`, archived in `~/lab/runs-archive/p3-m4b1-20261003T141726.tar.gz` (sha256
+a6bfbfb2f0a47ad3a0b4694fea00b07221583181812e22a8ce97a01bff2f0cbe, beside it in a `.sha256` file; 1,377
+members; made under the lab lock); build trees, source clones and extracted sources are left out.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
@@ -2964,6 +3378,11 @@ left out.
   not pushed), every one marked development.
 - M4a's readings of the frozen text (M4a, "Readings of the frozen text in M4a") and the open MHz rule
   on kernel 7.2.6 are for the coordinator.
+- M4b-1's lab journal: 5 lines in the Papers repo's `lab/journal.jsonl`, Papers commit b651c97 (local,
+  not pushed), every one marked development. M4a's readings and the two accepted deviations are
+  logged (b77dd44), with the host clock floor and the note on sslh-ev.
+- M4b-1's open items for the coordinator and Alex: section 10's check against perf trace -s; THP on L
+  and B3's settling rule (M4b-1, "Open for the coordinator and Alex").
 
 ## What M1 starts from
 
@@ -3141,3 +3560,28 @@ left out.
 - M5 can time the server's relay against nginx, HAProxy, Envoy and caddy-l4 as soon as the MHz rule is
   settled; in one development session each (m3dev1) the relay was ahead of all four, nginx by the least
   (ratios 1.017 and 1.025).
+
+## What M4b-2 starts from
+
+- Every lab job runs with the clock floor (clockfloor.sh inside lab_job.sh); section 7's MHz rule
+  passes again on 7.2.6 (aa-floor1). The proxies have their cases configurations (both kinds, both
+  timer settings) and a route check that passes; b3.py takes a relay system; systrace.py runs
+  section 10's untimed windows.
+- For the in-process libraries of section 2.3 (Netty 4.2.18.Final, Jetty 12.1.13, cmux v0.1.5 with Go
+  net/http on go1.27.1, hyper-util 0.1.21):
+  - pins: L has OpenJDK 26.0.2.1 from its packages, which is not an LTS release; section 2.3 asks for
+    the latest LTS JDK at the code freeze (25 on 2026-10-03), so a pinned JDK goes into `~/opt` under
+    the install policy. Rust is Arch's 1.98.1 (cargo 1.98.1) with no rustup; section 11's ASan+UBSan
+    and TSan records of the Rust harness need a sanitizer-capable (nightly) toolchain, pinned. go1.27.1
+    is on L.
+  - harnesses with their cases and B3 configurations (Appendix B: one each, B3 starting from cases),
+    each with a probe; `probe.py`'s expectations and `cases_check.py`'s COVERS take the new systems.
+  - b3.py: an in-process system (no stub; the server in-process against it, section 5.2) and the
+    collectors' steps of WL7 (`jcmd <pid> GC.run` and `GC.heap_info` for the JVM systems,
+    `debug.FreeOSMemory` and `HeapInuse` in the cmux harness); caddy-l4's step is built.
+  - section 11's records for the Go and Rust harnesses (ASan with UBSan, TSan), their MSan gap
+    declared in `bench/coverage.json`; the Java harnesses' gap declared whole.
+- Open, from M4b-1 (above): section 10's check against perf trace -s; THP on L and B3's settling rule
+  (it will weigh most on the JVM and Go heaps, so it is worth deciding before their B3 windows);
+  sslh-ev's M3 cells.
+- Nothing in M4b-1 blocks M4b-2's builds.
