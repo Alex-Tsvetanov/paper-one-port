@@ -3211,6 +3211,11 @@ Functional windows, job b3dev1 (f0ec965, lab job, NOTRACK, floor; development da
   every second: the accept queue stayed 0 (both accept at once), and each RSS step came with a step
   of AnonHugePages about 10 s apart (khugepaged's interval). In b3diag2 both windows settled (the
   steps fell outside 20 s to 25 s); in b3diag3 nginx did not (W 13,733.9, then 14,943.0), HAProxy did.
+- f1f87f3 checked: job b3dev2 (279b410) ran caddy-l4's two windows again; both valid, TIME-WAIT 1 at
+  the baseline and at both samples (the probe's stub connection, inside the baseline after a 2.0 s
+  steady wait), every heap profile request answered 200 (3,281 to 8,348 bytes), none left a
+  TIME-WAIT socket. W at sample 2: 20,006.5 (silent) and 22,007.8 (partial) bytes per pending
+  connection, development data.
 - B3's timing (section 8, step 7) runs later; these windows only show that the runner works for
   every relay system.
 
@@ -3355,14 +3360,16 @@ Linux).
 
 ### Lab journal and raw data
 
-Five lines in the Papers repo's `lab/journal.jsonl` (Papers b651c97, local, not pushed), each
-marked development: aa-floor1 (the A/A set), b3dev1, b3diag2 and b3diag3 (B3 windows), and the
-sslh-ev diagnostics (sslhdiag2 to sslhdiag7). No line for the host checks (clock_probe, c1, c2), the
+Six lines in the Papers repo's `lab/journal.jsonl` (Papers b651c97 and a7d99c0, local, not pushed),
+each marked development: aa-floor1 (the A/A set), b3dev1, b3diag2, b3diag3 and b3dev2 (B3 windows),
+and the sslh-ev diagnostics (sslhdiag2 to sslhdiag7). No line for the host checks (clock_probe, c1, c2), the
 route checks (casecheck1, casecheck2), the untimed trace runs (tracedev1 to tracedev3) or the nginx
 map debug: no window ran. b3diag1 ran no window (its job script had CRLF line ends). Everything
 stays on L under `~/lab/p3/m4b1/`, archived in `~/lab/runs-archive/p3-m4b1-20261003T141726.tar.gz` (sha256
 a6bfbfb2f0a47ad3a0b4694fea00b07221583181812e22a8ce97a01bff2f0cbe, beside it in a `.sha256` file; 1,377
 members; made under the lab lock); build trees, source clones and extracted sources are left out.
+b3dev2's files: `~/lab/runs-archive/p3-m4b1-b3dev2-20261003T142217.tar.gz` (sha256
+5b439cfe4c40d1fddf630a9f019aef4d78bef75d951ee02f1a9a9de982d73289, 27 members).
 
 ## Follow-ups outside this repository
 
@@ -3378,8 +3385,8 @@ members; made under the lab lock); build trees, source clones and extracted sour
   not pushed), every one marked development.
 - M4a's readings of the frozen text (M4a, "Readings of the frozen text in M4a") and the open MHz rule
   on kernel 7.2.6 are for the coordinator.
-- M4b-1's lab journal: 5 lines in the Papers repo's `lab/journal.jsonl`, Papers commit b651c97 (local,
-  not pushed), every one marked development. M4a's readings and the two accepted deviations are
+- M4b-1's lab journal: 6 lines in the Papers repo's `lab/journal.jsonl`, Papers commits b651c97 and
+  a7d99c0 (local, not pushed), every one marked development. M4a's readings and the two accepted deviations are
   logged (b77dd44), with the host clock floor and the note on sslh-ev.
 - M4b-1's open items for the coordinator and Alex: section 10's check against perf trace -s; THP on L
   and B3's settling rule (M4b-1, "Open for the coordinator and Alex").
