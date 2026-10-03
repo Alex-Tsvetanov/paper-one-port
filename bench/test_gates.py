@@ -21,7 +21,8 @@ and --accept-dry-run lets it count but marks the output, never citable; the harn
 a Java harness declared whole, a missing TSan record, another toolchain, a sanitizer flavour as the
 measured build); the gate's output holds the build's binaries; bench/check_rows.py passes a row
 whose binaries a passing gate holds, and refuses a row whose binary has no matching green record
-(another sha256), a row that names no binary, and a row whose only gate is a dry run; and
+(another sha256), a row that names no binary, and a row whose only gate is a dry run, unless a
+development check asks load_gates to accept a dry run (M7c); and
 bench/build_inputs.py's check of the compiled targets against its list.
 
     python3 bench/test_gates.py      (exit 0 when every check passes)
@@ -195,6 +196,13 @@ def row_cases(tmp: Path) -> None:
     dry.update(dry_run=True, citable=False)
     write(d / "gate-dry.json", dry)
     expect("rows: a row whose only gate is a dry run is refused", not rows_ok([d / "gate-dry.json"], good))
+    sys.path.insert(0, str(HERE))
+    import check_rows  # noqa: PLC0415
+    covered, left = check_rows.load_gates([d / "gate-dry.json"])
+    expect("rows: load_gates leaves a dry run's gate out by default", not covered and left)
+    covered, left = check_rows.load_gates([d / "gate-dry.json"], accept_dry_run=True)
+    expect("rows: load_gates(accept_dry_run=True) binds to a dry run's gate (a development check, never citable)",
+           not left and not check_rows.check([json.loads(good.read_text())], covered))
     failed = dict(json.loads((d / "gate.json").read_text()), passed=False)
     write(d / "gate-failed.json", failed)
     expect("rows: a gate that did not pass covers nothing", not rows_ok([d / "gate-failed.json"], good))
