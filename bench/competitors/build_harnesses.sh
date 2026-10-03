@@ -18,7 +18,8 @@
 #            (-Zbuild-std, from rust-src at the same version);
 #   tsan     Go with -race (Go's race detector is ThreadSanitizer); Rust with -Zsanitizer=thread and
 #            -Zbuild-std, without which ThreadSanitizer reports false races in the uninstrumented
-#            standard library.
+#            standard library; the Rust harness then runs with TSAN_OPTIONS=suppressions=
+#            bench/competitors/hyper-util/tsan.supp (one entry in tokio's I/O driver, with its reason).
 # Every Go build: GOTOOLCHAIN=local (no other toolchain is fetched), GOFLAGS=-mod=readonly (go.sum
 # decides), CGO_ENABLED=1 and CC=clang (L's clang 22.1.8, the compiler of the records; -asan and
 # -race need cgo). Every Rust build: --locked and --target x86_64-unknown-linux-gnu (the sanitizer

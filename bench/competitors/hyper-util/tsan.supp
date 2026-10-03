@@ -1,0 +1,16 @@
+# ThreadSanitizer suppressions for the hyper-util harness's TSan build (bench/competitors/
+# build_harnesses.sh tsan), passed as TSAN_OPTIONS=suppressions=<this file>. One entry, in tokio
+# (third-party; not the harness's code), found in M4b-2's development check on L (job libsetup3):
+#
+# tokio's I/O driver: the thread that registers a socket (the harness's main thread, whose
+# block_on runs the accept loop) initialises the socket's ScheduledIo in
+# RegistrationSet::allocate and then adds the descriptor to epoll with that object's address as
+# its token (epoll_ctl); the worker thread that runs the driver gets the token back from
+# epoll_wait and reads and locks the object (ScheduledIo::set_readiness, and a lock at the next
+# word). The order between the two threads is the kernel's: the epoll_ctl call returns before the
+# epoll_wait that reports the descriptor. ThreadSanitizer does not see synchronisation through
+# system calls, so it reports the initialising writes and the later accesses as races: 2 reports
+# per process, both with RegistrationSet::allocate as the earlier access, in each of the 5
+# processes the check started. The entry matches only reports with that frame in a stack, so a
+# race between two later accesses of a ScheduledIo is still reported.
+race:tokio::runtime::io::registration_set::RegistrationSet>::allocate
