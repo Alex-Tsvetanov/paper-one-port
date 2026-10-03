@@ -320,22 +320,31 @@ namespace oneport::loop
 		sqe->user_data = user_data;
 	}
 
+	// A receive is an IORING_OP_READ on the socket, with no offset (-1: a socket is a stream, so
+	// the kernel reads at position 0, which sock_read_iter requires; io_uring/rw.c and net/socket.c
+	// at v7.2.6). Not IORING_OP_RECV (M5): at v7.2.6 every RECV allocates its io_async_msghdr at
+	// preparation (io_recvmsg_prep_setup, io_uring/net.c), from kmalloc-512 on L, and an armed
+	// READ an io_async_rw (io_uring/rw.c, io_rw_alloc_async), so a pending connection's armed
+	// receive holds less kernel memory; the receive is the same (sock_recvmsg with MSG_DONTWAIT),
+	// into the same provided buffers, and its completion reports the same bytes, 0 at EOF.
 	void UringLoop::recv(int fd, void* buf, std::uint32_t len, std::uint64_t user_data)
 	{
-		auto* sqe = static_cast<io_uring_sqe*>(next_sqe(IORING_OP_RECV));
+		auto* sqe = static_cast<io_uring_sqe*>(next_sqe(IORING_OP_READ));
 		sqe->fd = fd;
 		sqe->addr = reinterpret_cast<std::uintptr_t>(buf);
 		sqe->len = len;
+		sqe->off = ~std::uint64_t{0};
 		sqe->user_data = user_data;
 	}
 
 	void UringLoop::recv_select(int fd, std::uint16_t group, std::uint64_t user_data)
 	{
-		auto* sqe = static_cast<io_uring_sqe*>(next_sqe(IORING_OP_RECV));
+		auto* sqe = static_cast<io_uring_sqe*>(next_sqe(IORING_OP_READ));
 		sqe->fd = fd;
 		sqe->flags = IOSQE_BUFFER_SELECT;
 		sqe->buf_group = group;
 		sqe->len = 0;  // the selected buffer's length
+		sqe->off = ~std::uint64_t{0};
 		sqe->user_data = user_data;
 	}
 

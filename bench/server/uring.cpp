@@ -2,7 +2,8 @@
 //
 // Accept is one multishot IORING_OP_ACCEPT per listener and worker (I4), armed again when a
 // completion comes without IORING_CQE_F_MORE. A connection's input comes as completions:
-//   replay    an IORING_OP_RECV into a buffer the kernel selects from the worker's provided-buffer
+//   replay    a receive (IORING_OP_READ on the socket since M5: bench/loop/src/uring.cpp) into a
+//             buffer the kernel selects from the worker's provided-buffer
 //             ring when data arrives, so a pending receive holds no buffer (I15); once the
 //             connection holds a buffer, into the room after its bytes;
 //   peek      an IORING_OP_POLL_ADD for POLLIN | POLLRDHUP, then the synchronous MSG_PEEK of
@@ -403,7 +404,7 @@ namespace oneport::server::detail
 			c->last_read_full = len == kRecvBuf;
 			return rr;
 		}
-		if (selected != nullptr) pool_.put(selected);  // not seen on L's kernel (server.kernel_uring_recv_select)
+		if (selected != nullptr) pool_.put(selected);  // a READ that took a buffer and returned 0 or failed (io_uring/rw.c at v7.2.6)
 		if (x.res == 0)
 		{
 			++c_.recv_eof;

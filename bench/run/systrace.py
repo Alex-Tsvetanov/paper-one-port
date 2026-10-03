@@ -82,7 +82,7 @@ PORTS = {"cost": 24000, "proxy": 24100}  # design choices of M4b-1, off the ephe
 # I29's counters that name system calls, and those calls (bench/server, bench/loop): the label,
 # the counters summed, the calls summed, whether the loop's wait slack applies, and the backends
 # on which the counters are system calls. On io_uring the receives and accepts are ring operations
-# (IORING_OP_RECV with provided buffers, the multishot accept), so only the synchronous peek and
+# (IORING_OP_READ since M5, with provided buffers; the multishot accept), so only the synchronous peek and
 # check of 1(b) are recvfrom calls there; the send is synchronous on both (design/status.md, M3).
 CHECKS = (
     ("accept", ("accept_calls",), ("accept4", "accept"), False, ("epoll",)),

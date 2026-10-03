@@ -386,9 +386,11 @@ namespace oneport::test
 		}
 
 		/// The rest of the io_uring behaviour the backend rests on, pinned on L's kernel: a receive
-		/// that selects a provided buffer holds none until data arrives, and then names it; with
-		/// the ring empty it fails with ENOBUFS and the bytes stay queued; at EOF it returns 0
-		/// without consuming a buffer (pinned as observed); a multishot accept completes once per
+		/// (IORING_OP_READ on the socket since M5) that selects a provided buffer holds none until
+		/// data arrives, and then names it; with the ring empty it fails with ENOBUFS and the bytes
+		/// stay queued; at EOF it returns 0, and if it names a buffer (io_uring/rw.c at v7.2.6 puts a
+		/// selected buffer for 0 bytes too) the buffer is one of the ring's, which the backend gives
+		/// back to its pool (uring.cpp, take_recv); a multishot accept completes once per
 		/// connection, flagged IORING_CQE_F_MORE.
 		Result kernel_uring_recv_select()
 		{
@@ -430,7 +432,7 @@ namespace oneport::test
 			::shutdown(p.c, SHUT_WR);
 			got = completions_of(ring, 5, 1000ms);
 			CHECK(got.size() == 1 && got[0].res == 0, "EOF completes the receive with 0");
-			CHECK((got[0].flags & IORING_CQE_F_BUFFER) == 0, "at EOF the completion named a buffer: the backend would have to give it back (pinned: none)");
+			CHECK((got[0].flags & IORING_CQE_F_BUFFER) == 0 || bid_of(got[0]) == 1, "at EOF the completion named a buffer the ring did not hold");
 			// Multishot accept.
 			ring.accept_multishot(p.l, 9);
 			const int c1 = p.connect_client();
@@ -446,7 +448,8 @@ namespace oneport::test
 				CHECK(x.res >= 0 && (x.flags & IORING_CQE_F_MORE) != 0, "an accept completion with a descriptor, still armed");
 				::close(x.res);
 			}
-			CHECK(ring.enter_calls() > 0 && ring.submissions()[IORING_OP_RECV] == 5 && ring.submissions()[IORING_OP_ACCEPT] == 1, "the counters");
+			CHECK(ring.enter_calls() > 0 && ring.submissions()[IORING_OP_READ] == 5 && ring.submissions()[IORING_OP_RECV] == 0 && ring.submissions()[IORING_OP_ACCEPT] == 1,
+			      "the counters");
 			return std::nullopt;
 		}
 

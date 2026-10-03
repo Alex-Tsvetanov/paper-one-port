@@ -66,6 +66,7 @@ namespace oneport::server
 				case IORING_OP_ASYNC_CANCEL: return "ASYNC_CANCEL";
 				case IORING_OP_CONNECT: return "CONNECT";
 				case IORING_OP_RECV: return "RECV";
+				case IORING_OP_READ: return "READ";
 				case IORING_OP_SPLICE: return "SPLICE";
 				default: break;
 			}
