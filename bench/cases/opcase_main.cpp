@@ -15,7 +15,11 @@
 //   opcase probe-reset --port N
 //     connects, then closes by reset (the probe of WL7's phase before t = 0, for a system that
 //     answers nothing, such as ophold).
+//   opcase case --port N [--proxy-port N] --hc K [--variant PREFIX] [--replicates R] [timers, gaps]
+//     the hard cases of Appendix A against any system by port, one JSON line per run (M5;
+//     bench/cases/run_cases.cpp).
 #include "fixtures.hpp"
+#include "run_cases.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -98,7 +102,8 @@ namespace
 		std::fprintf(stderr,
 		             "usage: opcase open --port N --case silent|partial-hello [--n 10000] [--batch 25] [--pace-ms 25]\n"
 		             "                   [--close-at-ms 30000] [--src-base A.B.C.D --k-src K]\n"
-		             "       opcase probe-reset --port N\n");
+		             "       opcase probe-reset --port N\n"
+		             "       opcase case --port N [--proxy-port N] --hc K [--variant PREFIX] [--replicates R] ...\n");
 		return 2;
 	}
 
@@ -132,6 +137,7 @@ int main(int argc, char** argv)
 {
 	if (argc < 2) return usage();
 	const std::string_view cmd = argv[1];
+	if (cmd == "case") return oneport::opcase::run_cases(argc, argv);
 	unsigned port = 0;
 	std::string kase;
 	std::uint32_t n = 10000;

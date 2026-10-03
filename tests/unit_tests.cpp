@@ -211,7 +211,8 @@ namespace
 		                         "relay-port unset\n"
 		                         "t-fb-ms 3000\n"
 		                         "t-dec-ms 3000\n"
-		                         "t-hdr-ms 3000\n";
+		                         "t-hdr-ms 3000\n"
+		                         "record unset\n";
 		const std::string got = oneport::describe(r->config);
 		CHECK(got == want, "describe() of the defaults is\n" << got);
 		return std::nullopt;
@@ -324,8 +325,8 @@ namespace
 		CHECK(mixed.has_value() && mixed->kind == oneport::Command::help, "--help after an arm is a help command");
 		const std::string text = oneport::usage();
 		for (const char* f : {"--mode", "--detect", "--dispatch", "--backend", "--iocp-receive", "--iocp-accept", "--relay-copy", "--proxy", "--fallback",
-		                      "--listener", "--workers", "--port", "--relay-port", "--t-fb-ms", "--t-dec-ms", "--t-hdr-ms", "--print-config",
-		                      "--help"})
+		                      "--listener", "--workers", "--port", "--relay-port", "--record", "--t-fb-ms", "--t-dec-ms", "--t-hdr-ms",
+		                      "--print-config", "--help"})
 		{
 			CHECK(text.find(f) != std::string::npos, "the usage names " << f);
 		}

@@ -50,7 +50,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         server.dedicated_ports server.dedicated_proxy server.peek_lowat.peek server.peek_lowat.replay
         server.check_byte_wins.replay server.check_byte_wins.peek
         server.two_workers.shared_replay server.two_workers.shared_peek server.two_workers.reuseport_replay
-        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending)
+        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending server.cases_by_port)
     # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
     set(ONEPORT_HANDLER_TESTS
         handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.tls_deferred handlers.h2c_streams
@@ -67,6 +67,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         endforeach()
         add_test(NAME server.binary_smoke.${_backend} COMMAND oneport_tests test server.binary_smoke.${_backend} $<TARGET_FILE:oneport>)
         set_tests_properties(server.binary_smoke.${_backend} PROPERTIES TIMEOUT 120 LABELS "server;${_backend}")
+        add_test(NAME server.binary_record.${_backend} COMMAND oneport_tests test server.binary_record.${_backend} $<TARGET_FILE:oneport>)
+        set_tests_properties(server.binary_record.${_backend} PROPERTIES TIMEOUT 120 LABELS "server;${_backend}")
         foreach(_test IN LISTS ONEPORT_HANDLER_TESTS)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
             set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "handlers;${_backend}")

@@ -10,10 +10,12 @@
 // named event "Local\oneport-stop-<pid>" is set: a harness or a test that started it stops it so,
 // without sharing its console (a design choice of M6a).
 #include "config.hpp"
+#include "record.hpp"
 #include "server.hpp"
 
 #include <cstdio>
 #include <exception>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -71,7 +73,15 @@ int main(int argc, char** argv)
 	std::signal(SIGPIPE, SIG_IGN);
 	try
 	{
-		oneport::server::Server server(cmd->config);
+		// WL8's decision record, only when asked (--record); otherwise no hook is set.
+		std::unique_ptr<oneport::server::Recorder> record;
+		oneport::server::Options options;
+		if (cmd->config.record)
+		{
+			record = std::make_unique<oneport::server::Recorder>(*cmd->config.record);
+			options.hooks = record->hooks();
+		}
+		oneport::server::Server server(cmd->config, options);
 		server.start();
 		const auto ports = server.ports();
 		const auto& listeners = server.listeners();
@@ -84,6 +94,7 @@ int main(int argc, char** argv)
 		int sig = 0;
 		sigwait(&stop_signals, &sig);
 		server.stop();
+		if (record) record->flush();
 		std::fputs(oneport::server::describe(server.totals()).c_str(), stdout);
 		std::fflush(stdout);
 		if (const auto error = server.error())
@@ -116,7 +127,14 @@ int main(int argc, char** argv)
 		TRUE);
 	try
 	{
-		oneport::server::Server server(cmd->config);
+		std::unique_ptr<oneport::server::Recorder> record;
+		oneport::server::Options options;
+		if (cmd->config.record)
+		{
+			record = std::make_unique<oneport::server::Recorder>(*cmd->config.record);
+			options.hooks = record->hooks();
+		}
+		oneport::server::Server server(cmd->config, options);
 		server.start();
 		const auto ports = server.ports();
 		const auto& listeners = server.listeners();
@@ -128,6 +146,7 @@ int main(int argc, char** argv)
 		std::fflush(stdout);
 		WaitForSingleObject(stop_event, INFINITE);
 		server.stop();
+		if (record) record->flush();
 		std::fputs(oneport::server::describe(server.totals()).c_str(), stdout);
 		std::fflush(stdout);
 		if (const auto error = server.error())
