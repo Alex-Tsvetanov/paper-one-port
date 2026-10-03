@@ -31,6 +31,7 @@ set(ONEPORT_PURE_TESTS
     http.valid http.grammar http.bad_request http.incomplete http.responses
     apps.smtp_lines apps.smtp_partial_and_limits apps.mqtt_connect_ping_disconnect apps.mqtt_streams_payload
     apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments clienthello.scan
+    clienthello.helloroom1 clienthello.refusal clienthello.need_bound
     gen.options gen.quantiles gen.h2_status)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
@@ -59,7 +60,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(ONEPORT_RELAY_TESTS
         relay.exchanges.user_space.replay relay.exchanges.user_space.peek relay.exchanges.splice.replay
         relay.exchanges.splice.peek relay.refused relay.pass_through.replay relay.pass_through.peek
-        relay.pass_through_tdec.replay relay.pass_through_tdec.peek relay.stub relay.matrix)
+        relay.pass_through_tdec.replay relay.pass_through_tdec.peek relay.pass_through_storage.replay
+        relay.pass_through_storage.peek relay.stub relay.matrix)
     foreach(_backend IN LISTS ONEPORT_BACKENDS)
         foreach(_test IN LISTS ONEPORT_SERVER_TESTS)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})

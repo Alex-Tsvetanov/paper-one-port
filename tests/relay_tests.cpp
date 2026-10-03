@@ -7,6 +7,8 @@
 //   - relay.pass_through.<mode>: TLS routed by the ClientHello's SNI and ALPN to a stub backend,
 //     ClientHellos larger than the receive buffer and than B_CH, and the ones with no route;
 //   - relay.pass_through_tdec.<mode>: T_dec bounds the wait for the whole ClientHello;
+//   - relay.pass_through_storage.<mode>: the ClientHello's storage stays within B_CH and 5 bytes
+//     per record, and a record header that would pass B_CH is refused at once (M7);
 //   - relay.stub: stub mode's ports, the TLS port reading one record;
 //   - relay.matrix: the front's flag combinations;
 //   - relay.binary: the binary as a backend process and a front process.
@@ -479,6 +481,66 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		// ---- relay.pass_through_storage ----
+
+		/// M7: the ClientHello's storage holds at most B_CH and 5 bytes per record, since
+		/// clienthello::reassemble refuses at a record header that would take the handshake bytes
+		/// past B_CH; helloroom1's three framings (design/status.md, M7 preparation):
+		///   A: the first 9 bytes of a 512-byte ClientHello in one record wait in storage of that
+		///      record, 517 bytes, until T_dec closes them;
+		///   B: a 104-byte ClientHello's first 9 bytes, in a record whose header announces 16,384,
+		///      wait in 16,389 bytes, B_CH and one record's 5, until T_dec;
+		///   C: record 1 whole with 16,000 bytes of a 16,384-byte ClientHello, then record 2's
+		///      header announcing 16,384 and 384 bytes of it: refused at record 2's header, closed
+		///      and counted route_rejected as a ClientHello longer than B_CH is, its storage at most
+		///      B_CH and two records' 5 bytes (before M7 it was sized to 32,394).
+		/// Peek holds no storage; its SO_RCVLOWAT follows the same need.
+		Result pass_through_storage(Detect detect)
+		{
+			ServerArgs f;
+			f.detect = detect;
+			Relayed r(Mode::stub, f);
+			const std::uint32_t replay = detect == Detect::replay ? 1 : 0;
+			auto push = [](Bytes& w, std::size_t v) { w.push_back(static_cast<std::byte>(v & 0xFF)); };
+			auto record_header = [&push](Bytes& w, std::size_t len) {
+				for (const std::size_t v : {std::size_t{0x16}, std::size_t{0x03}, std::size_t{0x01}, len >> 8, len}) push(w, v);
+			};
+			auto hello_header = [&push](Bytes& w, std::size_t msg) {
+				for (const std::size_t v : {std::size_t{0x01}, (msg - 4) >> 16, (msg - 4) >> 8, msg - 4}) push(w, v);
+			};
+			Bytes a;
+			record_header(a, 512);
+			hello_header(a, 512);
+			Bytes b;
+			record_header(b, 16384);
+			hello_header(b, 104);
+			Bytes c;
+			record_header(c, 16000);
+			hello_header(c, 16384);
+			c.insert(c.end(), 16000 - 4, std::byte{0});
+			record_header(c, 16384);
+			c.insert(c.end(), 384, std::byte{0});
+			auto held = [&](const std::string& what, const Bytes& bytes, server::Route route, std::uint32_t room, bool exact) -> Result {
+				std::vector<server::RelayReport> relays;
+				const opcase::Transcript t = r.run(Script{}.write(bytes).await_close(), relays);
+				if (auto bad = one_route(relays, route, 0, what)) return bad;
+				CHECK(!relays[0].buffer_waiting, what << ": a receive buffer was held while the ClientHello was incomplete");
+				const std::uint32_t got = relays[0].hello_room_max;
+				CHECK(exact ? got == replay * room : got <= replay * room, what << ": the storage reached " << got << " bytes, the bound " << room);
+				CHECK(relays[0].held_max <= replay * room, what << ": held " << relays[0].held_max << " bytes");
+				CHECK(t.received.empty() && (t.eof || t.reset), what << ": a reply, or no close");
+				return std::nullopt;
+			};
+			if (auto bad = held("A", a, server::Route::timed_out, 517, true)) return bad;
+			if (auto bad = held("B", b, server::Route::timed_out, detect::kBCh + 5, true)) return bad;
+			if (auto bad = held("C", c, server::Route::rejected, detect::kBCh + 10, false)) return bad;
+			if (auto bad = r.stop()) return bad;
+			const server::Counters k = r.front.server->totals();
+			CHECK(k.route_timeouts == 2 && k.route_rejected == 1 && k.routed_by_sni == 0 && k.relayed == 0,
+			      "timed out " << k.route_timeouts << ", rejected " << k.route_rejected << ", routed " << k.routed_by_sni);
+			return std::nullopt;
+		}
+
 		// ---- relay.stub ----
 
 		Result stub()
@@ -673,6 +735,8 @@ namespace oneport::test
 			r["relay.pass_through.peek" + s] = on([] { return pass_through(Detect::peek); });
 			r["relay.pass_through_tdec.replay" + s] = on([] { return pass_through_tdec(Detect::replay); });
 			r["relay.pass_through_tdec.peek" + s] = on([] { return pass_through_tdec(Detect::peek); });
+			r["relay.pass_through_storage.replay" + s] = on([] { return pass_through_storage(Detect::replay); });
+			r["relay.pass_through_storage.peek" + s] = on([] { return pass_through_storage(Detect::peek); });
 			r["relay.stub" + s] = on(stub);
 			r["relay.matrix" + s] = on(matrix);
 			r["relay.binary" + s] = on(binary);

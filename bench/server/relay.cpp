@@ -13,7 +13,10 @@
 // (a copy in user space, counted), the receive buffer goes back to the pool, and the next reads go
 // into the storage (M5: a pending connection then holds the records it has, not a receive buffer);
 // in peek they stay in the socket, and SO_RCVLOWAT waits for the bytes the reassembly needs next;
-// T_dec bounds the wait. The route table (a design choice of M2b, the one
+// T_dec bounds the wait. What the reassembly needs next is at most B_CH and 5 bytes per record
+// (M7: a record whose header would take the handshake bytes past B_CH is refused at that header,
+// closed and counted route_rejected, as a ClientHello longer than B_CH is), and the storage is
+// allocated to exactly that. The route table (a design choice of M2b, the one
 // name and the two protocols the frozen settings serve): SNI oneport.test, with no ALPN or an
 // ALPN list that offers http/1.1 or h2, goes to the backend's TLS port; any other ClientHello,
 // or a record stream that is not one, is closed (counted route_rejected).
@@ -258,7 +261,13 @@ namespace oneport::server::detail
 	{
 		Relay& r = *c->relay;
 		const std::size_t want = std::min<std::size_t>(kHelloWireMax, std::max<std::size_t>(need, r.hello_len));
-		if (want > r.hello.capacity() && r.hello_len > 0) c_.bytes_copied += r.hello_len;  // the storage grows: its bytes move (I29)
+		if (want > r.hello.capacity())
+		{
+			if (r.hello_len > 0) c_.bytes_copied += r.hello_len;  // the storage grows: its bytes move (I29)
+			// Exactly `want` (M7): resize() alone may take twice the old capacity (libc++'s growth
+			// policy), which would pass the bound clienthello::reassemble() keeps `need` within.
+			r.hello.reserve(want);
+		}
 		r.hello.resize(want);
 		r.hello_room_max = std::max(r.hello_room_max, static_cast<std::uint32_t>(r.hello.capacity()));
 	}

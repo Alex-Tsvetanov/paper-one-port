@@ -853,7 +853,9 @@ namespace oneport::server::detail
 		void route_reject(Conn* c);
 
 		/// Replay: sizes the ClientHello's storage to `need` record bytes (never below what it
-		/// holds, never above kHelloWireMax); a growth that moves its bytes is counted (I29).
+		/// holds, never above kHelloWireMax), allocating exactly that (M7: `need` is at most B_CH
+		/// and 5 bytes per record, clienthello::reassemble); a growth that moves its bytes is
+		/// counted (I29).
 		void hello_room(Conn* c, std::uint32_t need);
 
 		/// Replay on epoll, after a read filled the storage: whether the reassembly needs more
