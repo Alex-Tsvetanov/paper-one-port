@@ -150,6 +150,31 @@ def frequency_rule():
     assert not wfreq.judge([], [1.0])["pass"]
 
 
+@check
+def frequency_cap_control():
+    # Section 4 as revised on 2026-10-03: the control plan is the lab plan with both states at 50%,
+    # set minimum first; its read-back is checked against those values, and the lab plan's fails it.
+    assert wpower.CAP_SET_COMMANDS == [("SUB_PROCESSOR", "PROCTHROTTLEMIN", 50), ("SUB_PROCESSOR", "PROCTHROTTLEMAX", 50)]
+    assert wpower.CAP_VALUES == {wpower.BOOST_MODE: 0, wpower.PROC_MIN: 50, wpower.PROC_MAX: 50, wpower.CP_MIN_CORES: 100}
+    qh = wpower.parse_qh((SAMPLES / "W-powercfg-qh-lab.txt").read_text(encoding="utf-8"))
+    assert len(wpower.check_values(qh, wpower.CAP_VALUES)) == 2
+    capped = json.loads(json.dumps(qh))
+    capped[wpower.PROC_MIN]["ac"] = capped[wpower.PROC_MAX]["ac"] = 50
+    assert wpower.check_values(capped, wpower.CAP_VALUES) == [] and len(wpower.check_values(capped)) == 2
+    # The reading beside the rule, from the spinner's work rate.
+    spin = lambda n: {"spinner": {"spun_s": 10.0, "iterations": n}}  # noqa: E731
+    assert wfreq.work_rate(spin(1_000)) == 100.0 and wfreq.work_rate({}) is None
+    moved = wfreq.judge([100.0, 100.2], [50.0, 50.1])
+    assert wfreq.outcome(moved, 100.0, 50.0)["outcome"] == "pass"
+    still = wfreq.judge([100.0, 100.0], [100.0, 100.0])
+    blind = wfreq.outcome(still, 100.0, 60.0)
+    assert blind["outcome"] == "blind" and blind["work_fell_more_than_2pct"] and abs(blind["work_change"] + 0.4) < 1e-12
+    assert wfreq.outcome(still, 100.0, 99.0)["outcome"] == "inconclusive"
+    assert wfreq.outcome(still, 100.0, None)["outcome"] == "inconclusive"
+    shaky = wfreq.judge([100.0, 110.0], [50.0])
+    assert wfreq.outcome(shaky, 100.0, 50.0)["outcome"] == "unstable"
+
+
 def report(workload: str = "churn", completed: int = 50000, errors: int = 0, connect: int = 0, cpu_pct: float = 40.0,
            completed_share: float = 1.0) -> dict:
     e = {"connect": connect, "timeout": 0, "reset": 0, "eof": 0, "protocol": 0, "tls": 0, "total": errors + connect}

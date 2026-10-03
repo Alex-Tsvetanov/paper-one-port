@@ -13,6 +13,10 @@
   process started at the switch restores Alex's plan if the session's process ends without having
   restored it (killed). A session refuses to start if the active plan is neither Alex's nor the lab
   plan (a plan Alex chose is never overwritten), and records which it found.
+- `create-cap`, once: the frequency test's control plan "oneport W cap50" (w-procedure section 4,
+  the revision of 2026-10-03), a duplicate of the lab plan with the minimum and maximum processor
+  state at 50%. wfreq.py switches to it inside a lab-plan session, so the session's end and its
+  guard set Alex's plan back as for the lab plan. Refused if a plan of that name exists.
 - Every powercfg command's exit status and output are checked: an answer of "access denied" (or
   any failure) stops the session with AdminNeeded or PowerError and nothing is elevated.
 
@@ -50,9 +54,20 @@ SETTING_NAMES = {BOOST_MODE: "performance boost mode", PROC_MIN: "minimum proces
 SET_COMMANDS = [("SUB_PROCESSOR", BOOST_MODE, 0), ("SUB_PROCESSOR", "PROCTHROTTLEMIN", 100), ("SUB_PROCESSOR", "PROCTHROTTLEMAX", 100),
                 ("SUB_PROCESSOR", CP_MIN_CORES, 100)]
 
+# The frequency test's control plan (w-procedure section 4, the revision of 2026-10-03, approved by
+# Alex): the lab plan with the maximum processor state capped at CAP_STATE and the minimum set to
+# the cap, so the test's load runs at a state that surely differs from the lab plan's. Used only by
+# wfreq.py, never by a window. Its states are set minimum first, so the minimum never exceeds the
+# maximum on the way.
+CAP_PLAN_NAME = "oneport W cap50"
+CAP_STATE = 50
+CAP_VALUES = {BOOST_MODE: 0, PROC_MIN: CAP_STATE, PROC_MAX: CAP_STATE, CP_MIN_CORES: 100}
+CAP_SET_COMMANDS = [("SUB_PROCESSOR", "PROCTHROTTLEMIN", CAP_STATE), ("SUB_PROCESSOR", "PROCTHROTTLEMAX", CAP_STATE)]
+
 GUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 STATE_DIR = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "lab" / "p3"
 PLAN_FILE = STATE_DIR / "w-plan.json"
+CAP_PLAN_FILE = STATE_DIR / "w-cap-plan.json"
 
 
 class PowerError(RuntimeError):
@@ -158,13 +173,22 @@ def processor_settings(plan: str) -> dict:
     return parse_qh(powercfg("/QH", plan, "SUB_PROCESSOR"))
 
 
+def plan_guid(name: str) -> str | None:
+    """A plan's GUID, found by its name; refuses two plans of that name."""
+    found = sorted({p["guid"] for p in plans() if p["name"] == name})
+    if len(found) > 1:
+        raise PowerError(f"{len(found)} plans are named {name!r}: {found}")
+    return found[0] if found else None
+
+
 def lab_plan_guid() -> str | None:
     """The lab plan's GUID, found by its name; refuses two plans of that name."""
-    found = [p["guid"] for p in plans() if p["name"] == LAB_PLAN_NAME]
-    found = sorted(set(found))
-    if len(found) > 1:
-        raise PowerError(f"{len(found)} plans are named {LAB_PLAN_NAME!r}: {found}")
-    return found[0] if found else None
+    return plan_guid(LAB_PLAN_NAME)
+
+
+def cap_plan_guid() -> str | None:
+    """The frequency test's control plan's GUID, found by its name; refuses two plans of that name."""
+    return plan_guid(CAP_PLAN_NAME)
 
 
 def create(record: Path | None = None) -> dict:
@@ -195,9 +219,55 @@ def create(record: Path | None = None) -> dict:
     return log
 
 
+def create_cap(record: Path | None = None) -> dict:
+    """Once: the frequency test's control plan, a duplicate of the lab plan with CAP_SET_COMMANDS.
+    Refused if a plan of that name exists or the lab plan does not. Returns what was run and read
+    back."""
+    lab = lab_plan_guid()
+    if lab is None:
+        raise PowerError(f"no plan named {LAB_PLAN_NAME!r}: run `wpower.py create` once")
+    if cap_plan_guid():
+        raise PowerError(f"a plan named {CAP_PLAN_NAME!r} exists already: {cap_plan_guid()}")
+    log = {"created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "from": lab, "commands": []}
+
+    def run(*a: str) -> str:
+        out = powercfg(*a)
+        log["commands"].append({"args": list(a), "output": out.strip()})
+        return out
+
+    g = parse_duplicate(run("/duplicatescheme", lab))
+    log["guid"] = g
+    run("/changename", g, CAP_PLAN_NAME)
+    for sub, setting, value in CAP_SET_COMMANDS:
+        run("/setacvalueindex", g, sub, setting, str(value))
+    qh = processor_settings(g)
+    log["readback"] = {k: qh.get(k) for k in SETTING_NAMES}
+    log["problems"] = check_values(qh, CAP_VALUES)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    CAP_PLAN_FILE.write_text(json.dumps({"guid": g, "name": CAP_PLAN_NAME, "created": log}, indent=1))
+    if record:
+        record.write_text(json.dumps(log, indent=1))
+    if log["problems"]:
+        raise PowerError(f"the cap plan does not read back as set: {log['problems']}")
+    return log
+
+
 def readback(plan: str) -> dict:
     qh = processor_settings(plan)
     return {"active": active(), "settings": {k: qh.get(k) for k in SETTING_NAMES}, "processor_subgroup": qh}
+
+
+def switch_within_session(plan: str, wanted: dict) -> dict:
+    """Inside a LabPlan session only (its end and its guard set Alex's plan back, whatever plan is
+    active then): makes `plan` active and reads it back. Returns the read-back and its problems;
+    the caller stops on a problem."""
+    powercfg("/setactive", plan)
+    at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    rb = readback(plan)
+    problems = check_values(rb["settings"], wanted)
+    if rb["active"]["guid"] != plan:
+        problems.append(f"the active plan reads {rb['active']}, not {plan}")
+    return {"plan": plan, "set_at": at, "active": rb["active"], "settings": rb["settings"], "problems": problems}
 
 
 # ---------------------------------------------------------------- a session
@@ -351,6 +421,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("create", help="create the lab plan once (section 2)")
     c.add_argument("--record", type=Path)
+    cc = sub.add_parser("create-cap", help="create the frequency test's control plan once (section 4, revision of 2026-10-03)")
+    cc.add_argument("--record", type=Path)
     sub.add_parser("status", help="the plans, the active one, and the lab plan's and Alex's processor settings")
     sub.add_parser("restore", help="make Alex's plan active and read it back")
     r = sub.add_parser("run", help="run a command under the lab plan, then restore Alex's plan")
@@ -363,6 +435,8 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "create":
             print(json.dumps(create(a.record), indent=1))
+        elif a.cmd == "create-cap":
+            print(json.dumps(create_cap(a.record), indent=1))
         elif a.cmd == "status":
             lab = lab_plan_guid()
             print(json.dumps({"plans": plans(), "active": active(), "lab_plan": lab,
