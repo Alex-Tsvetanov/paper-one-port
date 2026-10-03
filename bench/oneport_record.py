@@ -3,7 +3,7 @@
 
     oneport_record.py --work DIR --record FILE --repo URL --commit SHA --repo-head SHA --sanitizer asan|tsan|msan
                       --cmake-args ARGS --options OPTS --host UNAME --host-tag L|W --build-exit N --ctest-exit N
-                      --seconds N --pins bench/cmake/pins.cmake [--logs-archive F --logs-sha256 H]
+                      --seconds N --pins bench/cmake/pins.cmake [--logs-archive F --logs-sha256 H] [--dry-run]
 
 Copied from paper-typed-routing t1/h6_record.py and bench/regexmatcher_record.py at commit
 7c1e248, same author, with the paths and names of this repository. In oneport the whole suite of
@@ -17,6 +17,13 @@ fetched archive's URL and hash as used), and the sha256 of the pins.cmake the bu
 (pins_sha256, which the gate matches with a measured build's, bench/gate_lib.py). Green means the
 build succeeded, CTest ran and every test passed, the inputs were hashed, and no log or standard
 error file of the work directory holds a sanitizer report; reports are copied into the record.
+
+--dry-run marks the record ("dry_run": true): a test of the records driver, never citable. Records
+match builds by inputs hash, not by commit, so a record made before the code freeze would gate the
+freeze's build wherever a target's inputs did not change; the gate refuses a dry-run record found
+among the records (bench/gate_lib.py), and the drivers never write one into lab/sanitizer-records.
+The build inputs come from bench/build_inputs.py (the targets, configuration keys and root label
+the gate hashes a measured build with).
 """
 
 from __future__ import annotations
@@ -69,6 +76,7 @@ def main() -> int:
     ap.add_argument("--pins", required=True, help="the pins.cmake the build used")
     ap.add_argument("--logs-archive", default="", help="the logs packed, under ~/lab/records-logs")
     ap.add_argument("--logs-sha256", default="", help="the sha256 of --logs-archive")
+    ap.add_argument("--dry-run", action="store_true", help="a test of the driver: the record is marked and never citable")
     a = ap.parse_args()
     work = Path(a.work)
     build_log = read(work / "build.log")
@@ -98,11 +106,12 @@ def main() -> int:
            "cmake_args": a.cmake_args, "sanitizer_options": a.options, "build_exit": a.build_exit,
            "ctest_exit": a.ctest_exit, "tests_total": total, "tests_failed": failed, "seconds": a.seconds,
            "sanitizer_reports": len(reports), "report_blocks": reports[:20],
-           "logs_archive": a.logs_archive, "logs_archive_sha256": a.logs_sha256,
-           "note": "oneport's CMake project built under the sanitizer, then its whole CTest suite (hypotheses.md, section 11)."}
+           "logs_archive": a.logs_archive, "logs_archive_sha256": a.logs_sha256, "dry_run": a.dry_run,
+           "note": "oneport's CMake project built under the sanitizer, then its whole CTest suite (hypotheses.md, section 11)."
+                   + (" A dry run of the records driver: never citable, refused by the gate." if a.dry_run else "")}
     Path(a.record).parent.mkdir(parents=True, exist_ok=True)
     Path(a.record).write_text(json.dumps(rec, indent=1) + "\n", encoding="utf-8")
-    print(json.dumps({"record": a.record, "green": green, "sanitizer": a.sanitizer, "reports": len(reports)}))
+    print(json.dumps({"record": a.record, "green": green, "sanitizer": a.sanitizer, "reports": len(reports), "dry_run": a.dry_run}))
     for p in presets:
         if p["status"] != "green":
             print(f"  {p['preset']}: {p['status']} ({p['detail']})")
