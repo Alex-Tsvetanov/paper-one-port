@@ -16,7 +16,7 @@
 #
 # It refuses to run COMMAND (exit 91) if a rule is already present before the job (left by a job
 # killed with SIGKILL: a rule it did not add is not its to remove), and (exit 93) if a rule cannot
-# be added. The NOTRACK target needs the kernel module xt_CT; a kernel whose module tree is no
+# be added; each refusal writes RECORD with its reason. The NOTRACK target needs the kernel module xt_CT; a kernel whose module tree is no
 # longer installed (a kernel package upgraded without a reboot) cannot load it.
 #
 # ONEPORT_NOTRACK=off runs COMMAND without the rules, loopback tracked, and says so in RECORD; it
@@ -88,12 +88,16 @@ fi
 version=$(sudo -n iptables -V 2>&1)
 case $version in
   *nf_tables*) ;;
-  *) echo "notrack: iptables is not the nf_tables variant Docker uses on L: $version" >&2; exit 90 ;;
+  *)
+    echo "notrack: iptables is not the nf_tables variant Docker uses on L: $version" >&2
+    write_record "$(ct_count)" "" "" "" "" "" "iptables is not iptables-nft: $version"
+    exit 90 ;;
 esac
 for r in "${RULES[@]}"; do
   # shellcheck disable=SC2086  # the rule's words are its arguments
   if "${IPT[@]}" -t raw -C $r > /dev/null 2>&1; then
     echo "notrack: '-t raw $r' is already present; not adding or removing it, not running the job" >&2
+    write_record "$(ct_count)" "" "" "" "" "" "'-t raw $r' was already present (exit 91): the job did not run"
     exit 91
   fi
 done

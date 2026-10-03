@@ -29,7 +29,21 @@ if [ "${ONEPORT_NOTRACK:-on}" != off ] && [ ! -d "/lib/modules/$(uname -r)" ]; t
   printf '{"exit": %d, "end": "%s"}\n' 93 "$(date -Is)" > "$dir/$name.done"
   exit 93
 fi
+# A job stopped by a signal to its process group (kill -TERM -- -PID, PID from the pid file) still
+# gets its done file. Bash runs the trap once the lock's process has ended; notrack.sh, which holds
+# the lock's descriptor until its teardown ends, may still be removing its rules then, so the done
+# file waits (at most 60 s) for the record to name the removal. Tested on L, 2026-10-03 (M4a).
+sig=""
+trap 'sig=TERM' TERM
+trap 'sig=INT' INT
+trap 'sig=HUP' HUP
 "$lablock" bash "$here/notrack.sh" "$dir/$name.notrack.json" "$@" > "$dir/$name.log" 2>&1
 rc=$?
-printf '{"exit": %d, "end": "%s"}\n' "$rc" "$(date -Is)" > "$dir/$name.done"
+if [ -n "$sig" ] && grep -q '"added_at": "' "$dir/$name.notrack.json" 2> /dev/null; then
+  for _ in $(seq 600); do
+    grep -q '"removed_at": "' "$dir/$name.notrack.json" && break
+    sleep 0.1
+  done
+fi
+printf '{"exit": %d, "end": "%s", "signal": %s}\n' "$rc" "$(date -Is)" "$([ -n "$sig" ] && echo "\"$sig\"" || echo null)" > "$dir/$name.done"
 exit "$rc"
