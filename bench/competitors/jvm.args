@@ -1,0 +1,33 @@
+# The JVM's flags for the Netty and Jetty harnesses (hypotheses.md, Appendix B and WL7's runtimes
+# with a collector; design/proposal.md, CP6 and CP7), on the pinned JDK (bench/cmake/pins.cmake,
+# ONEPORT_JDK_VERSION). One flag per line; a line that starts with # is a comment. competitors.py
+# puts them before the class path.
+#
+# G1, selected explicitly (Appendix B; WL7): the JVM picks the Serial collector unless it sees at
+# least two processors and 1792 MB (Oracle JDK 25 GC tuning guide, "Ergonomics"), and B3 pins the
+# JVM to one core; the pinned JDK under taskset -c 14 reported UseSerialGC (read on L, 2026-10-03).
+-XX:+UseG1GC
+# The guide's default heap bounds written out (Appendix B): initial 1/64 and maximum 1/4 of
+# physical memory, as the pinned JDK computes them on L (MemTotal 15,766,196 kB): InitialHeapSize
+# 253,755,392 and MaxHeapSize 4,037,017,600 bytes from `java -XX:+UseG1GC -XX:+PrintFlagsFinal
+# -version`, each aligned up to G1's 2 MB region (read on L, 2026-10-03; read again at the code
+# freeze).
+-Xms253755392
+-Xmx4037017600
+# IPv4 sockets, as every other system and the server open for 127.0.0.1: without it the JDK and
+# Netty open IPv6 sockets that accept IPv4-mapped connections (java.net's networking properties,
+# java.net.preferIPv4Stack; Netty's NetUtil reads the same property), whose kernel objects differ
+# from IPv4 ones, so B3's Ks would compare different socket kinds. Found in M4b-2: both harnesses
+# listened in /proc/net/tcp6.
+-Djava.net.preferIPv4Stack=true
+# Netty's native epoll transport loads JNI code; JDK 25 warns at that load unless native access is
+# enabled for the class path (JEP 472, whose warning names this flag). It changes nothing else.
+--enable-native-access=ALL-UNNAMED
+# TLS as the server's (hypotheses.md, section 2.1): the group X25519 only, the signature scheme
+# ecdsa_secp256r1_sha256, and no stateless session tickets (the JSSE system properties
+# jdk.tls.namedGroups, jdk.tls.server.SignatureSchemes and
+# jdk.tls.server.enableSessionTicketExtension of the JDK 25 security developer's guide). TLS 1.3 and
+# TLS_AES_128_GCM_SHA256 are set in each harness.
+-Djdk.tls.namedGroups=x25519
+-Djdk.tls.server.SignatureSchemes=ecdsa_secp256r1_sha256
+-Djdk.tls.server.enableSessionTicketExtension=false

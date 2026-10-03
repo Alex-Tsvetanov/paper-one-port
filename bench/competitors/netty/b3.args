@@ -1,0 +1,12 @@
+# The Netty harness's B3 configuration (hypotheses.md, Appendix B; WL7), rendered by
+# bench/competitors/competitors.py: the cases configuration with WL7's limits and the 60 s timer.
+# One argument and its value per line; the JVM's flags are bench/competitors/jvm.args.
+--port @PORT@
+# No PROXY listener: B3's openings send no PROXY header, and the window reads one listener.
+# Every detection timer at 60 s (section 1): ReadTimeoutHandler and SniHandler's handshake timeout.
+--timer-s @TIMER_S@
+# Appendix B: ChannelOption.SO_BACKLOG at N_PEND (Netty's default, NetUtil.SOMAXCONN, reads
+# /proc/sys/net/core/somaxconn).
+--backlog @N_PEND@
+--cert @REPO@/tests/fixtures/tls/test-cert.pem
+--key @REPO@/tests/fixtures/tls/test-key.pem

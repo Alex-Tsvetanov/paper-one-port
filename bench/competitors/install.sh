@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Installs the pinned proxies of hypotheses.md, section 2.3 (M3 and B3) into ~/opt on L: nginx,
 # HAProxy and sslh-ev built from their release archives, Envoy's release binary, and caddy-l4 built
-# by xcaddy. Linux only. Run under the lab lock (design/status.md: builds are lab jobs).
+# by xcaddy; and the third-party parts of the in-process libraries' harnesses (M4b-2): the JDK's
+# release archive and the Netty and Jetty jars of bench/competitors/{netty,jetty}/maven.lock. The
+# harnesses themselves are first-party and are built per checkout (build_harnesses.sh). Linux only.
+# Run under the lab lock (design/status.md: builds are lab jobs).
 #
-#   bench/competitors/install.sh [nginx haproxy envoy caddy-l4 sslh ...]   (default: all five)
+#   bench/competitors/install.sh [nginx haproxy envoy caddy-l4 sslh jdk netty jetty ...]
+#                                (default: the five proxies)
 #
 # Versions, URLs and sha256 come from bench/cmake/pins.cmake, the one source of them. An archive
 # is downloaded into $ONEPORT_OPT/src (default ~/opt/src) if absent, and nothing is built unless its
@@ -144,6 +148,49 @@ caddy_l4() {
     "$prefix/caddy" list-modules --versions | grep -E "^layer4( |\.)" | head -40
 }
 
+jdk() {  # the JDK's release archive, unpacked as it is (hypotheses.md 2.3: the latest LTS)
+    local v prefix
+    v=$(pin ONEPORT_JDK_VERSION)
+    prefix="$opt/jdk-$v"
+    fresh "$prefix"
+    mkdir -p "$prefix"
+    tar -xzf "$(fetch "$(pin ONEPORT_JDK_URL)" "$(pin ONEPORT_JDK_SHA256)")" -C "$prefix" --strip-components=1
+    "$prefix/bin/java" -version
+}
+
+maven_jars() {  # maven_jars LOCK DIR: every jar of LOCK, verified by its sha256, copied into DIR
+    local coords sha url file got
+    mkdir -p "$opt/src/maven" "$2"
+    while read -r coords sha url; do
+        case $coords in '' | '#'*) continue ;; esac
+        file="$opt/src/maven/$(basename "$url")"
+        [ -f "$file" ] || curl -fsSL -o "$file" "$url"
+        got=$(sha256sum "$file" | cut -d' ' -f1)
+        if [ "$got" != "$sha" ]; then
+            echo "install: $file ($coords) has sha256 $got, the lock says $sha" >&2
+            exit 3
+        fi
+        install -m 0644 "$file" "$2/"
+        echo "install: $coords $sha"
+    done < "$1"
+}
+
+netty() {
+    local v prefix
+    v=$(pin ONEPORT_NETTY_VERSION)
+    prefix="$opt/netty-$v"
+    fresh "$prefix"
+    maven_jars "$here/netty/maven.lock" "$prefix/lib"
+}
+
+jetty() {
+    local v prefix
+    v=$(pin ONEPORT_JETTY_VERSION)
+    prefix="$opt/jetty-$v"
+    fresh "$prefix"
+    maven_jars "$here/jetty/maven.lock" "$prefix/lib"
+}
+
 run() {  # run SYSTEM: its install, logged
     local name=$1
     echo "install: $name ($(date -Is))"
@@ -160,7 +207,7 @@ systems=("$@")
 rc=0
 for s in "${systems[@]}"; do
     case $s in
-        nginx | haproxy | envoy | caddy-l4 | sslh) run "$s" || rc=1 ;;
+        nginx | haproxy | envoy | caddy-l4 | sslh | jdk | netty | jetty) run "$s" || rc=1 ;;
         *) echo "install: unknown system $s" >&2; exit 2 ;;
     esac
 done

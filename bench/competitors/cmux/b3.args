@@ -1,0 +1,11 @@
+# The cmux harness's B3 configuration (hypotheses.md, Appendix B; WL7), rendered by
+# bench/competitors/competitors.py: the cases configuration (Appendix B's line, with Any() last)
+# with the 60 s timer. One argument and its value per line.
+# The listener; its backlog is net.core.somaxconn (net/sock_linux.go at go1.27.1; Appendix B).
+-port @PORT@
+# SetReadTimeout at 60 s (section 1).
+-timer-s @TIMER_S@
+# Any() last, as in Appendix B's line; within the window's 30 s no silent connection reaches it.
+-fallback
+-cert @REPO@/tests/fixtures/tls/test-cert.pem
+-key @REPO@/tests/fixtures/tls/test-key.pem

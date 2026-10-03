@@ -1,0 +1,19 @@
+# The Netty harness's jars (hypotheses.md, section 2.3, Netty 4.2.18.Final), from Maven Central, read by
+# bench/competitors/install.sh: one artifact per line, as group:artifact:version[:classifier], its
+# sha256, and its URL. The list is the compile and runtime closure of the harness's direct
+# dependencies, from each artifact's POM without its profiles and its test-scoped entries (netty-parent 4.2.18.Final makes mockito-core, reflections, gson and commons-io test-scoped; the native epoll transport is its linux-x86_64 jar, whose classes are netty-transport-classes-epoll's).
+# Each sha256 was computed on L on 2026-10-03 from the downloaded jar and compared with the
+# checksums Central publishes beside it (.sha1, .sha256 and .sha512): every one equal.
+io.netty:netty-common:4.2.18.Final 5d97cae5669685872339698efe13f74fe3cdb2dccdb36963b2352bd95acf7070 https://repo1.maven.org/maven2/io/netty/netty-common/4.2.18.Final/netty-common-4.2.18.Final.jar
+io.netty:netty-buffer:4.2.18.Final fdf236d2b76aa9710684401fdad7dff9dec56e43da5d39172c9a55ba5f14b360 https://repo1.maven.org/maven2/io/netty/netty-buffer/4.2.18.Final/netty-buffer-4.2.18.Final.jar
+io.netty:netty-resolver:4.2.18.Final 68373ec544cf769ba17bf2ef455166d98f2c260dff536edf35ef57067a9c155f https://repo1.maven.org/maven2/io/netty/netty-resolver/4.2.18.Final/netty-resolver-4.2.18.Final.jar
+io.netty:netty-transport:4.2.18.Final eac4f12068db4489e60c6520fad663e5d872f0436a7c641aa9e08db649947863 https://repo1.maven.org/maven2/io/netty/netty-transport/4.2.18.Final/netty-transport-4.2.18.Final.jar
+io.netty:netty-transport-native-unix-common:4.2.18.Final cada7023d09136af128511ca94421d69dc84d0f1f64c9e1f127a1271bb62932a https://repo1.maven.org/maven2/io/netty/netty-transport-native-unix-common/4.2.18.Final/netty-transport-native-unix-common-4.2.18.Final.jar
+io.netty:netty-transport-classes-epoll:4.2.18.Final 3677ca998f3db749d3fdb0fb1b1674f9809f4fbe8f819a346f4858dfb16c4d95 https://repo1.maven.org/maven2/io/netty/netty-transport-classes-epoll/4.2.18.Final/netty-transport-classes-epoll-4.2.18.Final.jar
+io.netty:netty-transport-native-epoll:4.2.18.Final:linux-x86_64 32a340971182d901cea513588549cfadc392bb7342f930379a6e34d853a331f0 https://repo1.maven.org/maven2/io/netty/netty-transport-native-epoll/4.2.18.Final/netty-transport-native-epoll-4.2.18.Final-linux-x86_64.jar
+io.netty:netty-codec-base:4.2.18.Final 7e4612bead7ba88ac6f7908fa722f90ad6835ea96505c9e40b2f93686c1f61f3 https://repo1.maven.org/maven2/io/netty/netty-codec-base/4.2.18.Final/netty-codec-base-4.2.18.Final.jar
+io.netty:netty-codec-compression:4.2.18.Final 9d8a4b9a6a2a166ec5a4bbe51a78b4f6a726457c51d81495743c7e7ccb9f4765 https://repo1.maven.org/maven2/io/netty/netty-codec-compression/4.2.18.Final/netty-codec-compression-4.2.18.Final.jar
+io.netty:netty-handler:4.2.18.Final 6d5a08d9dd6d7d0211202e22dbb1629b23a62550335c7e80892da1d4cb115540 https://repo1.maven.org/maven2/io/netty/netty-handler/4.2.18.Final/netty-handler-4.2.18.Final.jar
+io.netty:netty-codec-http:4.2.18.Final 2d50765eb58591ce35146c54ca032a257808d2165d8985a8522c70ea1470e8d7 https://repo1.maven.org/maven2/io/netty/netty-codec-http/4.2.18.Final/netty-codec-http-4.2.18.Final.jar
+io.netty:netty-codec-http2:4.2.18.Final a45a2b06c377b9c87c21ae2b37f04c8d808192590a73d977e7a60fd59921f283 https://repo1.maven.org/maven2/io/netty/netty-codec-http2/4.2.18.Final/netty-codec-http2-4.2.18.Final.jar
+io.netty:netty-codec-haproxy:4.2.18.Final bf00d403810a77f372f4e1916af81cb1d5f3d4b13682716f821d471d1d2df077 https://repo1.maven.org/maven2/io/netty/netty-codec-haproxy/4.2.18.Final/netty-codec-haproxy-4.2.18.Final.jar

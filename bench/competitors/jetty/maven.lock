@@ -1,0 +1,14 @@
+# The Jetty harness's jars (hypotheses.md, section 2.3, Jetty 12.1.13), from Maven Central, read by
+# bench/competitors/install.sh: one artifact per line, as group:artifact:version[:classifier], its
+# sha256, and its URL. The list is the compile and runtime closure of the harness's direct
+# dependencies, from each artifact's POM without its profiles and its test-scoped entries (slf4j-api at 2.0.17, the slf4j.version of jetty-project 12.1.13; no SLF4J provider, so Jetty logs nothing).
+# Each sha256 was computed on L on 2026-10-03 from the downloaded jar and compared with the
+# checksums Central publishes beside it (.sha1, .sha256 and .sha512; for slf4j-api 2.0.17 only .sha1 is published): every one equal.
+org.eclipse.jetty:jetty-server:12.1.13 978265f1ac637c504b537f5d56e07d4a47e7c4bb0752d9dd66b79f5be754abfa https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-server/12.1.13/jetty-server-12.1.13.jar
+org.eclipse.jetty:jetty-http:12.1.13 3bb84bfdd0992453986a8f7422dbf55cf779a0a780ff8a68041bb6119fb997fd https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-http/12.1.13/jetty-http-12.1.13.jar
+org.eclipse.jetty:jetty-io:12.1.13 946338a5db4e906ba0698dcdae350394736062cf915b5f16ebf787bcee7fffae https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-io/12.1.13/jetty-io-12.1.13.jar
+org.eclipse.jetty:jetty-util:12.1.13 3e408e60fe71a337979004fc4e47bfd3c08a931cf33b46b6a5dc4dbdd088c2fd https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-util/12.1.13/jetty-util-12.1.13.jar
+org.eclipse.jetty.http2:jetty-http2-server:12.1.13 608f849b824d8f8ee0c34a704651157fe793ab73f7d793d86dbd84c04e1d79f2 https://repo1.maven.org/maven2/org/eclipse/jetty/http2/jetty-http2-server/12.1.13/jetty-http2-server-12.1.13.jar
+org.eclipse.jetty.http2:jetty-http2-common:12.1.13 611bcccb69ec472af076f356667a53d75e75a61a4c213d15928a65e4342d452e https://repo1.maven.org/maven2/org/eclipse/jetty/http2/jetty-http2-common/12.1.13/jetty-http2-common-12.1.13.jar
+org.eclipse.jetty.http2:jetty-http2-hpack:12.1.13 d96a2e7c902a33206b3181d5e5c10855367f5305a45c5bcf7bb7c52959638350 https://repo1.maven.org/maven2/org/eclipse/jetty/http2/jetty-http2-hpack/12.1.13/jetty-http2-hpack-12.1.13.jar
+org.slf4j:slf4j-api:2.0.17 7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832 https://repo1.maven.org/maven2/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar

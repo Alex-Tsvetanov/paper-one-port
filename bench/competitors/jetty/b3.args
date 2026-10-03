@@ -1,0 +1,12 @@
+# The Jetty harness's B3 configuration (hypotheses.md, Appendix B; WL7), rendered by
+# bench/competitors/competitors.py: the cases configuration with WL7's limits and the 60 s timer.
+# One argument and its value per line; the JVM's flags are bench/competitors/jvm.args.
+--port @PORT@
+# No second listener: B3's openings send no PROXY header, and the window reads one listener.
+# The idle timeout, Jetty's only timer on detection, at 60 s (section 1).
+--idle-ms @TIMER_MS@
+# Appendix B: acceptQueueSize at N_PEND (0 picks the platform's default; Jetty 12.1 standard
+# modules docs).
+--accept-queue @N_PEND@
+--cert @REPO@/tests/fixtures/tls/test-cert.pem
+--key @REPO@/tests/fixtures/tls/test-key.pem

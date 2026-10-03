@@ -74,6 +74,35 @@ set(ONEPORT_SSLH_VERSION "2.3.1")
 set(ONEPORT_SSLH_URL "https://www.rutschle.net/tech/sslh/sslh-v2.3.1.tar.gz")
 set(ONEPORT_SSLH_SHA256 "51a5516ec5cb01823633b4d8cacdeee4efa0c56ef620d1c996d4f52ca51a601b")
 
-# Pinned later, at or before the code freeze, with the archive URL and the sha256 read from the
-# official release: the libraries of hypotheses.md, section 2.3 (Netty, Jetty, cmux, hyper-util),
-# the JDK (the latest LTS) and the Rust toolchain (hypotheses.md, section 9.1).
+# The in-process libraries of hypotheses.md, section 2.3 (B3, descriptive cells and hyper-util's
+# Holm cells), their runtimes and toolchains, pinned in M4b-2 on 2026-10-03; read again at the code
+# freeze (section 9.1). bench/competitors/install.sh reads these values.
+
+# The JDK: the latest LTS release at the code freeze (section 2.3). On 2026-10-03 the latest LTS is
+# 25 (Adoptium's API, available_releases: most_recent_lts 25) and its latest GA build Eclipse
+# Temurin 25.0.4.1+1, published 2026-08-21 (the 25.0.5 update is due later in October 2026, so the
+# freeze reads this again). Published hash: the release asset's .sha256.txt and the API's
+# checksum, both equal; the archive's PGP signature (.sig) verified good with the Adoptium key
+# 3B04 D753 C905 0D9A 5D34 3F39 843C 48A5 65F8 F04B (keyserver.ubuntu.com, no trust path).
+set(ONEPORT_JDK_VERSION "25.0.4.1+1")
+set(ONEPORT_JDK_URL "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz")
+set(ONEPORT_JDK_SHA256 "dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e")
+
+# Netty 4.2.18.Final and Jetty 12.1.13 (section 2.3) from Maven Central: every jar of each harness,
+# with its URL and sha256, is in bench/competitors/netty/maven.lock and jetty/maven.lock, each
+# compared with the checksums Central publishes beside it.
+set(ONEPORT_NETTY_VERSION "4.2.18.Final")
+set(ONEPORT_JETTY_VERSION "12.1.13")
+
+# cmux v0.1.5 on go1.27.1 (section 2.3): Go modules, verified by bench/competitors/cmux/go.sum
+# against the Go checksum database; L's go1.27.1 (Arch's go 2:1.27.1-1), GOTOOLCHAIN=local.
+set(ONEPORT_CMUX_VERSION "v0.1.5")
+
+# hyper-util 0.1.21 (section 2.3): crates verified by bench/competitors/hyper-util/Cargo.lock;
+# its rust-version is 1.85. The Rust toolchain is L's Arch package rust 1:1.98.1-1 (rustc 1.98.1,
+# 48a229cea 2026-09-01, LLVM 22.1.8; package sha256
+# a0e72c52cf8b8cbc9a16a82fca439e6fe502c6dc4a27b7c1d805f0399ad709ba), with rust-src 1:1.98.1-1 for
+# the sanitizer builds' standard library (installed with pacman -S on 2026-10-03; package sha256
+# 68f5e4b1592418cf68e816a71f4490bd26963394055485e369e90072f691641c).
+set(ONEPORT_HYPER_UTIL_VERSION "0.1.21")
+set(ONEPORT_RUSTC_VERSION "1.98.1")

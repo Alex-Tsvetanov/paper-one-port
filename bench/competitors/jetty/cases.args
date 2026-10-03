@@ -1,0 +1,16 @@
+# The Jetty harness's cases configuration (hypotheses.md, Appendix B; section 10), rendered by
+# bench/competitors/competitors.py into the harness's arguments: each line that is not a comment is
+# one argument and its value. The JVM's flags are bench/competitors/jvm.args.
+# The listener: DetectorConnectionFactory over SslConnectionFactory and ProxyConnectionFactory, then
+# HTTP/1.1 with the h2c upgrade (HTTP2CServerConnectionFactory) (survey 2.16).
+--port @PORT@
+# A second listener with the same factories, where the PROXY cases run (M4b-1's second listener,
+# the first port + 1). Appendix B puts ProxyConnectionFactory inside the detector, so on both
+# listeners the header is detected, not required (survey 2.16).
+--proxy-port @PORT_PROXY@
+# The connector's idle timeout matched to the server's T_dec, 3 s (Appendix B: "idle timeout
+# matched"); at the defaults Jetty's 30000 ms (Jetty 12.1 standard modules docs).
+@MATCHED@--idle-ms @TIMER_MS@
+# The test certificate and key (section 2.1; tests/fixtures/tls).
+--cert @REPO@/tests/fixtures/tls/test-cert.pem
+--key @REPO@/tests/fixtures/tls/test-key.pem

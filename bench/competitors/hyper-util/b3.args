@@ -1,0 +1,5 @@
+# The hyper-util harness's B3 configuration (hypotheses.md, Appendix B; WL7), rendered by
+# bench/competitors/competitors.py: the cases configuration with WL7's backlog.
+--port @PORT@
+# Appendix B: tokio's TcpSocket::listen with backlog N_PEND.
+--backlog @N_PEND@

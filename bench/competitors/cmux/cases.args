@@ -1,0 +1,14 @@
+# The cmux harness's cases configuration (hypotheses.md, Appendix B; section 10), rendered by
+# bench/competitors/competitors.py into the harness's arguments: each line that is not a comment is
+# one argument and its value. Two kinds: "cases" without the fallback, "cases-fallback" with it.
+# The listener, matched by HTTP2(), HTTP1Fast(), TLS() and PrefixMatcher("SSH-") (survey 2.10).
+-port @PORT@
+# SetReadTimeout matched to the server's T_dec, 3 s (Appendix B); at the defaults it is not set,
+# cmux's default (no timeout; survey 2.10).
+@MATCHED@-timer-s @TIMER_S@
+# Any() last, the fallback, to the SMTP handler (Appendix B). Only Any() can match a silent client,
+# and only once SetReadTimeout has failed the matchers that read (survey 2.10).
+@FALLBACK@-fallback
+# The test certificate and key (section 2.1; tests/fixtures/tls).
+-cert @REPO@/tests/fixtures/tls/test-cert.pem
+-key @REPO@/tests/fixtures/tls/test-key.pem

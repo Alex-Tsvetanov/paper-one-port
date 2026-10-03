@@ -1,0 +1,5 @@
+# The hyper-util harness's cases configuration (hypotheses.md, Appendix B; section 10), rendered by
+# bench/competitors/competitors.py into the harness's arguments: each line that is not a comment is
+# one argument and its value. HTTP/1.1 and h2c only; no detection timer, and none is added
+# (Appendix B), so the timers are the same at "matched" and at the defaults.
+--port @PORT@

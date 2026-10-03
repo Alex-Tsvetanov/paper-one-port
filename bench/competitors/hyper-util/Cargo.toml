@@ -1,0 +1,20 @@
+# The hyper-util harness of hypotheses.md, Appendix B (CP9 of design/proposal.md), pinned at
+# hyper-util 0.1.21; every crate's version and checksum are in Cargo.lock, and every build is
+# `cargo build --locked` (bench/competitors/install.sh).
+[package]
+name = "oneport-hyper-util"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# server::conn::auto: HTTP/1.1 and h2c by the first 24 bytes (design/competitor-survey.md, 2.12).
+hyper-util = { version = "=0.1.21", features = ["server-auto", "tokio"] }
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+http-body-util = "0.1"
+bytes = "1"
+# A tokio runtime with one worker thread (Appendix B); TcpSocket::listen for B3's backlog.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
+
+# Cargo's default release profile (opt-level 3, no LTO, 16 codegen units): the harness is measured
+# as a crate's users build it by default; nothing is tuned.

@@ -1,0 +1,17 @@
+# The Netty harness's cases configuration (hypotheses.md, Appendix B; section 10), rendered by
+# bench/competitors/competitors.py into the harness's arguments: each line that is not a comment is
+# one argument and its value. The JVM's flags are bench/competitors/jvm.args.
+# The listener: TLS (SniHandler), h2c and HTTP/1.1 (CleartextHttp2ServerUpgradeHandler, the HTTP
+# codec), detected after the PortUnificationServerHandler example (survey 2.15).
+--port @PORT@
+# A second listener whose pipeline starts with HAProxyMessageDecoder, so the PROXY header (v1 or v2)
+# is required there (Appendix B: HAProxyMessageDecoder; M4b-1's second listener, the first port + 1).
+--proxy-port @PORT_PROXY@
+# ReadTimeoutHandler matched to the server's T_dec, 3 s (Appendix B: "ReadTimeoutHandler matched";
+# it has no default), and SniHandler's handshake timeout, which also bounds the SslHandler it makes,
+# the same. At the system's defaults ReadTimeoutHandler is left out and SniHandler keeps its 10 s
+# (AbstractSniHandler.DEFAULT_HANDSHAKE_TIMEOUT_MILLIS at netty-4.2.18.Final).
+@MATCHED@--timer-s @TIMER_S@
+# The test certificate and key (section 2.1; tests/fixtures/tls).
+--cert @REPO@/tests/fixtures/tls/test-cert.pem
+--key @REPO@/tests/fixtures/tls/test-key.pem
