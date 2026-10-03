@@ -202,7 +202,7 @@ def test_bca_equals_appendix_a_draw_for_draw(r):
         assert got == want, (r, seed)
         # and the run's verdict of 4.6 step 2
         app_pass = app.passes(vals, np.random.default_rng(seed))
-        got_pass = S.cost_run_passes(vals, lambda: S.draw_clusters(np.random.default_rng(seed), r), ALPHA36)
+        got_pass = S.cost_run_passes(vals, lambda s=seed: S.draw_clusters(np.random.default_rng(s), r), ALPHA36)
         assert got_pass == app_pass
 
 
@@ -270,7 +270,7 @@ def test_clusters_resampled_whole_and_singletons_equal_sessions():
     idx4 = S.draw_clusters(np.random.default_rng(12), 4)
     boot = S.bca_fit(vals, idx4, clusters=jobs)
     assert boot.clusters == 4 and len(boot.jackknife) == 4
-    for row, tb in zip(idx4[:50], boot.theta_b[:50]):
+    for row, tb in zip(idx4[:50], boot.theta_b[:50], strict=True):
         members = np.concatenate([np.arange(4 * c, 4 * c + 4) for c in row])
         assert tb == float(np.median(vals[members]))
 

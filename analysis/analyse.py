@@ -52,6 +52,7 @@ sys.path.insert(0, str(HERE.parent / "bench" / "run"))
 import footprint as FP  # noqa: E402  bench/run/footprint.py: K_BASE's rule (WL7), unchanged
 
 COST_CANDIDATES = (11, 15, 18, 22, 25, 28, 31)   # 4.6 step 4: R_C is one of them
+N_SIM = 1_000                                    # 4.6 step 2
 RULE_E_KEYS = ("default", "relay_copy", "iocp_receive")
 
 
@@ -87,6 +88,8 @@ def check_pilot(pilot: dict, synthetic: bool) -> dict:
         raise AnalysisRefused("the pilot entry and the rows disagree on being synthetic")
     if not pilot.get("complete"):
         raise AnalysisRefused(f"the pilot entry is incomplete: {pilot.get('incomplete')}")
+    if not synthetic and pilot.get("n_sim") != N_SIM:
+        raise AnalysisRefused(f"the pilot entry ran N_SIM = {pilot.get('n_sim')}, not {N_SIM} (4.6 step 2)")
     if pilot.get("R_C") not in COST_CANDIDATES:
         raise AnalysisRefused(f"R_C = {pilot.get('R_C')!r} is not a candidate of 4.6 step 4")
     ids = [c.id for c in C.cost_cells()]
@@ -353,6 +356,20 @@ def k_base_of(rows: list[dict]) -> dict:
         return {"K_BASE": None, "ophold_windows": len(hold), "why": str(e)}
 
 
+def c3_rates(by_cell: dict[str, list[RW.Session]], pilot: dict) -> list[dict]:
+    """WL2: each C3 cell's windows run at the pilot entry's lambda for that cell. Reported per
+    cell, deciding nothing: the rates its windows carry and whether each equals lambda."""
+    out = []
+    lam = pilot.get("rates") or {}
+    for c in C.cost_cells():
+        if c.hyp != "C3":
+            continue
+        want = (lam.get(c.id) or {}).get("rate")
+        ran = sorted({float(w["rate"]) for s in by_cell.get(c.id, []) for w in s.windows if w.get("rate") is not None})
+        out.append({"cell": c.id, "lambda": want, "rates_run": ran, "matches": bool(ran) and want is not None and ran == [float(want)]})
+    return out
+
+
 def b1_failures(rows: list[dict]) -> list[dict]:
     """5.2 and section 7: a connection classified other than as its script's protocol in any
     measured window of any family is a failure of B1."""
@@ -406,6 +423,7 @@ def analyse(rows: list[dict], *, pilot: dict, rule_e: dict, seeds: dict) -> dict
                    "M": [x["cell"] for x in fams["M"] if x.get("passes")]},
         "k_base": kb,
         "b1_failures": b1_failures(rows),
+        "c3_rates": c3_rates(by_cell, pilot),
         "secondary": sec,
         "not_produced": ["B1's hard-case table and B2's checks (the hard-case runs)",
                          "the server's bounds beside B3 (engineering constants)",
@@ -468,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
                       seeds=json.loads(a.seeds.read_text(encoding="utf-8")))
     summary["synthetic"] = bool(a.allow_synthetic)
     summary["gate"] = gate
-    summary["inputs"] = {p.name: RW.sha256_file(p) for p in a.rows + [a.pilot, a.rule_e, a.seeds]}
+    summary["inputs"] = [{"file": p.name, "sha256": RW.sha256_file(p)} for p in a.rows + [a.pilot, a.rule_e, a.seeds]]
     summary["versions"] = versions.current()
     a.out.mkdir(parents=True, exist_ok=True)
     write_text(a.out / "summary.json", dumps(summary))

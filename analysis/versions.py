@@ -14,6 +14,7 @@ another numpy.
 from __future__ import annotations
 
 import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,8 +28,20 @@ HERE = Path(__file__).resolve().parent
 RESULTS = (HERE.parent / "results").resolve()
 
 
+def analysis_commit() -> dict:
+    """The commit the analysis code ran at, and whether analysis/ differed from it (the pilot entry
+    names ANALYSIS_COMMIT, section 9.2)."""
+    def git(*a: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(HERE), *a], capture_output=True, text=True)
+    head = git("rev-parse", "HEAD")
+    dirty = git("status", "--porcelain", "--", ".")
+    if head.returncode != 0 or dirty.returncode != 0:
+        return {"analysis_commit": None, "analysis_dirty": None}
+    return {"analysis_commit": head.stdout.strip(), "analysis_dirty": bool(dirty.stdout.strip())}
+
+
 def current() -> dict:
-    return {"python": platform.python_version(), "numpy": np.__version__}
+    return {"python": platform.python_version(), "numpy": np.__version__, **analysis_commit()}
 
 
 def require() -> None:

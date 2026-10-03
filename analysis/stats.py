@@ -408,7 +408,7 @@ def dual_rule(p_boot: Sequence[float | None], p_sign: Sequence[float | None], al
     pb = [1.0 if p is None else float(p) for p in p_boot]
     ps = [1.0 if p is None else float(p) for p in p_sign]
     ab, as_ = holm_adjust(pb), holm_adjust(ps)
-    return [Dual(x, y, x <= alpha, y <= alpha) for x, y in zip(ab, as_)]
+    return [Dual(x, y, x <= alpha, y <= alpha) for x, y in zip(ab, as_, strict=True)]
 
 
 # ---------------------------------------------------------------- the R_C rule's helpers (4.6)

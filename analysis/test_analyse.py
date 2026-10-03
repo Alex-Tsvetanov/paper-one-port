@@ -245,6 +245,9 @@ def test_cost_known_answers(run):
     assert not io["tested"] and not io["passes"] and io["p_boot_holm"] == 1.0 and "fewer than R = 11" in io["verdict"]
     w = x["C1.W.IOCP.http1"]
     assert not w["holm"] and w["verdict"] == "not resolved at R <= 32" and w["ci95"][0] is not None and "passes" not in w
+    rates = {e["cell"]: e for e in s["c3_rates"]}
+    assert len(rates) == 12 and rates["C3.L.epoll.http1"]["lambda"] == run["pilot"]["rates"]["C3.L.epoll.http1"]["rate"]
+    assert not rates["C3.L.epoll.http1"]["matches"]   # the synthetic C3 windows carry no rate
     h2 = x["C2.L.epoll.h2c"]
     assert h2["sessions"] == 12 and h2["valid_sessions"] == 11
     assert s["claims"]["C"] == [{"host": "L", "backend": "epoll", "proto": "http1",

@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     entry = pilot_entry(rows, parts, seeds, n_sim=a.n_sim, workers=a.workers)
     entry["synthetic"] = bool(a.allow_synthetic)
     entry["gate"] = gate
-    entry["inputs"] = {p.name: RW.sha256_file(p) for p in a.rows + a.parts + [a.seeds]}
+    entry["inputs"] = [{"file": p.name, "sha256": RW.sha256_file(p)} for p in a.rows + a.parts + [a.seeds]]
     entry["versions"] = versions.current()
     write_text(a.out, dumps(entry))
     print(f"pilot: R_C = {entry['R_C']}, m_C = {entry['m_C']}, resolved {len(entry['resolved'])} of 36; "
