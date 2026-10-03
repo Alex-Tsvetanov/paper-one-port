@@ -280,6 +280,9 @@ namespace oneport::opgen::detail
 					fail(i, End::tls);
 					return;
 				}
+				BIO* const bio = SSL_get_rbio(c.ssl);  // the socket BIO, both directions
+				BIO_set_callback_arg(bio, reinterpret_cast<char*>(this));
+				BIO_set_callback_ex(bio, &Worker::on_bio);
 				SSL_set_connect_state(c.ssl);
 				SSL_set_tlsext_host_name(c.ssl, std::string(tls::kServerName).c_str());
 				SSL_set1_host(c.ssl, std::string(tls::kServerName).c_str());
@@ -360,7 +363,8 @@ namespace oneport::opgen::detail
 		}
 		if (o_.proto == Proto::tls)
 		{
-			if ((events & EPOLLIN) != 0 && c.rec.first < 0) c.rec.first = now_ns();  // the ServerHello's arrival
+			// The first byte is stamped at the socket read inside OpenSSL (on_bio), not at this
+			// event: a later step of the same event can read the server's bytes too.
 			drive_tls(i);
 			return;
 		}
@@ -401,13 +405,31 @@ namespace oneport::opgen::detail
 		}
 	}
 
+	long Worker::on_bio(BIO* b, int oper, const char*, std::size_t, int, long, int ret, std::size_t* processed)
+	{
+		if (oper == (BIO_CB_READ | BIO_CB_RETURN) && ret > 0 && processed != nullptr && *processed > 0)
+		{
+			auto* const w = reinterpret_cast<Worker*>(BIO_get_callback_arg(b));  // workers live on the heap
+			if (w->tls_read_ns_ < 0) w->tls_read_ns_ = now_ns();
+		}
+		return ret;
+	}
+
+	void Worker::note_tls_read(Conn& c) noexcept
+	{
+		if (tls_read_ns_ >= 0 && c.rec.first < 0) c.rec.first = tls_read_ns_;
+		tls_read_ns_ = -1;
+	}
+
 	void Worker::drive_tls(std::uint32_t i)
 	{
 		Conn& c = conns_[i];
 		const std::uint64_t xid = c.xid;
+		tls_read_ns_ = -1;  // a read of another connection's call is not this one's
 		if (c.handshaking)
 		{
 			const int r = SSL_do_handshake(c.ssl);
+			note_tls_read(c);  // a partial flight counts: its first byte has arrived
 			if (r != 1)
 			{
 				const int e = SSL_get_error(c.ssl, r);
@@ -437,9 +459,10 @@ namespace oneport::opgen::detail
 			}
 			std::size_t n = 0;
 			errno = 0;
-			if (SSL_read_ex(c.ssl, c.in.data() + c.in_len, c.in.size() - c.in_len, &n) == 1)
+			const int ok = SSL_read_ex(c.ssl, c.in.data() + c.in_len, c.in.size() - c.in_len, &n);
+			note_tls_read(c);  // before parse(), which can end the exchange; a partial record counts
+			if (ok == 1)
 			{
-				if (o_.load == Load::keepalive && c.rec.first < 0) c.rec.first = now_ns();
 				c.in_len += static_cast<std::uint32_t>(n);
 				parse(i);
 				if (!c.active || c.xid != xid) return;

@@ -177,6 +177,15 @@ namespace oneport::opgen::detail
 
 		void drive_tls(std::uint32_t i);
 
+		/// TLS: OpenSSL's socket BIO calls this around each of its operations. A read that
+		/// returned bytes sets tls_read_ns_ when unset, so an exchange's first byte is stamped as
+		/// the socket read inside OpenSSL returned it, as the plain path stamps it after recv.
+		static long on_bio(BIO* b, int oper, const char* argp, std::size_t len, int argi, long argl, int ret, std::size_t* processed);
+
+		/// After each TLS call: the exchange's first byte, if it has none yet, is the first read
+		/// with bytes in that call (M3 reading 3: TLS's first byte is the handshake flight).
+		void note_tls_read(Conn& c) noexcept;
+
 		void consume(Conn& c, std::size_t n) noexcept;
 
 		/// The protocol's reader over c.in.
@@ -220,6 +229,7 @@ namespace oneport::opgen::detail
 		std::uint64_t connects_ = 0;
 		std::uint64_t src_next_ = 0;
 		int spare_fd_ = -1;  // open loop: the next exchange's socket, made before it falls due
+		std::int64_t tls_read_ns_ = -1;  // TLS: the first socket read with bytes in the current call; -1: none
 		std::string error_;
 	};
 
