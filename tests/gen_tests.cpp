@@ -1,7 +1,8 @@
 // opgen, ophold and opcase's window programs (hypotheses.md, section 2.4; design/status.md, M3).
 // Section 11 asks the records to cover opgen, opcase and ophold, so every load and protocol of
 // opgen runs here, in-process against the server, under each sanitizer build:
-//   - gen.options, gen.quantiles: the command line and the quantiles (pure, every platform);
+//   - gen.options, gen.quantiles, gen.h2_status: the command line, the quantiles and the start of
+//     an h2 response's header block (pure, every platform);
 //   - gen.churn.<proto>.<backend>, gen.keepalive.<proto>.<backend>: WL1's and WL3's exchanges
 //     against a server in dedicated mode (stub mode for the TLS stub exchange), every exchange
 //     completed without error, and the server's view consistent with the generator's;
@@ -13,6 +14,7 @@
 // Functional and untimed: no rate is asserted.
 #include "test_support.hpp"
 
+#include "hpack.hpp"
 #include "opgen.hpp"
 
 #include <algorithm>
@@ -87,6 +89,25 @@ namespace oneport::test
 			CHECK(!ok({"--port", "9", "--proto", "http1", "--bogus", "1"}), "an unknown flag");
 			CHECK(og::dotted(0x7F000102u) == "127.0.1.2" && og::parse_dotted("127.0.1.2") == 0x7F000102u, "dotted");
 			CHECK(!og::parse_dotted("127.0.1") && !og::parse_dotted("127.0.1.256") && !og::parse_dotted("127.0.1.2x"), "bad dotted forms");
+			return std::nullopt;
+		}
+
+		Result h2_status()
+		{
+			auto ok = [](std::initializer_list<unsigned> v) {
+				std::vector<std::byte> b;
+				for (const unsigned x : v) b.push_back(static_cast<std::byte>(x));
+				return og::detail::h2_status_200(b.data(), b.size());
+			};
+			CHECK(ok({0x88}), ":status 200 first");
+			CHECK(ok({0x3F, 0xE1, 0x1F, 0x88, 0x76}), "after a size update of 4096 (Jetty 12.1's first block)");
+			CHECK(ok({0x20, 0x3F, 0xE1, 0x1F, 0x88}), "after two size updates, 0 then 4096");
+			CHECK(!ok({0x89}), ":status 204");
+			CHECK(!ok({}), "an empty block");
+			CHECK(!ok({0x3F, 0xE1, 0x1F}), "a size update and nothing after it");
+			CHECK(!ok({0x3F, 0xE1}), "a size update cut short");
+			CHECK(!ok({0x3F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x88}), "a size integer longer than 5 bytes");
+			CHECK(!ok({0x48, 0x03, 0x32, 0x30, 0x30}), ":status 200 as a literal is not the static index");
 			return std::nullopt;
 		}
 
@@ -474,6 +495,7 @@ namespace oneport::test
 	{
 		r["gen.options"] = options;
 		r["gen.quantiles"] = quantile_rules;
+		r["gen.h2_status"] = h2_status;
 #if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
 		for (const Backend b : {Backend::epoll, Backend::io_uring})
 		{

@@ -31,7 +31,7 @@ set(ONEPORT_PURE_TESTS
     http.valid http.grammar http.bad_request http.incomplete http.responses
     apps.smtp_lines apps.smtp_partial_and_limits apps.mqtt_connect_ping_disconnect apps.mqtt_streams_payload
     apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments
-    gen.options gen.quantiles)
+    gen.options gen.quantiles gen.h2_status)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
     set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS pure)

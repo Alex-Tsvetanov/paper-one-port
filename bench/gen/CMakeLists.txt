@@ -3,7 +3,7 @@
 # bench/tls. A library (the tests run it in-process against the server) and the binary the window
 # runner starts. The engine is Linux only until M6 names its Windows backend; the command line and
 # the report build everywhere.
-add_library(opgen_core STATIC opgen.hpp opgen.cpp options.cpp)
+add_library(opgen_core STATIC opgen.hpp hpack.hpp opgen.cpp options.cpp)
 target_include_directories(opgen_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(opgen_core PUBLIC oneport_loop opcase)
 # The engine needs TLS and Linux: since M6a, W has the TLS libraries too, and the engine is not

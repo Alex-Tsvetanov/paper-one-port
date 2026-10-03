@@ -1,6 +1,7 @@
 // opgen's readers of the server's bytes, per protocol (worker.hpp): HTTP/1.1 (also inside TLS),
 // h2 frames to END_STREAM, MQTT's CONNACK and PINGRESP, SSH's identification line, and the TLS
 // stub's 13 bytes.
+#include "hpack.hpp"
 #include "worker.hpp"
 
 #include <algorithm>
@@ -152,8 +153,9 @@ namespace oneport::opgen::detail
 					std::uint32_t off = 0;
 					if ((flags & 0x8) != 0) off += 1;
 					if ((flags & 0x20) != 0) off += 5;
-					// :status 200 is the static table's index 8, so the block starts 0x88.
-					c.status_ok = off < len && body[off] == std::byte{0x88};
+					// :status 200 is the static table's index 8 (0x88), after any dynamic table size
+					// updates at the block's start (RFC 7541 s4.2; found in M4b-2: Jetty 12.1 sends one).
+					c.status_ok = off < len && h2_status_200(body + off, len - off);
 					if ((flags & 0x4) == 0)
 					{
 						fail(i, End::protocol);  // no CONTINUATION from this server
