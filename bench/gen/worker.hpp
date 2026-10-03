@@ -1,5 +1,8 @@
 // opgen's worker (opgen.cpp runs one per generator CPU): its connections, its share of the
-// slots or of the open-loop schedule, and the record of every exchange it ran. Linux.
+// slots or of the open-loop schedule, and the record of every exchange it ran. Linux, on epoll;
+// and Windows (M6b), on a completion port of its own (worker_win.cpp): ConnectEx, a zero-byte
+// WSARecv as readiness, then synchronous non-blocking recv and send, as the server's IOCP worker
+// reads (proposal I11).
 #pragma once
 
 #include "exchange.hpp"
@@ -14,19 +17,41 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+// Before OpenSSL's headers, which include windows.h on Windows: no min and max macros.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <chrono>
+#include <memory>
+#include <utility>
+#else
 #include <time.h>
+#endif
 
 #include <openssl/ssl.h>
 
 namespace oneport::opgen::detail
 {
 
+#if defined(_WIN32)
+	/// The generator's clock on Windows: std::chrono::steady_clock, which MSVC reads from
+	/// QueryPerformanceCounter, the clock the server's IOCP worker and opcase use on W (proposal I30).
+	inline std::int64_t now_ns() noexcept
+	{
+		return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	}
+#else
 	inline std::int64_t now_ns() noexcept
 	{
 		timespec ts{};
 		clock_gettime(CLOCK_MONOTONIC, &ts);
 		return static_cast<std::int64_t>(ts.tv_sec) * 1'000'000'000 + ts.tv_nsec;
 	}
+#endif
 
 	// ---- One exchange's record ----
 
@@ -79,10 +104,13 @@ namespace oneport::opgen::detail
 
 	struct Conn
 	{
-		int fd = -1;
+		int fd = -1;  // Windows: the SOCKET, whose value fits an int (worker_win.cpp refuses one that does not)
 		std::uint32_t gen = 0;
 		bool active = false;
 		bool connecting = false;
+#if defined(_WIN32)
+		bool reading = false;  // a zero-byte WSARecv is pending
+#endif
 		bool handshaking = false;  // TLS
 		bool ready = false;        // keep-alive: the connection's setup is done
 		bool done_reading = false;  // the response is complete; churn now waits for the server's close
@@ -114,6 +142,15 @@ namespace oneport::opgen::detail
 	/// (each holds a 16 KB input buffer) far above WL2's concurrency per thread.
 	inline constexpr std::size_t kRecordsReserved = 131072;
 	inline constexpr std::size_t kOpenSlotsReserved = 256;
+
+#if defined(_WIN32)
+	/// A Windows worker's completion port, its timer and its pending operations (worker_win.cpp).
+	struct Io;
+	struct IoFree
+	{
+		void operator()(Io* io) const noexcept;
+	};
+#endif
 
 	class Worker
 	{
@@ -153,9 +190,37 @@ namespace oneport::opgen::detail
 
 		std::uint32_t next_src() noexcept;
 
+#if defined(_WIN32)
+		// ---- Windows (worker_win.cpp) ----
+
+		/// A socket set up for one exchange: overlapped and non-blocking, SO_REUSE_UNICASTPORT (the
+		/// Windows form of IP_BIND_ADDRESS_NO_PORT: bind reserves no port of its own), TCP_NODELAY,
+		/// bound to the block's next source address, associated with the worker's port with
+		/// FILE_SKIP_COMPLETION_PORT_ON_SUCCESS; -1 on failure.
+		int make_socket();
+		/// Pins the worker thread to its CPU (Options::cpus).
+		void pin_thread();
+		/// The port, ConnectEx, and in open loop the high-resolution timer and its thread.
+		void start_io();
+		/// After every socket is closed: waits for the pending operations' completions (at most 5 s),
+		/// so no OVERLAPPED is freed while the kernel may still write it.
+		void finish_io() noexcept;
+		static void close_socket(int fd) noexcept;
+		/// Slot i's connect: ConnectEx on the next socket (start() has set the record up).
+		void connect_win(std::uint32_t i);
+		/// A completion dequeued from the port: a connect, or a zero-byte receive (readiness).
+		void on_completion(void* op, std::uint32_t bytes, std::uintptr_t status);
+		/// Reads what the socket holds, then posts the zero-byte WSARecv that reports more, until it
+		/// stays pending; nothing once the exchange has ended.
+		void arm_read(std::uint32_t i);
+		/// A send that the socket did not take (WSAEWOULDBLOCK, or TLS's want-write) is tried again
+		/// in each pass; the client's requests are a few hundred bytes, so this is not expected.
+		void want_write(std::uint32_t i);
+#else
 		/// A socket set up for one exchange: non-blocking, IP_BIND_ADDRESS_NO_PORT, TCP_NODELAY,
 		/// bound to the block's next source address; -1 on failure.
 		int make_socket();
+#endif
 
 		void arm_deadline(std::uint32_t i);
 
@@ -171,7 +236,9 @@ namespace oneport::opgen::detail
 
 		bool flush_tls(std::uint32_t i);
 
+#if !defined(_WIN32)
 		void on_event(std::uint32_t i, std::uint32_t events);
+#endif
 
 		void readable(std::uint32_t i);
 
@@ -216,7 +283,12 @@ namespace oneport::opgen::detail
 		Control& ctl_;
 		unsigned index_;
 		SSL_CTX* ctx_;
+#if defined(_WIN32)
+		std::unique_ptr<Io, IoFree> io_;
+		std::vector<std::pair<std::uint32_t, std::uint32_t>> write_retry_;  // slot and its connection's generation (want_write)
+#else
 		loop::EpollLoop loop_;
+#endif
 		std::vector<Conn> conns_;
 		std::vector<std::uint32_t> free_;
 		std::vector<std::uint32_t> retry_;

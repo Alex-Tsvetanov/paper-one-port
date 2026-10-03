@@ -126,6 +126,21 @@ if(WIN32)
     endforeach()
     add_test(NAME iocp.binary_smoke COMMAND oneport_tests test iocp.binary_smoke $<TARGET_FILE:oneport>)
     set_tests_properties(iocp.binary_smoke PROPERTIES TIMEOUT 120 LABELS "server;IOCP")
+    # opgen on Windows (M6b): its loads and protocols against the server on IOCP, and Windows' own
+    # forms of the source-block, failure, socket-option and program tests (tests/gen_tests.cpp).
+    if(TARGET oneport_tls)
+        foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub
+                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe)
+            add_test(NAME ${_test}.IOCP COMMAND oneport_tests test ${_test}.IOCP)
+            set_tests_properties(${_test}.IOCP PROPERTIES TIMEOUT 300 LABELS "gen;IOCP")
+        endforeach()
+        foreach(_test gen.source_block gen.failures gen.pin_reuse_unicastport)
+            add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+            set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS gen)
+        endforeach()
+        add_test(NAME gen.binaries COMMAND oneport_tests test gen.binaries $<TARGET_FILE:oneport> $<TARGET_FILE:opgen>)
+        set_tests_properties(gen.binaries PROPERTIES TIMEOUT 300 LABELS gen)
+    endif()
 endif()
 
 # The 25 hard cases of hypotheses.md, Appendix A, on every backend, in both detection modes, with

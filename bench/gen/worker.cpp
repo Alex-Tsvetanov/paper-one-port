@@ -1,5 +1,7 @@
 // opgen's worker: the loads, the loop, and each connection from connect to its end (worker.hpp).
-// The protocols' readers are in parse.cpp.
+// The protocols' readers are in parse.cpp. Linux and Windows share this file; what differs on
+// Windows (the completion port, the socket's setup and connect, recv and send) is in
+// worker_win.cpp, and the blocks below for _WIN32 call it.
 #include "worker.hpp"
 
 #include "tls.hpp"
@@ -11,6 +13,15 @@
 #include <stdexcept>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -20,6 +31,7 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include <openssl/err.h>
 
@@ -34,13 +46,24 @@ namespace oneport::opgen::detail
 	Worker::~Worker()
 	{
 		for (Conn& c : conns_) drop(c);
+#if defined(_WIN32)
+		if (spare_fd_ >= 0) close_socket(spare_fd_);
+		finish_io();
+#else
 		if (spare_fd_ >= 0) ::close(spare_fd_);
+#endif
 	}
 
 	void Worker::run()
 	{
 		try
 		{
+#if defined(_WIN32)
+			// No timer slack to set on Windows; the open loop's timed waits use a high-resolution
+			// waitable timer instead (worker_win.cpp).
+			pin_thread();
+			start_io();
+#else
 			if (!o_.cpus.empty())
 			{
 				cpu_set_t set;
@@ -53,6 +76,7 @@ namespace oneport::opgen::detail
 			// choice of M3, design/status.md).
 			if (::prctl(PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL) != 0) throw std::runtime_error("prctl(PR_SET_TIMERSLACK) failed");
 			loop_.start();
+#endif
 			if (o_.rate > 0) run_open();
 			else run_closed();
 		}
@@ -61,6 +85,9 @@ namespace oneport::opgen::detail
 			error_ = e.what();
 		}
 		for (Conn& c : conns_) drop(c);
+#if defined(_WIN32)
+		finish_io();
+#endif
 		ctl_.finished.fetch_add(1, std::memory_order_release);
 	}
 
@@ -131,9 +158,14 @@ namespace oneport::opgen::detail
 			pass(std::chrono::nanoseconds(wait));
 		}
 		unfinished_ = active_;
+#if defined(_WIN32)
+		if (spare_fd_ >= 0) close_socket(std::exchange(spare_fd_, -1));
+#else
 		if (spare_fd_ >= 0) ::close(std::exchange(spare_fd_, -1));
+#endif
 	}
 
+#if !defined(_WIN32)
 	int Worker::make_socket()
 	{
 		const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -151,6 +183,7 @@ namespace oneport::opgen::detail
 		}
 		return fd;
 	}
+#endif
 
 	std::uint32_t Worker::take_slot()
 	{
@@ -164,6 +197,7 @@ namespace oneport::opgen::detail
 		return static_cast<std::uint32_t>(conns_.size() - 1);
 	}
 
+#if !defined(_WIN32)
 	void Worker::pass(std::chrono::nanoseconds bound)
 	{
 		const auto events = loop_.wait(bound);
@@ -193,6 +227,7 @@ namespace oneport::opgen::detail
 			for (const std::uint32_t i : again) next(i);
 		}
 	}
+#endif
 
 	std::uint32_t Worker::next_src() noexcept
 	{
@@ -229,6 +264,10 @@ namespace oneport::opgen::detail
 		c.rec.due = due;
 		++c.gen;
 		arm_deadline(i);
+#if defined(_WIN32)
+		connect_win(i);
+	}
+#else
 		const int fd = spare_fd_ >= 0 ? std::exchange(spare_fd_, -1) : make_socket();
 		if (fd < 0)
 		{
@@ -253,6 +292,7 @@ namespace oneport::opgen::detail
 		if (errno == EINPROGRESS) return;
 		fail(i, End::connect);
 	}
+#endif
 
 	void Worker::connected(std::uint32_t i)
 	{
@@ -275,6 +315,7 @@ namespace oneport::opgen::detail
 			case Proto::tls:
 			{
 				c.ssl = SSL_new(ctx_);
+				// On Windows OpenSSL's socket BIO takes the SOCKET as an int (c.fd holds it).
 				if (c.ssl == nullptr || SSL_set_fd(c.ssl, c.fd) != 1)
 				{
 					fail(i, End::tls);
@@ -306,6 +347,7 @@ namespace oneport::opgen::detail
 		c.out.insert(c.out.end(), b.begin(), b.end());
 	}
 
+#if !defined(_WIN32)
 	bool Worker::flush(std::uint32_t i)
 	{
 		Conn& c = conns_[i];
@@ -325,6 +367,7 @@ namespace oneport::opgen::detail
 		}
 		return true;
 	}
+#endif
 
 	bool Worker::flush_tls(std::uint32_t i)
 	{
@@ -337,12 +380,16 @@ namespace oneport::opgen::detail
 			return true;
 		}
 		const int e = SSL_get_error(c.ssl, 0);
+#if defined(_WIN32)
+		if (e == SSL_ERROR_WANT_WRITE) want_write(i);  // no writability event on a completion port
+#endif
 		if (e == SSL_ERROR_WANT_WRITE || e == SSL_ERROR_WANT_READ) return true;
 		ERR_clear_error();
 		fail(i, e == SSL_ERROR_SYSCALL ? End::reset : End::tls);
 		return false;
 	}
 
+#if !defined(_WIN32)
 	void Worker::on_event(std::uint32_t i, std::uint32_t events)
 	{
 		Conn& c = conns_[i];
@@ -404,6 +451,7 @@ namespace oneport::opgen::detail
 			return;
 		}
 	}
+#endif
 
 	long Worker::on_bio(BIO* b, int oper, const char*, std::size_t, int, long, int ret, std::size_t* processed)
 	{
@@ -433,6 +481,9 @@ namespace oneport::opgen::detail
 			if (r != 1)
 			{
 				const int e = SSL_get_error(c.ssl, r);
+#if defined(_WIN32)
+				if (e == SSL_ERROR_WANT_WRITE) want_write(i);
+#endif
 				if (e == SSL_ERROR_WANT_READ || e == SSL_ERROR_WANT_WRITE) return;
 				ERR_clear_error();
 				fail(i, e == SSL_ERROR_SYSCALL ? End::reset : End::tls);
@@ -459,6 +510,9 @@ namespace oneport::opgen::detail
 			}
 			std::size_t n = 0;
 			errno = 0;
+#if defined(_WIN32)
+			::WSASetLastError(0);  // OpenSSL's socket BIO reports socket errors through WSAGetLastError on Windows
+#endif
 			const int ok = SSL_read_ex(c.ssl, c.in.data() + c.in_len, c.in.size() - c.in_len, &n);
 			note_tls_read(c);  // before parse(), which can end the exchange; a partial record counts
 			if (ok == 1)
@@ -471,10 +525,17 @@ namespace oneport::opgen::detail
 			}
 			const int e = SSL_get_error(c.ssl, 0);
 			if (e == SSL_ERROR_WANT_READ) return;
+#if defined(_WIN32)
+			if (e == SSL_ERROR_WANT_WRITE) want_write(i);
+#endif
 			if (e == SSL_ERROR_WANT_WRITE) return;
 			ERR_clear_error();
 			// close_notify, or (OpenSSL 3) an EOF with no error queued and no errno.
+#if defined(_WIN32)
+			if (e == SSL_ERROR_ZERO_RETURN || (e == SSL_ERROR_SYSCALL && errno == 0 && ::WSAGetLastError() == 0 && ERR_peek_error() == 0))
+#else
 			if (e == SSL_ERROR_ZERO_RETURN || (e == SSL_ERROR_SYSCALL && errno == 0 && ERR_peek_error() == 0))
+#endif
 			{
 				on_eof(i);  // close_notify, or the TCP end
 				return;
@@ -575,7 +636,14 @@ namespace oneport::opgen::detail
 		}
 		if (c.fd >= 0)
 		{
+#if defined(_WIN32)
+			// Closing cancels the pending zero-byte receive; its completion still arrives, finds the
+			// slot's generation changed or the slot inactive, and only returns its operation.
+			close_socket(c.fd);
+			c.reading = false;
+#else
 			::close(c.fd);
+#endif
 			c.fd = -1;
 		}
 	}

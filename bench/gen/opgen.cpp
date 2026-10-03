@@ -2,10 +2,22 @@
 // epoll loop (bench/loop, as the server's) and its own share of the connection slots or of the
 // open-loop schedule. Workers record every exchange with its times; the main thread classifies
 // them by the window's two clock readings after the workers have joined, so no count depends on
-// when a worker saw the phase change.
+// when a worker saw the phase change. On Windows (M6b) each worker has a completion port of its
+// own (worker_win.cpp), and run() below is the same code: the readings it takes (a worker
+// thread's CPU time, the process's, a sleep until a time) have Windows forms under POSIX names.
 #include "opgen.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
+
+#if defined(_WIN32)
+// Before OpenSSL's headers, which include windows.h on Windows: no min and max macros.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
 
 #include "tls.hpp"
 #include "worker.hpp"
@@ -15,8 +27,13 @@
 #include <memory>
 #include <thread>
 
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <windows.h>
+#else
 #include <pthread.h>
 #include <time.h>
+#endif
 
 namespace oneport::opgen
 {
@@ -30,6 +47,67 @@ namespace oneport::opgen
 		using detail::Record;
 		using detail::Worker;
 
+#if defined(_WIN32)
+		// Windows forms of the readings run() takes, under their POSIX names so that run() is one
+		// text on both platforms. A "clock" is a worker thread's handle; the process's is null.
+		using clockid_t = HANDLE;
+		const HANDLE CLOCK_PROCESS_CPUTIME_ID = nullptr;
+
+		int pthread_getcpuclockid(HANDLE thread, clockid_t* out) noexcept
+		{
+			*out = thread;
+			return thread == nullptr ? -1 : 0;
+		}
+
+		/// User plus kernel time of a worker thread (GetThreadTimes) or of the process
+		/// (GetProcessTimes), in seconds. Windows counts it in 100 ns units and advances it on the
+		/// clock tick, so over a 5 s window it is exact to about 0.3% per thread.
+		double clock_s(clockid_t h) noexcept
+		{
+			FILETIME c{}, e{}, k{}, u{};
+			const BOOL ok = h == nullptr ? GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u) : GetThreadTimes(h, &c, &e, &k, &u);
+			if (!ok) return 0;
+			auto v = [](const FILETIME& f) { return (static_cast<std::uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+			return static_cast<double>(v(k) + v(u)) / 1e7;
+		}
+
+		/// Sleeps until `t` (now_ns) on a high-resolution waitable timer: a wait that ends on the
+		/// default timer tick would end up to 15.625 ms late (design/w-procedure.md, section 3).
+		void sleep_until(std::int64_t t)
+		{
+			static thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+			for (;;)
+			{
+				const std::int64_t now = now_ns();
+				if (now >= t) return;
+				LARGE_INTEGER due;
+				due.QuadPart = -std::max<LONGLONG>(1, static_cast<LONGLONG>((t - now) / 100));
+				if (timer == nullptr || !SetWaitableTimerEx(timer, &due, 0, nullptr, nullptr, nullptr, 0))
+				{
+					Sleep(static_cast<DWORD>((t - now + 999'999) / 1'000'000));
+					continue;
+				}
+				WaitForSingleObject(timer, INFINITE);
+			}
+		}
+
+		/// Winsock 2.2 for the run.
+		struct Winsock
+		{
+			Winsock()
+			{
+				WSADATA d{};
+				ok = ::WSAStartup(MAKEWORD(2, 2), &d) == 0;
+			}
+			~Winsock()
+			{
+				if (ok) ::WSACleanup();
+			}
+			Winsock(const Winsock&) = delete;
+			Winsock& operator=(const Winsock&) = delete;
+			bool ok = false;
+		};
+#else
 		double clock_s(clockid_t id) noexcept
 		{
 			timespec ts{};
@@ -48,6 +126,7 @@ namespace oneport::opgen
 				clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
 			}
 		}
+#endif
 
 	}  // namespace
 
@@ -59,6 +138,14 @@ namespace oneport::opgen
 			r.error = "threads, port and k_src must be at least 1";
 			return r;
 		}
+#if defined(_WIN32)
+		const Winsock winsock;
+		if (!winsock.ok)
+		{
+			r.error = "WSAStartup failed";
+			return r;
+		}
+#endif
 		tls::Ctx ctx;
 		if (o.proto == Proto::tls)
 		{
@@ -214,7 +301,7 @@ namespace oneport::opgen
 	Result run(const Options&, std::ostream*)
 	{
 		Result r;
-		r.error = "opgen runs on Linux only (its Windows backend is M6)";
+		r.error = "opgen runs on Linux and Windows only";
 		return r;
 	}
 }  // namespace oneport::opgen

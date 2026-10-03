@@ -11,7 +11,22 @@
 //   - gen.source_block: every connection's source address lies in the block;
 //   - gen.failures: a refused port counts connect failures, a silent server counts timeouts;
 //   - gen.binaries: the opgen, opcase and ophold programs against the oneport program.
+// On Windows (M6b) the same loads and protocols run against the server on IOCP
+// (gen.<load>.<proto>.IOCP, gen.open_loop.IOCP, gen.probe.IOCP), and Windows' own forms of the
+// rest: gen.source_block and gen.failures with Winsock listeners (a refused loopback connect is
+// reported only after about 2 s on W, so its window is longer), gen.pin_reuse_unicastport (the
+// socket option opgen sets in place of IP_BIND_ADDRESS_NO_PORT, tested before use), and
+// gen.binaries with the oneport and opgen programs (opcase's and ophold's programs are Linux only).
 // Functional and untimed: no rate is asserted.
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
+
 #include "test_support.hpp"
 
 #include "hpack.hpp"
@@ -19,6 +34,23 @@
 
 #include <algorithm>
 #include <cmath>
+
+#if defined(_WIN32) && defined(ONEPORT_HAVE_TLS)
+
+#include "harness.hpp"
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+
+#include <array>
+#include <atomic>
+#include <mutex>
+#include <set>
+#include <sstream>
+#include <thread>
+
+#endif
 
 #if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
 
@@ -125,7 +157,7 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
-#if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
+#if (defined(__linux__) || defined(_WIN32)) && defined(ONEPORT_HAVE_TLS)
 
 		og::Options short_window(og::Proto p, og::Load l, std::uint16_t port)
 		{
@@ -229,6 +261,10 @@ namespace oneport::test
 			}
 			return std::nullopt;
 		}
+
+#endif
+
+#if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
 
 		/// A listener that records each connection's source address and closes it at once.
 		struct Recorder
@@ -489,6 +525,334 @@ namespace oneport::test
 
 #endif
 
+#if defined(_WIN32) && defined(ONEPORT_HAVE_TLS)
+
+		/// Winsock 2.2 for one test (the in-process server starts its own too).
+		struct Winsock
+		{
+			Winsock()
+			{
+				WSADATA d{};
+				ok = ::WSAStartup(MAKEWORD(2, 2), &d) == 0;
+			}
+			~Winsock()
+			{
+				if (ok) ::WSACleanup();
+			}
+			Winsock(const Winsock&) = delete;
+			Winsock& operator=(const Winsock&) = delete;
+			bool ok = false;
+		};
+
+		sockaddr_in loopback_v4(std::uint32_t host_order_addr, std::uint16_t port)
+		{
+			sockaddr_in a{};
+			a.sin_family = AF_INET;
+			a.sin_port = htons(port);
+			a.sin_addr.s_addr = htonl(host_order_addr);
+			return a;
+		}
+
+		/// A loopback socket bound by the system's choice of port; `listen` makes it a listener.
+		SOCKET bound_socket(bool listen, std::uint16_t& port)
+		{
+			const SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			if (s == INVALID_SOCKET) return s;
+			const BOOL one = TRUE;
+			::setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&one), sizeof(one));
+			sockaddr_in a = loopback_v4(INADDR_LOOPBACK, 0);
+			if (::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0 || (listen && ::listen(s, SOMAXCONN) != 0))
+			{
+				::closesocket(s);
+				return INVALID_SOCKET;
+			}
+			int n = sizeof(a);
+			::getsockname(s, reinterpret_cast<sockaddr*>(&a), &n);
+			port = ntohs(a.sin_port);
+			return s;
+		}
+
+		/// A listener that records each connection's source address and closes it at once.
+		struct WinRecorder
+		{
+			Winsock ws;
+			SOCKET fd = INVALID_SOCKET;
+			std::uint16_t port = 0;
+			std::atomic<bool> stop{false};
+			std::set<std::uint32_t> sources;
+			std::thread t;
+
+			WinRecorder()
+			{
+				fd = bound_socket(true, port);
+				t = std::thread([this] {
+					while (!stop.load())
+					{
+						fd_set r;
+						FD_ZERO(&r);
+						FD_SET(fd, &r);
+						timeval tv{0, 50'000};
+						if (::select(0, &r, nullptr, nullptr, &tv) <= 0) continue;
+						sockaddr_in peer{};
+						int len = sizeof(peer);
+						const SOCKET c = ::accept(fd, reinterpret_cast<sockaddr*>(&peer), &len);
+						if (c == INVALID_SOCKET) continue;
+						sources.insert(ntohl(peer.sin_addr.s_addr));
+						::closesocket(c);
+					}
+				});
+			}
+			void finish()
+			{
+				stop.store(true);
+				if (t.joinable()) t.join();
+			}
+			~WinRecorder()
+			{
+				finish();
+				if (fd != INVALID_SOCKET) ::closesocket(fd);
+			}
+			WinRecorder(const WinRecorder&) = delete;
+			WinRecorder& operator=(const WinRecorder&) = delete;
+		};
+
+		Result win_source_block()
+		{
+			std::set<std::uint32_t> seen;
+			{
+				WinRecorder rec;
+				CHECK(rec.fd != INVALID_SOCKET, "a recording listener");
+				og::Options o = short_window(og::Proto::http1, og::Load::churn, rec.port);
+				o.k_src = 3;
+				o.src_base = 0x7F000B07u;  // 127.0.11.7
+				o.conns = 2;
+				o.warmup = 0ms;
+				o.duration = 100ms;
+				const og::Result r = og::run(o, nullptr);
+				CHECK(r.ok, "opgen failed: " << r.error);
+				CHECK(r.measure.errors.eof + r.measure.errors.reset > 0, "the recorder's closes are not counted as failures");
+				rec.finish();
+				seen = rec.sources;
+			}
+			CHECK(seen == (std::set<std::uint32_t>{0x7F000B07u, 0x7F000B08u, 0x7F000B09u}), seen.size() << " source addresses, expected the 3 of the block");
+			return std::nullopt;
+		}
+
+		Result win_failures()
+		{
+			const Winsock ws;
+			// A port that refuses: bound and not listening, held for the test's length. On W a
+			// refused loopback connect completes with its error only after about 2 s (the SYN is
+			// sent again after the reset; read on W in M6b), so the window is 2.6 s and the timeout
+			// 4 s, and the failures counted are those whose connect failed inside the window.
+			{
+				std::uint16_t port = 0;
+				const SOCKET held = bound_socket(false, port);
+				CHECK(held != INVALID_SOCKET && port != 0, "a bound loopback port");
+				og::Options o = short_window(og::Proto::mqtt, og::Load::churn, port);
+				o.warmup = 0ms;
+				o.duration = 2600ms;
+				o.timeout = 4000ms;
+				const og::Result r = og::run(o, nullptr);
+				::closesocket(held);
+				CHECK(r.ok && r.measure.completed == 0 && r.measure.errors.connect > 0 && r.measure.errors.total() == r.measure.errors.connect,
+				      "refused: completed " << r.measure.completed << ", connect failures " << r.measure.errors.connect << ", errors "
+				                            << r.measure.errors.total());
+			}
+			// A server that accepts and never answers: every exchange times out.
+			{
+				std::uint16_t port = 0;
+				const SOCKET l = bound_socket(true, port);
+				CHECK(l != INVALID_SOCKET, "a silent listener");
+				og::Options o = short_window(og::Proto::http1, og::Load::churn, port);
+				o.conns = 2;
+				o.warmup = 0ms;
+				o.duration = 200ms;
+				o.timeout = 100ms;
+				const og::Result r = og::run(o, nullptr);
+				::closesocket(l);
+				CHECK(r.ok && r.measure.completed == 0 && r.measure.errors.timeout > 0, "silent: completed " << r.measure.completed << ", timeouts " << r.measure.errors.timeout);
+			}
+			return std::nullopt;
+		}
+
+		/// What opgen's sockets rest on in place of Linux's IP_BIND_ADDRESS_NO_PORT (section 2.4),
+		/// tested before use as the IOCP pins are: SO_REUSE_UNICASTPORT is accepted before bind;
+		/// explicit binds to two addresses of 127.0.0.0/8 may hold the same port, so each address
+		/// of a block has a port space of its own; and a connection from a socket bound so arrives
+		/// from that address. Pinned as read on W in M6b, not more: whether the option changes which
+		/// port bind picks is not tested (bind still names a port at once, as getsockname shows).
+		Result pin_reuse_unicastport()
+		{
+			const Winsock ws;
+			CHECK(ws.ok, "WSAStartup");
+			std::uint16_t lport = 0;
+			const SOCKET l = bound_socket(true, lport);
+			CHECK(l != INVALID_SOCKET, "a listener");
+			const SOCKET a = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			const SOCKET b = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			const BOOL one = TRUE;
+			Result bad;
+			if (::setsockopt(a, SOL_SOCKET, SO_REUSE_UNICASTPORT, reinterpret_cast<const char*>(&one), sizeof(one)) != 0)
+			{
+				bad = "SO_REUSE_UNICASTPORT refused: " + std::to_string(::WSAGetLastError());
+			}
+			sockaddr_in src = loopback_v4(0x7F000C21u, 0);  // 127.0.12.33
+			if (!bad && ::bind(a, reinterpret_cast<sockaddr*>(&src), sizeof(src)) != 0) bad = "bind to 127.0.12.33:0 failed";
+			int n = sizeof(src);
+			::getsockname(a, reinterpret_cast<sockaddr*>(&src), &n);
+			const std::uint16_t pa = ntohs(src.sin_port);
+			if (!bad && pa == 0) bad = "no port after bind";
+			// The same port on another address of the block.
+			sockaddr_in other = loopback_v4(0x7F000C22u, pa);  // 127.0.12.34
+			::setsockopt(b, SOL_SOCKET, SO_REUSE_UNICASTPORT, reinterpret_cast<const char*>(&one), sizeof(one));
+			if (!bad && ::bind(b, reinterpret_cast<sockaddr*>(&other), sizeof(other)) != 0)
+			{
+				bad = "the same port on 127.0.12.34 refused: " + std::to_string(::WSAGetLastError());
+			}
+			sockaddr_in dst = loopback_v4(INADDR_LOOPBACK, lport);
+			if (!bad && ::connect(a, reinterpret_cast<sockaddr*>(&dst), sizeof(dst)) != 0) bad = "connect from 127.0.12.33";
+			if (!bad && ::connect(b, reinterpret_cast<sockaddr*>(&dst), sizeof(dst)) != 0) bad = "connect from 127.0.12.34 on the same port";
+			std::set<std::uint32_t> peers;
+			for (int k = 0; !bad && k < 2; ++k)
+			{
+				sockaddr_in peer{};
+				int len = sizeof(peer);
+				const SOCKET c = ::accept(l, reinterpret_cast<sockaddr*>(&peer), &len);
+				if (c == INVALID_SOCKET) bad = "accept";
+				else
+				{
+					if (ntohs(peer.sin_port) != pa) bad = "a peer port other than the bound one";
+					peers.insert(ntohl(peer.sin_addr.s_addr));
+					::closesocket(c);
+				}
+			}
+			::closesocket(a);
+			::closesocket(b);
+			::closesocket(l);
+			if (bad) return bad;
+			CHECK(peers == (std::set<std::uint32_t>{0x7F000C21u, 0x7F000C22u}), "the two connections did not arrive from their bound addresses");
+			return std::nullopt;
+		}
+
+		/// A program started with its standard output on a pipe, read by a thread.
+		struct WinProcess
+		{
+			PROCESS_INFORMATION pi{};
+			HANDLE out = nullptr;
+			std::thread reader;
+			std::mutex m;
+			std::string text;
+			bool started = false;
+
+			bool start(const std::vector<std::string>& args)
+			{
+				SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+				HANDLE w = nullptr;
+				if (!CreatePipe(&out, &w, &sa, 0)) return false;
+				SetHandleInformation(out, HANDLE_FLAG_INHERIT, 0);
+				STARTUPINFOA si{};
+				si.cb = sizeof(si);
+				si.dwFlags = STARTF_USESTDHANDLES;
+				si.hStdOutput = w;
+				si.hStdError = w;
+				std::string cmd;
+				for (const auto& a : args) cmd += (cmd.empty() ? "" : " ") + ("\"" + a + "\"");
+				started = CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi) != 0;
+				CloseHandle(w);
+				if (!started) return false;
+				reader = std::thread([this] {
+					std::array<char, 4096> buf{};
+					DWORD k = 0;
+					while (ReadFile(out, buf.data(), static_cast<DWORD>(buf.size()), &k, nullptr) && k > 0)
+					{
+						std::lock_guard lock(m);
+						text.append(buf.data(), k);
+					}
+				});
+				return true;
+			}
+
+			std::string snapshot()
+			{
+				std::lock_guard lock(m);
+				std::string t = text;
+				std::erase(t, '\r');  // the C runtime's text-mode stdout ends lines with CRLF
+				return t;
+			}
+
+			/// The number after the first `key` on a complete line, waiting at most 10 s.
+			long value_after(const std::string& key)
+			{
+				for (int i = 0; i < 1000; ++i)
+				{
+					const std::string t = snapshot();
+					const auto at = t.find(key);
+					const auto eol = at == std::string::npos ? std::string::npos : t.find('\n', at);
+					if (eol != std::string::npos) return std::stol(t.substr(at + key.size(), eol - at - key.size()));
+					std::this_thread::sleep_for(10ms);
+				}
+				return -1;
+			}
+
+			/// Its exit code once it has ended (at most `ms`), and all it printed.
+			int wait(DWORD ms = 60000)
+			{
+				if (!started) return -1;
+				WaitForSingleObject(pi.hProcess, ms);
+				DWORD code = 1;
+				GetExitCodeProcess(pi.hProcess, &code);
+				if (reader.joinable()) reader.join();
+				CloseHandle(out);
+				CloseHandle(pi.hThread);
+				CloseHandle(pi.hProcess);
+				started = false;
+				return static_cast<int>(code);
+			}
+
+			~WinProcess()
+			{
+				if (started)
+				{
+					TerminateProcess(pi.hProcess, 99);  // only a program this test started, left running by a failed check
+					wait(10000);
+				}
+			}
+		};
+
+		Result win_binaries()
+		{
+			const std::vector<std::string>& p = extra_paths();
+			CHECK(!binary_path().empty() && p.size() == 1, "needs the oneport and opgen paths");
+			const std::string& oneport = binary_path();
+			const std::string& opgen = p[0];
+			WinProcess server;
+			CHECK(server.start({oneport, "--mode", "dedicated", "--detect", "replay", "--dispatch", "inproc", "--backend", "IOCP"}), "spawn oneport");
+			const long port = server.value_after("oneport: listening HTTP/1.1 127.0.0.1:");
+			CHECK(port > 0, "oneport printed no listening line");
+			WinProcess probe;
+			CHECK(probe.start({opgen, "--port", std::to_string(port), "--proto", "http1", "--probe"}), "spawn the probe");
+			CHECK(probe.wait() == 0 && probe.snapshot().find("\"probe_detail\":\"http1: exchange completed\"") != std::string::npos, "the probe failed");
+			WinProcess gen;
+			CHECK(gen.start({opgen, "--port", std::to_string(port), "--proto", "http1", "--cpus", "2,3", "--conns", "2", "--warmup-ms", "50",
+			                 "--duration-ms", "150", "--src-base", "127.0.12.1", "--k-src", "2"}),
+			      "spawn opgen");
+			CHECK(gen.wait() == 0, "opgen's exit");
+			const std::string g = gen.snapshot();
+			CHECK(g.find("MEASURE_START ") != std::string::npos && g.find("MEASURE_END ") != std::string::npos, "no markers");
+			CHECK(g.find("\"ok\":true") != std::string::npos && g.find("\"connect_failures\":0") != std::string::npos, "the report");
+			// The server stops on its event (bench/server/main.cpp), as the W window runner stops it.
+			HANDLE stop = OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\oneport-stop-" + std::to_wstring(server.pi.dwProcessId)).c_str());
+			CHECK(stop != nullptr, "the server's stop event could not be opened");
+			SetEvent(stop);
+			CloseHandle(stop);
+			CHECK(server.wait(30000) == 0, "oneport's exit");
+			CHECK(server.snapshot().find("counter accepted ") != std::string::npos, "oneport printed no counters");
+			return std::nullopt;
+		}
+
+#endif
+
 	}  // namespace
 
 	void register_gen_tests(Registry& r)
@@ -520,6 +884,31 @@ namespace oneport::test
 		r["gen.source_block"] = source_block;
 		r["gen.failures"] = failures;
 		r["gen.binaries"] = binaries;
+#endif
+#if defined(_WIN32) && defined(ONEPORT_HAVE_TLS)
+		{
+			const std::string s = ".IOCP";
+			auto on = [](std::function<Result()> fn) {
+				return [fn] {
+					suite_backend() = Backend::iocp;
+					return fn();
+				};
+			};
+			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub})
+			{
+				r["gen.churn." + std::string(og::name(p)) + s] = on([p] { return one_load(p, og::Load::churn); });
+			}
+			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt})
+			{
+				r["gen.keepalive." + std::string(og::name(p)) + s] = on([p] { return one_load(p, og::Load::keepalive); });
+			}
+			r["gen.open_loop" + s] = on(open_loop);
+			r["gen.probe" + s] = on(probe);
+			r["gen.source_block"] = win_source_block;
+			r["gen.failures"] = win_failures;
+			r["gen.pin_reuse_unicastport"] = pin_reuse_unicastport;
+			r["gen.binaries"] = win_binaries;
+		}
 #endif
 	}
 
