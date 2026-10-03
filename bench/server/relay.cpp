@@ -32,10 +32,11 @@
 //   - System calls the copy does not need are not made (M5): a connect whose end epoll reports with
 //     EPOLLOUT and no error is not asked for SO_ERROR; a side is read when the copy starts only if
 //     it may hold bytes (Relay::up_ready, down_ready); a read that returns less than its room
-//     after an event that reported the source's half-close (EPOLLRDHUP) has reached the end, which
-//     no second read is made to see (TCP delivers the FIN after every byte before it); and the
-//     direction that ends last is closed by close(), whose FIN passes its end on, without a
-//     shutdown() first.
+//     has drained the source, as the handlers' reads take it (edge-triggered readiness reports
+//     any later byte), so no read follows it to find EAGAIN, and after an event that reported the
+//     source's half-close (EPOLLRDHUP) it has reached the end, which no second read is made to see
+//     (TCP delivers the FIN after every byte before it); and the direction that ends last is
+//     closed by close(), whose FIN passes its end on, without a shutdown() first.
 //   - T_dec bounds pass-through's wait for the whole ClientHello: the route is the decision
 //     there, so T_dec stays armed from accept (or the PROXY header's end) until the route is
 //     chosen; a ClientHello still incomplete at T_dec is closed and counted route_timeouts
@@ -576,11 +577,13 @@ namespace oneport::server::detail
 		Relay& r = *c->relay;
 		Dir& d = up ? r.up : r.down;
 		const int src = up ? c->fd : r.fd;
+		bool drained = false;
 		for (;;)
 		{
 			if (!send_held(c, up)) return false;
 			if (d.blocked) return true;
 			if (d.eof) return relay_after_eof(c, up);
+			if (drained) return true;  // a short read emptied the source; its next bytes raise an event
 			Buffer*& buf = up ? c->buf : d.buf;
 			std::uint32_t& beg = up ? c->beg : d.beg;
 			std::uint32_t& len = up ? c->len : d.len;
@@ -598,8 +601,13 @@ namespace oneport::server::detail
 				len += static_cast<std::uint32_t>(n);
 				c_.bytes_received += static_cast<std::uint64_t>(n);
 				if (up) c->bytes_received += static_cast<std::uint64_t>(n);
-				// After a reported half-close, a short read has taken every byte before the FIN.
-				if (src_rdhup && static_cast<std::uint32_t>(n) < room) d.eof = true;
+				// A short read has drained the source; after a reported half-close it has taken every
+				// byte before the FIN.
+				if (static_cast<std::uint32_t>(n) < room)
+				{
+					if (src_rdhup) d.eof = true;
+					else drained = true;
+				}
 				continue;
 			}
 			const int e = errno;
