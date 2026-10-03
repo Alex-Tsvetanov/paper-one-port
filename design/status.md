@@ -2420,6 +2420,118 @@ Log sha256 (W, `C:\Users\alext\lab\p3\merge-check\bbd13f7\`; L, `~/lab/p3/merge-
 After these checks the worktree `D:\Dev\GitHub\Papers\papers\one-port-m6` was removed and the
 branch `m6-windows`, fully merged, was deleted.
 
+## L's connection tracking: NOTRACK for loopback, 2026-10-03
+
+Alex approved on 2026-10-03 the first option of M3's list (above, "L's connection tracking"): raw
+table NOTRACK rules for loopback for the length of each lab job. Built in 367e0b0; on L's running
+kernel the rules cannot be added, so no job has run with them, and the A/A re-check did not run.
+
+### What was built (367e0b0)
+
+- `bench/run/notrack.sh RECORD COMMAND...`: inside the lab lock, adds exactly
+  `-t raw -A PREROUTING -i lo -j NOTRACK` and `-t raw -A OUTPUT -o lo -j NOTRACK` with
+  `iptables-nft`, runs the job, and removes exactly those two when the job ends, however it ends (an
+  EXIT trap; INT, TERM and HUP end the script so that the trap runs). It then checks that both are
+  gone (`-C`) and that the ruleset (`nft -s list ruleset`) equals the one read before the job; a base
+  chain of the raw table that the first rule had to create (on L, OUTPUT) is deleted again once
+  empty, which nft refuses for a chain that holds a rule. It refuses to run the job if a rule is
+  already present (exit 91: a rule it did not add is not its to remove), or if a rule cannot be
+  added (exit 93, naming the kernel and whether its module tree is installed). `ONEPORT_NOTRACK=off`
+  runs the job with loopback tracked, and says so in the record; nothing falls back to it alone.
+  RECORD (JSON): whether NOTRACK was in effect and why not, the iptables version, the kernel, the
+  ruleset before, the rules added and when, the connection-tracking count at the job's start and
+  end, the removal check, the job's exit status.
+- `bench/run/lab_job.sh` runs every job as `lablock bash notrack.sh DIR/NAME.notrack.json COMMAND...`,
+  so the rules are added only once the lock is held and never meet another job's.
+- `window.py`: `notrack_state()` reads the two rules with `sudo -n iptables-nft -t raw -S`
+  (`parse_notrack()` also takes the target printed as `CT --notrack`: iptables-nft says "The NOTRACK
+  target is converted into CT target in rule listing and saving"); `pin_fingerprint()` records it,
+  so every session's fingerprint says whether the rules were in place; every window row has
+  `conntrack_count` (before the wait, at the window's start, at its end) beside M3's readings. The
+  wait for an empty table stays as a safety check. `aa.py` prints a session whose loopback is
+  tracked; `journal.py` counts the windows run with NOTRACK and takes `--milestone`.
+- `run.test_runner` has 25 checks (the new one: the parser on rule listings with both rules, one,
+  none, the CT form, and lookalike rules).
+
+### What L showed (read-only, 2026-10-03)
+
+- `iptables -V`: "iptables v1.8.13 (nf_tables)"; `/usr/bin/iptables` links to `xtables-nft-multi`.
+  Docker 29.7.2's chains (DOCKER, DOCKER-BRIDGE, DOCKER-CT, DOCKER-FORWARD, DOCKER-INTERNAL,
+  DOCKER-USER) are in iptables-nft's `nat` and `filter` tables, so Docker uses iptables-nft. The
+  legacy variant cannot load its tables (`ip_tables` is not available, below).
+- The raw table (`table ip raw`) held one empty base chain, PREROUTING, policy accept, and no
+  OUTPUT chain; no Docker chain is in it. The two rules would be appended to the base chains and
+  touch no Docker chain.
+- No container exists (`docker ps -a` lists none). Docker's nat OUTPUT jump excludes 127.0.0.0/8,
+  and the filter INPUT policy is ACCEPT with no connection-state rule, so untracked loopback packets
+  would pass as before. While the rules are in place, a container port published on a local
+  address other than 127.0.0.0/8 and reached from the host would lose its DNAT; there is none.
+
+### The blocker: the running kernel cannot load the module NOTRACK needs
+
+The first append failed, with iptables' "Warning: Extension CT revision 0 not supported, missing
+kernel module?" and "RULE_APPEND failed (No such file or directory): rule in chain PREROUTING".
+- iptables-nft implements NOTRACK with the CT target, the kernel module `xt_CT`; nft's own
+  `notrack` needs `nft_ct`. In the running kernel's configuration both are modules
+  (`CONFIG_NETFILTER_XT_TARGET_CT=m`, `CONFIG_NFT_CT=m`, `/proc/config.gz`), and neither is loaded.
+- The running kernel is 7.2.3-arch1-2, booted 2026-09-12 13:32. pacman upgraded `linux` from
+  7.2.3.arch1-2 to 7.2.6.arch2-1 on 2026-09-16 (`/var/log/pacman.log`), and `/lib/modules` holds
+  only 7.2.5-hardened1-1-hardened and 7.2.6-arch2-1. So no module that is not already loaded can be
+  loaded until L boots an installed kernel.
+- A reboot is outside my authority, and restoring the old module tree is a system change outside
+  the install policy. I stopped there, as the brief says for a rule that cannot be added.
+
+Tests of the scripts on L, under the lab lock (`~/lab/p3/notrack-test/`, copies byte-identical to
+367e0b0's `notrack.sh` and `lab_job.sh`; `probe.sh` lists the raw rules, opens and closes 200
+loopback connections, and reads the table's count around them):
+- t2, the default: the first append failed, the job did not run (exit 93), no rule was left, the
+  ruleset was the same before and after (`nft -s list ruleset`, md5 cd1e03c3f23767a4f7df31cb05c9b314
+  both times), and the record says `notrack: false` with the reason, kernel 7.2.3-arch1-2, its
+  module tree missing.
+- t3, `ONEPORT_NOTRACK=off`: the job ran; its 200 loopback connections took the table from 3 to 203
+  entries, so loopback is tracked; the record says `notrack: false`, reason `ONEPORT_NOTRACK=off`.
+- Not run, since no rule can be added: the add path, the removal after a successful add (with the
+  OUTPUT chain's deletion), the refusal of a rule already present, and a job stopped by a signal
+  with the rules in place. They must run once, on a job with no window, before the first job that
+  relies on them.
+
+sha256: `t2.notrack.json` 42328e03928219046887362016b3a0278ba0123ec5a5f948a78020ae09e2103c, `t2.log`
+1407df53157bd0cb58be466172611eeb68de19d0942f0d5f4e9c7fccb613890f, `t3.notrack.json`
+e92a918eed154ac44b17a2bde90e11ce5683fbf4465693eb2e4e338e249723ac, `t3.log`
+a43330f32255f2195548dfd3b46f279d2549c07a50fe568535ee1c216dc8a588, `probe.sh`
+4b51aa4da456332acb3ea92cadb729c5e89d339cf39c781c1d2733db5c460d8f.
+
+### The A/A re-check: not run
+
+The re-check (churn HTTP/1.1 on epoll and io_uring, keep-alive TLS on io_uring, dedicated mode)
+was to measure the spread and the time per window with NOTRACK. Without the rules it would repeat
+M3's conditions, so it was not run: no window ran, and nothing was journaled. There is no spread
+with NOTRACK and no time per window with NOTRACK to report; the figures of M3 (above) stand,
+with about 125 s of table wait before each churn or open-loop window. No window timed one-port
+mode.
+
+### For Alex: a reboot of L
+
+NOTRACK needs L to boot an installed kernel. What that decides beyond NOTRACK:
+- Every development number so far (M0 to M3, and the merge checks of bbd13f7) ran on
+  7.2.3-arch1-2. The installed kernels are 7.2.6-arch2-1 and 7.2.5-hardened1-1-hardened; which one
+  boots is Alex's choice (the bootloader's default was not read). Engineering numbers before the
+  code freeze may change with it; the freeze's records and the pilot run on whichever kernel then
+  runs.
+- The frozen text cites Linux v7.2 source lines (WL7) and has the skb caches read again at the code
+  freeze (section 9.1); both installed kernels are 7.2 releases. `K_BASE` and every B3 window must
+  run on one kernel.
+- B3: WL7's Ks is the host-wide growth of `Slab`. With loopback tracked, each pending connection
+  also holds a connection-tracking entry, an `nf_conntrack` slab object of 256 bytes (`objsize` in
+  `/proc/slabinfo`, read 2026-10-03), which is in Ks for every system and for `K_BASE` alike. M3's
+  two ophold windows ran tracked. Once NOTRACK works, every B3 window and `K_BASE` must run in one
+  state, all with it or all without.
+- Until the reboot, any kernel feature on L that needs a module not already loaded is
+  unavailable.
+- Until then, a job through `lab_job.sh` stops with exit 93 unless it is started with
+  `ONEPORT_NOTRACK=off`; with it the job runs tracked, the wait applies, and the time plan of M3
+  holds.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
@@ -2429,6 +2541,7 @@ branch `m6-windows`, fully merged, was deleted.
   (local, not pushed), every one marked development.
 - The readings of the frozen text are in the revision log of hypotheses.md: M1's (c8a0525), M2a's
   with the coordinator's three decisions (30b5be4), and M2b's with the rule of I29 (89a96c5).
+- No lab-journal line for the merge or for NOTRACK: no window ran.
 
 ## What M1 starts from
 
@@ -2563,9 +2676,21 @@ branch `m6-windows`, fully merged, was deleted.
   - section 10's untimed `perf trace -s` window per cost cell.
 - The A/A spread on L (above) says the harness's noise is far inside the 2% margin for the cells
   measured; the pilot (section 4.6) sizes R_C on the frozen binary, and nothing here enters it.
+- M6a is merged (bbd13f7): the IOCP backend, the Windows dependency builds and the suite on IOCP
+  are in main, green on W (Debug, ASan) and on L (Debug and the three sanitizer builds). What M6b
+  needs is in the M6a section.
 - Open for the coordinator and Alex:
-  - L's connection tracking (above): a host change, or the harness's wait and the longer time plan;
+  - L's connection tracking: NOTRACK for loopback is approved and built (367e0b0), and cannot run
+    until L boots an installed kernel (a reboot, Alex's decision; "L's connection tracking: NOTRACK
+    for loopback", above). Until then lab jobs run with `ONEPORT_NOTRACK=off`, the table wait and
+    the longer time plan; the first job after the reboot tests the add and removal path on a job
+    with no window;
+  - M6a's reading 7, not logged: rule E's posted receive form holds the handler's buffer from accept,
+    against B2(d) and section 2.1's "no data buffer while no byte has arrived"; to be decided before
+    rule E chooses the IOCP receive form, which comes before the W pilot (M6a, "Open for the
+    coordinator");
   - the per-connection decision record of the binary that WL8 needs against a server in its own
     process (M1's note) is still to build;
   - `RELAY_BUF`, `IORING_OP_SEND` and splice's worker threads: M2b's engineering options for M5.
-- Nothing blocks M4's competitor builds; their windows inherit the connection-tracking wait.
+- Nothing blocks M4's competitor builds; their windows inherit the connection-tracking wait, and
+  their lab jobs need `ONEPORT_NOTRACK=off` until the reboot.
