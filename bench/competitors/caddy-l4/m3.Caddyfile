@@ -1,0 +1,32 @@
+# caddy-l4 v0.1.2 on Caddy v2.11.4: the M3 configuration (hypotheses.md 5.3 and Appendix B;
+# design/proposal.md section 6, CP4). Exactly M3's two routes: TLS by SNI (oneport.test) to the
+# stub's TLS port, everything else to the stub's HTTP/1.1 port. bench/competitors/competitors.py
+# renders it, filling every field written between @ signs, and starts `caddy run --adapter
+# caddyfile` under taskset on the front core: GOMAXPROCS then follows the affinity mask, 1 (Appendix
+# B; the Go runtime docs, go1.27.1). The run records Caddy's own adaptation of it to JSON (`caddy
+# adapt`). The B3 configuration (b3.Caddyfile) is this one with the 60 s timer.
+{
+	# Plumbing: the admin endpoint on a loopback port of the run, not the default localhost:2019, so
+	# that two runs never share it; B3 asks it for the heap profile with gc=1 (Appendix B).
+	admin 127.0.0.1:@ADMIN_PORT@
+	# Logging: not set. Caddy's default level, INFO, is above Debug, the level at which caddy-l4
+	# logs connections (layer4/server.go lines 192 and 210 at v0.1.2; Appendix B).
+	layer4 {
+		# The listen backlog is Go's, from net.core.somaxconn (Appendix B: as each system sets it).
+		127.0.0.1:@PORT@ {
+			# Matched to the server's T_dec (section 1: 3 s; Appendix B); caddy-l4's default is
+			# also 3s (docs/servers.md at v0.1.2).
+			matching_timeout @TIMER_S@s
+			# M3's first route: TLS by SNI (the tls matcher with the sni handshake matcher).
+			@tls tls sni oneport.test
+			route @tls {
+				proxy 127.0.0.1:@STUB_TLS@
+			}
+			# M3's second route: everything else; a route with no matcher takes all traffic
+			# (docs/routes.md at v0.1.2).
+			route {
+				proxy 127.0.0.1:@STUB_HTTP@
+			}
+		}
+	}
+}

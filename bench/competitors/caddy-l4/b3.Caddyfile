@@ -1,0 +1,28 @@
+# caddy-l4 v0.1.2 on Caddy v2.11.4: the B3 configuration (hypotheses.md WL7, 5.2 and Appendix B;
+# design/proposal.md section 6, CP4), descriptive in B3. The M3 configuration (m3.Caddyfile) with
+# the 60 s timer of section 1. WL7's limits need nothing here: Go raises its own open-file limit
+# (Go 1.19 release notes) and takes its backlog from net.core.somaxconn (Appendix B). The buffer
+# rule: nothing to configure (Appendix B: the prefetch chunk and the matching cap are code
+# constants). Started as M3 is. Before each sample the B3 window asks the admin endpoint for a heap
+# profile with gc=1 (Appendix B; Caddy's profiling docs).
+{
+	# Plumbing: the admin endpoint on a loopback port of the run (as M3); B3's heap profile.
+	admin 127.0.0.1:@ADMIN_PORT@
+	# Logging: not set; INFO is above Debug (as M3).
+	layer4 {
+		127.0.0.1:@PORT@ {
+			# Section 1 and Appendix B: 60 s in B3, so no pending connection expires before the
+			# last sample.
+			matching_timeout @TIMER_S@s
+			# M3's first route: TLS by SNI.
+			@tls tls sni oneport.test
+			route @tls {
+				proxy 127.0.0.1:@STUB_TLS@
+			}
+			# M3's second route: everything else.
+			route {
+				proxy 127.0.0.1:@STUB_HTTP@
+			}
+		}
+	}
+}

@@ -1,0 +1,62 @@
+# Envoy 1.39.2, the release binary: the B3 configuration (hypotheses.md WL7, 5.2 and Appendix B;
+# design/proposal.md section 6, CP3). The M3 configuration (m3.yaml) plus WL7's limits for
+# N_PEND = @N_PEND@ pending connections, the 60 s timer of section 1, and the buffer rule of
+# Appendix B (Envoy: configured). Started as M3 is (--concurrency 1, --disable-hot-restart). No
+# downstream connection limit is configured, and none applies by default (Envoy warns at startup:
+# the overload manager docs, v1.39.2). The edge page's admin and overload-manager items size
+# nothing a connection holds and are not configured (Appendix B).
+static_resources:
+  listeners:
+  - name: b3
+    address:
+      socket_address: { address: 127.0.0.1, port_value: @PORT@ }
+    tcp_backlog_size: @N_PEND@               # WL7 and Appendix B: backlog N_PEND (default net.core.somaxconn)
+    listener_filters_timeout: @TIMER_S@s     # section 1 and Appendix B: 60 s in B3
+    per_connection_buffer_limit_bytes: 32768 # Appendix B's buffer table: the edge page's 32 KiB for TCP proxies (default 1 MiB)
+    listener_filters:
+    - name: envoy.filters.listener.tls_inspector   # as M3
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+        initial_read_buffer_size: 256        # Appendix B's buffer table: the smallest value the proto accepts; the buffer doubles on demand up to 16 KiB
+    filter_chains:
+    - filter_chain_match:                    # M3's first route: TLS by SNI
+        server_names: [ "oneport.test" ]
+        transport_protocol: tls
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tls_stub
+          cluster: tls_stub
+    default_filter_chain:                    # M3's second route: everything else
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: http_stub
+          cluster: http_stub
+  clusters:
+  - name: tls_stub
+    type: STATIC
+    per_connection_buffer_limit_bytes: 32768 # Appendix B's buffer table: on the cluster too (the edge page)
+    circuit_breakers:                        # disabled, as M3 (the benchmarking FAQ)
+      thresholds:
+      - { priority: DEFAULT, max_connections: 1000000000, max_pending_requests: 1000000000, max_requests: 1000000000, max_retries: 1000000000 }
+      - { priority: HIGH, max_connections: 1000000000, max_pending_requests: 1000000000, max_requests: 1000000000, max_retries: 1000000000 }
+    load_assignment:
+      cluster_name: tls_stub
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: 127.0.0.1, port_value: @STUB_TLS@ } } }
+  - name: http_stub
+    type: STATIC
+    per_connection_buffer_limit_bytes: 32768 # as above
+    circuit_breakers:
+      thresholds:
+      - { priority: DEFAULT, max_connections: 1000000000, max_pending_requests: 1000000000, max_requests: 1000000000, max_retries: 1000000000 }
+      - { priority: HIGH, max_connections: 1000000000, max_pending_requests: 1000000000, max_requests: 1000000000, max_retries: 1000000000 }
+    load_assignment:
+      cluster_name: http_stub
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: 127.0.0.1, port_value: @STUB_HTTP@ } } }

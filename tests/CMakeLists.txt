@@ -193,6 +193,17 @@ if(Python3_FOUND)
     # The window runner's readers and rules (bench/run), on samples recorded on L.
     add_test(NAME run.test_runner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_runner.py)
     set_tests_properties(run.test_runner PROPERTIES TIMEOUT 120 LABELS run)
+    # The competitors' configurations, the probe's judgement and the hand-off rows (M4a); on Linux
+    # also the probe of the server's relay and one short hand-off window per M3 protocol, with
+    # this build's oneport and opgen (bench/competitors/test_competitors.py).
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET opgen)
+        add_test(NAME run.test_competitors COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/competitors/test_competitors.py
+                 --build ${PROJECT_BINARY_DIR})
+        set_tests_properties(run.test_competitors PROPERTIES TIMEOUT 300 LABELS run)
+    else()
+        add_test(NAME run.test_competitors COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/competitors/test_competitors.py)
+        set_tests_properties(run.test_competitors PROPERTIES TIMEOUT 120 LABELS run)
+    endif()
 else()
     message(STATUS "oneport: no Python 3, so the gate tests are not registered")
 endif()

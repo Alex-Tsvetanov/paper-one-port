@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""The proxies of hypotheses.md section 2.3 (M3 and B3) as the window runner starts them on L.
+
+Each system has its configurations in bench/competitors/<name>/ (m3 and b3, Appendix B), its
+binary under ~/opt (bench/competitors/install.sh, the pins in bench/cmake/pins.cmake), and here
+its command line. `render` fills a configuration's fields written between @ signs; `start` starts the system
+fresh under taskset on the front core, in a session of its own (so its whole process group,
+nginx's master and worker included, is stopped by one signal), with the soft open-file limit
+raised to the hard one (WL7's limits), writes its pid file, and waits until its port accepts a
+connection; `stop` stops the group with SIGTERM and collects its output. Never pgrep -f: the pid
+is the one Popen started, and the group is the session it leads.
+
+Linux only (taskset, /proc). The rendering is pure and runs anywhere (test_competitors.py).
+"""
+from __future__ import annotations
+
+import os
+import re
+import signal
+import subprocess
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
+OPT = Path(os.environ.get("ONEPORT_OPT", str(Path.home() / "opt")))
+
+# WL7 (frozen): N_PEND pending connections; Appendix B's limits are 2 x N_PEND and a backlog of
+# N_PEND.
+N_PEND = 10_000
+# Section 1 (frozen): T_fb = T_dec = T_hdr = 3 s, and 60 s in B3 for every system with a
+# detection timer. Appendix B matches each proxy's timer to the server's.
+TIMER_S = {"m3": 3, "b3": 60}
+KINDS = ("m3", "b3")
+# The stub's listeners follow its first port in the order of I20: HTTP/1.1, h2c, TLS, MQTT, SSH,
+# SMTP (bench/server/config.cpp, --relay-port).
+STUB_OFFSET = {"http1": 0, "h2c": 1, "tls": 2, "mqtt": 3, "ssh": 4, "smtp": 5}
+TOKEN = re.compile(r"@[A-Z][A-Z0-9_]*@")
+READY_S = 20.0
+
+
+def pin(name: str, pins: Path = REPO / "bench" / "cmake" / "pins.cmake") -> str:
+    m = re.search(rf'^set\({re.escape(name)} "([^"]*)"\)$', pins.read_text(), re.M)
+    if not m:
+        raise KeyError(f"no {name} in {pins}")
+    return m.group(1)
+
+
+@dataclass(frozen=True)
+class System:
+    name: str
+    version_pin: str
+    files: dict[str, str]  # kind -> configuration file name in bench/competitors/<name>/
+    binary: str            # under OPT, with {v} the version
+
+    def binary_path(self) -> Path:
+        return OPT / self.binary.format(v=pin(self.version_pin))
+
+    def template(self, kind: str) -> Path:
+        return HERE / self.name / self.files[kind]
+
+    def command(self, config: Path, run_dir: Path) -> list[str]:
+        b = str(self.binary_path())
+        if self.name == "nginx":
+            # -p: the prefix for the paths nginx resolves itself; -e: its error log before the
+            # configuration's error_log takes over (nginx 1.19.5 and later).
+            return [b, "-p", str(run_dir), "-e", str(run_dir / "error.log"), "-c", str(config)]
+        if self.name == "haproxy":
+            return [b, "-db", "-f", str(config)]  # -db: foreground, no daemon or master-worker
+        if self.name == "envoy":
+            return [b, "-c", str(config), "--concurrency", "1", "--disable-hot-restart"]
+        if self.name == "caddy-l4":
+            return [b, "run", "--config", str(config), "--adapter", "caddyfile"]
+        if self.name == "sslh-ev":
+            return [b, "-F", str(config)]
+        raise KeyError(self.name)
+
+
+SYSTEMS: dict[str, System] = {s.name: s for s in (
+    System("nginx", "ONEPORT_NGINX_VERSION", {"m3": "m3.conf", "b3": "b3.conf"}, "nginx-{v}/sbin/nginx"),
+    System("haproxy", "ONEPORT_HAPROXY_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg"}, "haproxy-{v}/sbin/haproxy"),
+    System("envoy", "ONEPORT_ENVOY_VERSION", {"m3": "m3.yaml", "b3": "b3.yaml"}, "envoy-{v}/bin/envoy"),
+    System("caddy-l4", "ONEPORT_CADDY_L4_VERSION", {"m3": "m3.Caddyfile", "b3": "b3.Caddyfile"}, "caddy-l4-{v}/caddy"),
+    System("sslh-ev", "ONEPORT_SSLH_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg"}, "sslh-{v}/bin/sslh-ev"),
+)}
+# Section 6.3's order (M3: nginx, HAProxy, Envoy, caddy-l4, sslh-ev).
+ORDER = ("nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev")
+
+
+def cpu_mask(cpu: int, ncpus: int = 16) -> str:
+    """nginx's worker_cpu_affinity bit mask: one character per CPU, CPU 0 rightmost."""
+    if not 0 <= cpu < ncpus:
+        raise ValueError(f"CPU {cpu} outside 0 to {ncpus - 1}")
+    return "".join("1" if i == cpu else "0" for i in reversed(range(ncpus)))
+
+
+def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path) -> dict[str, str]:
+    """The fields of a configuration, written between @ signs. The admin port (caddy-l4) is the front port + 50, a
+    design choice inside the run's port block."""
+    if kind not in KINDS:
+        raise ValueError(f"kind {kind!r}, not one of {KINDS}")
+    return {
+        "PORT": str(port),
+        "STUB_HTTP": str(stub_port + STUB_OFFSET["http1"]),
+        "STUB_TLS": str(stub_port + STUB_OFFSET["tls"]),
+        "TIMER_S": str(TIMER_S[kind]),
+        "CPU": str(cpu),
+        "CPU_MASK": cpu_mask(cpu),
+        "RUN_DIR": str(run_dir),
+        "ADMIN_PORT": str(port + 50),
+        "N_PEND": str(N_PEND),
+        "N_PEND_X2": str(2 * N_PEND),
+    }
+
+
+def render_text(text: str, values: dict[str, str]) -> str:
+    """Fills every field written between @ signs; refuses an unknown field or one left unfilled."""
+    def sub(m: re.Match) -> str:
+        key = m.group(0)[1:-1]
+        if key not in values:
+            raise KeyError(f"no value for {m.group(0)}")
+        return values[key]
+    out = TOKEN.sub(sub, text)
+    if TOKEN.search(out):
+        raise ValueError(f"unfilled field {TOKEN.search(out).group(0)}")
+    return out
+
+
+def render(system: str, kind: str, port: int, stub_port: int, cpu: int, run_dir: Path) -> str:
+    s = SYSTEMS[system]
+    return render_text(s.template(kind).read_text(), fields(kind, port, stub_port, cpu, run_dir))
+
+
+# ---------------------------------------------------------------- processes (Linux)
+
+
+def raise_nofile() -> None:
+    """The soft RLIMIT_NOFILE raised to the hard limit (WL7's limits), in the child before exec."""
+    import resource  # POSIX only; the rendering above runs anywhere
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < hard:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+
+
+def parse_listening(text: str, port: int, host: str = "127.0.0.1") -> bool:
+    """Whether /proc/net/tcp lists a socket in LISTEN (state 0A) on host:port."""
+    want = "".join(f"{int(o):02X}" for o in reversed(host.split("."))) + f":{port:04X}"
+    for line in text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) > 3 and parts[1] == want and parts[3] == "0A":
+            return True
+    return False
+
+
+def wait_port(port: int, limit_s: float = READY_S, host: str = "127.0.0.1") -> bool:
+    """Ready once the port is listening, read from /proc/net/tcp: no connection is made, so a
+    system that routes an empty connection to a default route (HAProxy at the end of its
+    inspect-delay) sends nothing to the stub before the window."""
+    deadline = time.monotonic() + limit_s
+    while time.monotonic() < deadline:
+        if parse_listening(Path("/proc/net/tcp").read_text(), port, host):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+@dataclass
+class Running:
+    system: str
+    kind: str
+    proc: subprocess.Popen
+    run_dir: Path
+    config: Path
+    port: int
+    command: list[str] = field(default_factory=list)
+
+
+def start(system: str, kind: str, port: int, stub_port: int, cpus: list[int], run_dir: Path) -> Running:
+    """Starts a system fresh on `cpus` (the front core) and waits for its port."""
+    s = SYSTEMS[system]
+    run_dir.mkdir(parents=True, exist_ok=True)
+    config = run_dir / f"{kind}.{s.files[kind].split('.', 1)[1]}"
+    config.write_text(render(system, kind, port, stub_port, cpus[0], run_dir))
+    cmd = ["taskset", "-c", ",".join(map(str, cpus))] + s.command(config, run_dir)
+    env = dict(os.environ)
+    if system == "caddy-l4":
+        # Caddy keeps its autosave and data under the XDG directories; the run's directory holds them.
+        env.update(XDG_CONFIG_HOME=str(run_dir / "xdg-config"), XDG_DATA_HOME=str(run_dir / "xdg-data"))
+        adapted = subprocess.run([str(s.binary_path()), "adapt", "--config", str(config), "--adapter", "caddyfile"],
+                                 capture_output=True, text=True, env=env)
+        (run_dir / "adapted.json").write_text(adapted.stdout if adapted.returncode == 0 else adapted.stderr)
+    out = open(run_dir / "stdout.log", "wb")
+    err = open(run_dir / "stderr.log", "wb")
+    proc = subprocess.Popen(cmd, stdout=out, stderr=err, start_new_session=True, cwd=run_dir, env=env,
+                            preexec_fn=raise_nofile)
+    out.close()
+    err.close()
+    (run_dir / "pid").write_text(f"{proc.pid}\n")
+    r = Running(system, kind, proc, run_dir, config, port, cmd)
+    if not wait_port(port) or proc.poll() is not None:
+        stop(r)
+        tail = (run_dir / "stderr.log").read_text(errors="replace")[-400:]
+        raise RuntimeError(f"{system} did not start on port {port} (exit {proc.poll()}): {tail}")
+    return r
+
+
+def group_pids(pgid: int) -> list[int]:
+    """Every process of a process group, from /proc (never pgrep -f)."""
+    pids = []
+    for d in Path("/proc").iterdir():
+        if not d.name.isdigit():
+            continue
+        try:
+            stat = (d / "stat").read_text()
+        except OSError:
+            continue
+        fields_ = stat[stat.rindex(")") + 2:].split()
+        if int(fields_[2]) == pgid:
+            pids.append(int(d.name))
+    return sorted(pids)
+
+
+def group_cpu_ticks(pgid: int) -> int:
+    """utime + stime of every process of the group (nginx: master and worker), in clock ticks."""
+    total = 0
+    for pid in group_pids(pgid):
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+        except OSError:
+            continue
+        f = stat[stat.rindex(")") + 2:].split()
+        total += int(f[11]) + int(f[12])
+    return total
+
+
+def group_rss_kb(pgid: int) -> int:
+    total = 0
+    for pid in group_pids(pgid):
+        try:
+            for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+                if line.startswith("VmRSS"):
+                    total += int(line.split()[1])
+        except OSError:
+            continue
+    return total
+
+
+def stop(r: Running, grace: float = 10.0) -> int | None:
+    """SIGTERM to the system's process group, then SIGKILL after `grace` seconds."""
+    if r.proc.poll() is None:
+        try:
+            os.killpg(r.proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            r.proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            os.killpg(r.proc.pid, signal.SIGKILL)
+            r.proc.wait()
+    # Any process of the group still alive (a worker after its master), then the group is empty.
+    for pid in group_pids(r.proc.pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    return r.proc.returncode

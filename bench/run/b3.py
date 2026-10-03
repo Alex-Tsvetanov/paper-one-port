@@ -140,6 +140,7 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path) 
 
 
 def main(argv=None) -> int:
+    window.stop_on_signals()  # its finally blocks stop the processes it started
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)

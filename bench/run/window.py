@@ -9,8 +9,11 @@ mean CPU MHz of the window's CPUs. The server is stopped with SIGTERM after opge
 counters (I29) are read from what it prints. One JSON row per window, with full provenance and
 section 7's validity rules.
 
-M3 rule: no window times one-port mode (section 8, step 2; design/status.md, M3). The runner
-starts the server only in dedicated mode and refuses any other mode.
+M3 rule: no window times one-port mode against dedicated mode (section 8, step 2;
+design/status.md, M3). This runner starts the server only in dedicated mode and refuses any other
+mode; M4a's hand-off runner (handoff.py) times the server's one-port relay against a competitor,
+and `guard_pair` refuses every session that would pair one-port with dedicated mode, or (M4a, the
+simplest course against FC5) dedicated mode with a competitor.
 
 Placement on L (section 4.1, in-process cells): the server on CPU 14 (its sibling CPU 15 idle),
 opgen on CPUs 2 to 13, CPUs 0 and 1 for the system and this driver.
@@ -26,6 +29,7 @@ import signal
 import statistics
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -46,6 +50,26 @@ GEN_CPUS = list(range(2, 14))
 # must saturate the server, keep a worker on each of the twelve.
 OPEN_GEN_THREADS = [2, 4, 6, 8, 10, 12]
 HOUSEKEEPING = [0, 1]
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Section 4.1's placement on L for one kind of cell: the server's (or the front's) CPUs and
+    their idle siblings, the generator's CPUs, the CPUs of its open-loop workers (one per physical
+    core), and the system's CPUs. Hand-off cells add the backend's CPUs (handoff.py)."""
+    server: tuple[int, ...]
+    server_siblings: tuple[int, ...]
+    gen: tuple[int, ...]
+    open_gen_threads: tuple[int, ...]
+    housekeeping: tuple[int, ...] = (0, 1)
+
+
+# In-process cells (section 4.1): the server on CPU 14, opgen on CPUs 2 to 13.
+IN_PROCESS = Placement(tuple(SERVER_CPUS), tuple(SERVER_IDLE_SIBLINGS), tuple(GEN_CPUS), tuple(OPEN_GEN_THREADS),
+                       tuple(HOUSEKEEPING))
+# Hand-off cells (section 4.1): the front on CPU 14, the backend on CPUs 10 and 12, opgen on CPUs 2
+# to 9; open-loop workers one per physical core of those, as M3 chose for in-process cells.
+HANDOFF = Placement((14,), (15,), tuple(range(2, 10)), (2, 4, 6, 8), (0, 1))
 # Section 7 (frozen; the rules of lab/t1/t1.py).
 MAX_ERROR_SHARE = 0.001
 MAX_GEN_BUSY_PCT = 90.0
@@ -414,6 +438,41 @@ def guard_mode(cmd: list[str]) -> None:
         raise WindowError("M3 times dedicated mode only")
 
 
+# The arms a development session may pair before the code freeze (section 8, step 2): dedicated
+# against dedicated (A/A), and the server's one-port relay against a competitor (M3's cells). Never
+# one-port against dedicated mode, on any code, before the pilot entry; and in M4a never dedicated
+# mode against a competitor, so that no FC5 pair (dedicated and one-port mode both timed against
+# the same competitor at one protocol, backend and host) can arise (the brief's simplest course).
+DEDICATED = "dedicated"
+ONE_PORT_RELAY = "one-port-relay"
+
+
+def guard_pair(a: str, b: str, competitors: tuple[str, ...]) -> None:
+    """Refuses a session whose two arms this milestone may not time against each other."""
+    pair = {a, b}
+    one_port = {x for x in pair if x.startswith("one-port")}
+    if pair == {DEDICATED}:
+        return
+    if one_port and DEDICATED in pair:
+        raise WindowError("one-port mode is never timed against dedicated mode before the pilot entry (section 8, step 2)")
+    if DEDICATED in pair and pair & set(competitors):
+        raise WindowError("M4a times no competitor against dedicated mode (FC5; only one-port relay against the proxies)")
+    if len(pair) == 2 and ONE_PORT_RELAY in pair and (pair - {ONE_PORT_RELAY}) <= set(competitors):
+        return
+    raise WindowError(f"no session pairs {a!r} with {b!r}")
+
+
+def stop_on_signals() -> None:
+    """SIGTERM, SIGINT and SIGHUP end the runner through SystemExit, so every finally block runs and
+    stops the processes it started in sessions of their own (the server, a competitor), which a
+    signal to the runner's process group does not reach (found in M4a: a stopped A/A job left its
+    server running)."""
+    def handler(signum, _frame):
+        raise SystemExit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, handler)
+
+
 def stop_process(proc: subprocess.Popen, out: "Lines", grace: float = 10.0) -> tuple[int | None, list[str]]:
     """SIGTERM to the process group, then its output to EOF and its exit status."""
     if proc.poll() is None:
@@ -441,8 +500,8 @@ def opgen_cmd(build: Path, proto: str, port: int, base: int, k: int) -> list[str
             "--k-src", str(k), "--timeout-ms", str(TIMEOUT_MS)]
 
 
-def probe(build: Path, proto: str, port: int, base: int, k: int) -> dict:
-    cmd = ["taskset", "-c", ",".join(map(str, GEN_CPUS))] + opgen_cmd(build, proto, port, base, k) + ["--probe"]
+def probe(build: Path, proto: str, port: int, base: int, k: int, gen_cpus: tuple[int, ...] = IN_PROCESS.gen) -> dict:
+    cmd = ["taskset", "-c", ",".join(map(str, gen_cpus))] + opgen_cmd(build, proto, port, base, k) + ["--probe"]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     try:
         rep = json.loads(p.stdout.strip().splitlines()[-1])
@@ -574,8 +633,12 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: Sourc
     return row
 
 
-def finish(row: dict, g: dict | None, snaps: dict, mhz: list[float], session: dict, reasons: list[str], hz: int | None = None) -> dict:
-    """The row's metrics and section 7's validity rules. `hz` is USER_HZ (the host's, by default)."""
+def finish(row: dict, g: dict | None, snaps: dict, mhz: list[float], session: dict, reasons: list[str], hz: int | None = None,
+           placement: Placement = IN_PROCESS, overflow_invalidates: bool = True) -> dict:
+    """The row's metrics and section 7's validity rules. `hz` is USER_HZ (the host's, by default).
+    `placement` names the server's (or the front's) and the generator's CPUs. Listen overflows
+    invalidate a window unless `overflow_invalidates` is False: in M3 they are recorded and
+    reported beside each cell instead (section 7)."""
     if row.get("server_exit") not in (0,):
         reasons.append(f"server exit {row.get('server_exit')}")
     if g is None or not g.get("ok"):
@@ -605,20 +668,21 @@ def finish(row: dict, g: dict | None, snaps: dict, mhz: list[float], session: di
         row["cpu_us_per_exchange"] = 1e6 * row["server_cpu_s"] / exchanges if exchanges else None
         row["run_us_per_exchange"] = 1e6 * row["server_run_s"] / exchanges if exchanges else None
         row["rss_kb"], row["peak_rss_kb"] = s1.get("VmRSS"), s1.get("VmHWM")
-        busy, soft = busy_seconds(snaps["stat0"], snaps["stat1"], SERVER_CPUS, hz)
-        row["server_cores_busy"] = busy / span
+        pl = placement
+        busy, soft = busy_seconds(snaps["stat0"], snaps["stat1"], list(pl.server), hz)
+        row["server_cores_busy"] = busy / (span * len(pl.server))
         row["server_softirq_s"] = soft
-        sib, _ = busy_seconds(snaps["stat0"], snaps["stat1"], SERVER_IDLE_SIBLINGS, hz)
-        row["server_sibling_busy"] = sib / span
-        gbusy, gsoft = busy_seconds(snaps["stat0"], snaps["stat1"], GEN_CPUS, hz)
-        row["gen_cpus_busy_pct"] = 100.0 * gbusy / (span * len(GEN_CPUS))
+        sib, _ = busy_seconds(snaps["stat0"], snaps["stat1"], list(pl.server_siblings), hz)
+        row["server_sibling_busy"] = sib / (span * len(pl.server_siblings))
+        gbusy, gsoft = busy_seconds(snaps["stat0"], snaps["stat1"], list(pl.gen), hz)
+        row["gen_cpus_busy_pct"] = 100.0 * gbusy / (span * len(pl.gen))
         row["gen_softirq_s"] = gsoft
-        hk, _ = busy_seconds(snaps["stat0"], snaps["stat1"], HOUSEKEEPING, hz)
-        row["housekeeping_busy"] = hk / (span * len(HOUSEKEEPING))
+        hk, _ = busy_seconds(snaps["stat0"], snaps["stat1"], list(pl.housekeeping), hz)
+        row["housekeeping_busy"] = hk / (span * len(pl.housekeeping))
         if "irq0" in snaps and "irq1" in snaps:
-            row["irq_server"] = irq_delta(snaps["irq0"], snaps["irq1"], SERVER_CPUS)
-            row["irq_server_sibling"] = irq_delta(snaps["irq0"], snaps["irq1"], SERVER_IDLE_SIBLINGS)
-            row["irq_generator"] = irq_delta(snaps["irq0"], snaps["irq1"], GEN_CPUS)
+            row["irq_server"] = irq_delta(snaps["irq0"], snaps["irq1"], list(pl.server))
+            row["irq_server_sibling"] = irq_delta(snaps["irq0"], snaps["irq1"], list(pl.server_siblings))
+            row["irq_generator"] = irq_delta(snaps["irq0"], snaps["irq1"], list(pl.gen))
     else:
         reasons.append("no window markers")
     # Operations and copies per connection (WL5): I29's counters over the server's lifetime (the
@@ -655,7 +719,7 @@ def finish(row: dict, g: dict | None, snaps: dict, mhz: list[float], session: di
     if workload == "open" and g["completed_share"] < MIN_COMPLETED_SHARE:
         reasons.append(f"open loop: {100 * g['completed_share']:.2f}% of the exchanges due completed, below 99%")
     nd = row.get("nstat_delta", {})
-    if nd.get("TcpExtListenOverflows", 0) or nd.get("TcpExtListenDrops", 0):
+    if overflow_invalidates and (nd.get("TcpExtListenOverflows", 0) or nd.get("TcpExtListenDrops", 0)):
         reasons.append(f"listen overflows {nd.get('TcpExtListenOverflows')} or drops {nd.get('TcpExtListenDrops')} during the window")
     row["valid"] = not reasons
     row["invalid_reasons"] = reasons
