@@ -2004,6 +2004,15 @@ so most cells run with more power than their own R_c gives.
   `analysis/appendix_a_r_rule.py` (the two scratch files of the design merged, numerical code
   unchanged), and Appendix A says so. Run again, it reproduces Appendix A's table and counts
   exactly (`design/status.md`). This closes the item audit 2 N5 deferred.
+- 2026-10-03, engineering M5: io_uring's receives are `IORING_OP_READ` on the socket, not
+  `IORING_OP_RECV` as I11's table (replay on io_uring) and WL7's paragraph on T, which cites I11
+  and I15, describe them (one-port 666a6b7, in both arms). The frozen text of `hypotheses.md`
+  names no opcode, so its revision log records this as a reading of the frozen text and an
+  engineering choice ("Coordinator decisions after M5", item 2), and it supersedes the wording
+  here, which is left as written. Why: every RECV allocated an `io_async_msghdr` from kmalloc-512,
+  which grew by 236 to 532 bytes per pending connection in every io_uring window with an armed
+  receive in the B3 jobs m5b3a, m5b3a2 and m5b3b; an armed READ allocates an `io_async_rw`
+  instead (`design/status.md`, M5).
 
 ## Revision log (audit 83c4710)
 
