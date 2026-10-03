@@ -7,13 +7,16 @@ on Linux). Prints counts only. Run: python3 bench/run/test_runner.py"""
 from __future__ import annotations
 
 import copy
+import http.server
 import json
 import math
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -22,6 +25,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import aa  # noqa: E402
+import b3  # noqa: E402
 import footprint as fp  # noqa: E402
 import window  # noqa: E402
 
@@ -376,6 +380,74 @@ class Spread(unittest.TestCase):
     def test_margin_edges(self):
         sp = aa.spread([0.98, 1.02, 1.0])
         self.assertEqual(sp["outside_margin"], 2)  # a ratio at a bound counts against (section 4.3)
+
+
+class B3Relay(unittest.TestCase):
+    """b3.py's parts for a relay system that run anywhere: the exchange probe against a stand-in
+    stub (the 13 bytes, then EOF) and caddy-l4's heap profile request against a stand-in admin
+    endpoint."""
+
+    def serve_once(self, reply: bytes) -> tuple[int, threading.Thread, dict]:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        seen: dict = {}
+
+        def one() -> None:
+            c, _ = srv.accept()
+            seen["got"] = c.recv(4096)
+            c.sendall(reply)
+            c.shutdown(socket.SHUT_WR)  # the stub closes its side first
+            try:
+                seen["after"] = c.recv(16)
+            except ConnectionResetError:
+                seen["after"] = "reset"
+            c.close()
+            srv.close()
+
+        t = threading.Thread(target=one, daemon=True)
+        t.start()
+        return srv.getsockname()[1], t, seen
+
+    def test_exchange_probe(self):
+        port, t, seen = self.serve_once(b3.STUB_BODY)
+        r = b3.exchange_probe(port, b"\x16\x03\x01hello")
+        t.join(5)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(seen["got"], b"\x16\x03\x01hello")
+        self.assertIn(seen["after"], ("reset", b""))  # the client's close by reset (or its end, if it raced)
+
+    def test_exchange_probe_wrong_reply(self):
+        port, t, _ = self.serve_once(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        r = b3.exchange_probe(port, b"x")
+        t.join(5)
+        self.assertFalse(r["ok"])
+
+    def test_heap_profile(self):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 - http.server's name
+                body = b"heap profile" if self.path == "/debug/pprof/heap?gc=1" else b""
+                self.send_response(200 if body else 404)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+        r = b3.heap_profile(srv.server_address[1])
+        t.join(5)
+        srv.server_close()
+        self.assertEqual((r["status"], r["bytes"]), (200, len(b"heap profile")))
+
+    def test_systems(self):
+        self.assertEqual(b3.SYSTEMS[:2], ("ophold", window.ONE_PORT_RELAY))
+        self.assertEqual(set(b3.SYSTEMS[2:]), {"nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev"})
+        with self.assertRaises(ValueError):
+            b3.run(Path("."), Path("."), "j", "silent", 1, Path("."), system="traefik")
 
 
 CLOCKFLOOR = HERE / "clockfloor.sh"
