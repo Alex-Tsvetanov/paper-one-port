@@ -4783,8 +4783,12 @@ change of `analysis/`: rule E's relay copy is one choice per backend that relays
 | c5f324f | fix(run): rule E's decide takes the proposed default, with a note, for a choice whose development sessions did not run (development only) |
 | beed996 | fix(server): --record writes each line through to its file at once |
 | 81e1216 | fix(run): the hard cases' raw directory, printable first lines in the competitors' rows; --dev-r sizes the m2-rate part |
-Then this section and the revision-log entry (the commit after these). In the Papers repo, 4af4be6
-(local, not pushed): 16 lab-journal lines, one per runner of each end-to-end job, every one marked
+| 071b0f9 | docs: status.md, M7c; hypotheses.md revision log, M7c's five readings |
+| 7d0a92d | fix(run): a frozen section 10 run refuses to start without --silent-ports (the check could not fire); a test |
+| f8734a2 | fix(run): a lab job runs at nice 0 (lab_job.sh refuses any other; the nice in every fingerprint and timer row) |
+
+Then this section's update (the commit after these). In the Papers repo, 4af4be6 and 3cb0bcd
+(local, not pushed): 18 lab-journal lines, one per runner of each end-to-end job, every one marked
 development. The submodule pointer is the coordinator's.
 
 ### The runners (`bench/run/`)
@@ -4811,7 +4815,9 @@ started; the window cut short gets an invalid row naming the signal, then the jo
 
 Shared: `sessions.py` (the session engine), `freeze_guard.py` (a frozen run's preconditions),
 `runlib.py` (the command line, provenance, the input files), `cellwin.py` (the in-process window in
-either mode, with the mixed cell's background). `handoff.py` and `b3.py` gained the options the
+either mode, with the mixed cell's background). `lab_job.sh` now refuses a job that runs at any
+nice but 0 (exit 92; below, "A lab job's priority"), and every session's fingerprint records the
+runner's nice and timer slack (`priority`). `handoff.py` and `b3.py` gained the options the
 runners need (rule E's relay copy, a dedicated backend, an in-process front, an open-loop rate,
 WL6 over the exchanges due that completed in open loop); their earlier behaviour is the default.
 `competitors.py` fills HAProxy's new field `SPLICE_AUTO` (in `defaults`, where HAProxy takes the
@@ -4943,7 +4949,7 @@ dedicated timing as the A/A exception of the engineering constraints, journaled.
 
 ### Tests
 
-- `bench/run/test_frozen.py` (run.test_frozen, 33 checks): each runner's rows written through the
+- `bench/run/test_frozen.py` (run.test_frozen, 35 checks): each runner's rows written through the
   engine with a stand-in window that sets the real window's fields, assembled by
   `analysis/rows.py` and accepted by `analyse()` or `pilot_entry()` (cost, the cost stubs, the
   pilot and its parts, B3 with the other-mode cells, M1 to M3, section 10's bullets, rule E's
@@ -4955,7 +4961,9 @@ dedicated timing as the A/A exception of the engineering constraints, journaled.
   rule E logged before the pilot entry; and cost_run refuses before any window); rule E's choice
   (each way it can fail), M2_RATE, the slower arm's rate, the pilot's lambda through pilot.py's
   rates(); the hard cases' judge (a pass, B1 failures, B2(a) to (e), the route and TLS); HAProxy's
-  splice-auto in `defaults`.
+  splice-auto in `defaults`; a frozen section 10 run without `--silent-ports` refused; on Linux,
+  `lab_job.sh` refusing a job at nice 5 and running it with ONEPORT_ALLOW_NICE=1, and
+  `priority_state`.
 - C++: `gen.hold.{epoll,io_uring}` (above); `gen.binaries` also runs `opcase hold` and `opcase
   case --list`; `server.binary_record.{epoll,io_uring}` checks that the close line reaches the
   record file while the server runs.
@@ -4970,27 +4978,32 @@ dedicated timing as the A/A exception of the engineering constraints, journaled.
 
 `checks_job.sh` (M7 fixes' script, the paths moved to `~/lab/p3/m7c/check/`): Debug and
 ASan+UBSan at once, then TSan and MSan at once, each `ninja -j 5` and `ctest -V -j 8`, each
-build's integration tests in their own port block. Twice: chk1 at 7f3e41b (the runners' first
-commit), and chk2 at 81e1216, the last commit that changes code (every later commit is docs).
+build's integration tests in their own port block. Three times: chk1 at 7f3e41b (the runners'
+first commit), chk2 at 81e1216 (the recorder's flush), and chk3 at f8734a2, the last commit that
+changes code (every later commit is docs). chk1 and chk2 ran at nice 5 (below); chk3 at nice 0.
 
-| Build | chk1 (7f3e41b) | chk2 (81e1216) |
-|---|---|---|
-| Debug | 0 warnings, 393 of 393, 0 report lines | 0 warnings, 393 of 393, 0 report lines |
-| ASan+UBSan | the same | the same |
-| TSan | the same | the same |
-| MSan | the same | the same |
+| Build | chk1 (7f3e41b) | chk2 (81e1216) | chk3 (f8734a2) |
+|---|---|---|---|
+| Debug | 0 warnings, 393 of 393, 0 report lines | the same | the same |
+| ASan+UBSan | the same | the same | the same |
+| TSan | the same | the same | the same |
+| MSan | the same | the same | the same |
 
 393 is M7 fixes' 390 and `gen.hold.epoll`, `gen.hold.io_uring` and `run.test_frozen`. As before
 M7c, three of the four logs show a thread's exception from `run.test_runner`'s stand-in stub
 (`B3Relay.serve_once`), which passed; it matches no report pattern and the test is older than M7c.
-chk2's logs (sha256), `~/lab/p3/m7c/check/81e1216/`: debug build
-60f4c3ad68d59f986441cd26cb5ea8dadfce41fc7e5471d770dc57e7604b190a, ctest
-4c57aa98cf2aceb355a39453557377955fedbfc2e3cea90490391cf39238f499; asan build
-6e2aecc2670d6d418b8058edbc030e7e3cc66cce9056beb675abfa0eec042549, ctest
-3be057c5f062e74395f3fa058280f9a41b15dd7c610c08c3542ca968cac48f57; tsan build
-97e7c85a1851a6c00bd209b228c737fafbb097346c09daf796095b6f3e4a7b6e, ctest
-0c078be7fb574eae8bd52eacbeb2d2c8fbb612df63823f57001b7c3c29e83323; msan build
-7f68a7b70fc8af1bf5e38a63b79ed9eea36f17b71e8cb2432906fdc889767f0f, ctest
+chk3's logs (sha256), `~/lab/p3/m7c/check/f8734a2/`: debug build
+f8b5a52afa8f873dbd4144dad5173efd9ec6552ceab637dd488a93529aa973cf, ctest
+a4318fca10e0c2b2fef0677b46c5e65d13c2371b9f910f3eb6d3dfea2c5ec7d4; asan build
+4a5acf96064db54cd040d4b93ec7094fb5856027b2eeba5903d27f27a5fd03cf, ctest
+001bb40e54f383b24380c6f397d8d1f78e3b6e95dfb68f54211e2c4e95b07cbc; tsan build
+a6ba9df8b2ad6c496c7ff511c1506f6ba3194b2d5247f5190d55585c7a88d18e, ctest
+595b99a7d9b3b482b1c26e656f5f13171c15c910607f7641d5a3361c4766fae2; msan build
+fa80fe88d38aba2ef804c3e0003ff1b5a81e0511e85e91bea9102080ed7a6389, ctest
+7ef0c39f7926fe31a3f70b489afd8298f5106ae815f9161c622e64ee90b37a35. chk2's (81e1216): ctest debug
+4c57aa98cf2aceb355a39453557377955fedbfc2e3cea90490391cf39238f499, asan
+3be057c5f062e74395f3fa058280f9a41b15dd7c610c08c3542ca968cac48f57, tsan
+0c078be7fb574eae8bd52eacbeb2d2c8fbb612df63823f57001b7c3c29e83323, msan
 dd5feca0867b382884dfb134c259065cfcd5cf43c25ddb5e3beb2a4b0d0f7780.
 Before them, a scratch ASan job (try1, 0b63d62) built the C++ change with 0 warnings and passed
 `gen.hold`, `gen.binaries`, the CLI tests and three hard-case entries with 0 report lines.
@@ -5076,14 +5089,50 @@ b9612080aa7194a98ec514b56d08d30906ce7de673580ebb4835c800460656b1, hard/hardcases
 c725161dc3d794d994b50acb3b5c573bbbc5c738362d9066c0d8f5306e043c5b, hard/competitor_cases.jsonl
 af07a9fb31c7a6788442a9bc7b04b1fab56c983dede5283c40aa447a3a5e7119.
 
-Two development readings for the coordinator, neither a result: the epoll server handled every
-T_hdr deadline about 15.3 ms late in the timer part's 3 runs (io_uring about 0.3 ms), so a
-pilot like this one would set G_L to 16 ms; the cause was not looked into. And in the mixed
-cell's dedicated arm, with the WL3 background, the cell's HTTP/1.1 churn ran at 17,536 to 17,662
+The timer part's 15.3 ms on epoll is explained below ("A lab job's priority"). A development
+reading for the coordinator, not a result: in the mixed cell's dedicated arm, with the WL3 background, the cell's HTTP/1.1 churn ran at 17,536 to 17,662
 connections per second while the TLS and the MQTT background each completed 443,778 to 448,970
 requests over its run; dedicated HTTP/1.1 churn alone on epoll ran at 44,655 to 44,980 in job
 aa-floor1 (the revision log's entry "Host clock floor", item 3). So read as WL3's closed loop,
 the background takes most of the server's core.
+
+e2e3 (runner code f8734a2, dryrun8's build: no compiled input changed since; launched from bash,
+nice 0; `~/lab/p3/m7c/e2e3_job.sh`, sha256
+37e9c63eca09d5264a5c4e902ba7c1a6ddbe8481adec7cb8bdb3722509961dc3): what e2e2 exercised least.
+
+| Step | s | What ran, development data |
+|---|---|---|
+| timer | 19 | the timer part, 3 runs per backend, all valid, the server at nice 0: lateness on epoll 3.26 to 3.31 ms, on io_uring 0.05 to 0.30 ms |
+| hard | 91 | all 25 cases (164 variants) on epoll replay in-process and io_uring peek relay, one replicate: 328 of 328 runs passed B1 and B2, every branch of the judge reached (the PROXY source and reason, the TLS flight, 400, the dedicated HTTP/1.1 reply, the SMTP fallback's transcript, HC7 at a G of 100 ms, HC4's drip, HC16, HC22's reset, the header write's anchor); 13 servers checked at the entries' ends, all passed |
+| comp | 2 | HAProxy and cmux in "cases" and "cases-fallback" at matched timers and at their defaults, HC1, HC11 and HC21, 3 replicates: 126 runs recorded (HAProxy's PROXY listener 6, the fallback kinds 24), 69 with the reply the server's table expects of the server; every system started and stopped (HAProxy's exit is SIGTERM's) |
+| devcheck | 1 | ok: 481 rows, all development, all bound to dryrun8's gate (not citable) |
+
+Files (sha256), `~/lab/p3/m7c/e2e3/`: devcheck.json
+e028821f85eb5ffc8d8ea6a8e7205d155d6d737a2ea78997c5e53f1340b3e78c, pilot/parts.jsonl
+14dcb556a66ea5cc95485249dd6ada96af8b89159ddfb72c8e3c9407d76a27bf, hard/hardcases.jsonl
+4cb6e4b61dad3895bd0e7b87dee535156999323b7ccf5ecd34578590336c564b, hard/competitor_cases.jsonl
+2eb91deef5f91d319472824e79bf905e03454d144ce3b69398980ae8a7667390. The server's timer slack could
+not be read from its `/proc` entry by the runner (the field is None in the rows); its nice was.
+
+### A lab job's priority (found in M7c, fixed in f8734a2)
+
+e2e2's timer part handled every T_hdr deadline on epoll about 15.3 ms late, e2e3's about 3.3 ms.
+The cause: a job launched as `(setsid nohup bash lab_job.sh ... &)` from L's login shell, zsh, runs
+at nice 5, since zsh lowers every background job's priority (its BG_NICE option, on by default);
+shown on L: the same line from zsh gave a process at nice 5, from bash at nice 0. epoll_pwait2's
+timeout takes the kernel's slack from `select_estimate_accuracy` (fs/select.c): 0.1% of the time
+left at nice 0 and 0.5% above it, capped at 100 ms, so a 3 s wait may end about 3 ms or about 15
+ms after its deadline; io_uring's timeout does not take that slack, which fits its 0.05 to 0.39 ms.
+So G_L, "the smallest whole number of milliseconds above the largest lateness" (9.2), would be 16
+ms from a pilot at nice 5 and about 4 ms at nice 0, and every process of a job at nice 5 competes
+at a lower priority than the host's own. M7c's jobs e2e1, e2e2, dryrun7, dryrun8, chk1, chk2 and
+try1 ran at nice 5 (none timed anything that a rule uses); e2e3 and chk3 at nice 0. Earlier
+milestones' jobs launched the same way from zsh will have run at nice 5 too; no job recorded its
+nice before f8734a2, and all of them are development data. The fix: `lab_job.sh` refuses a job at
+any nice but 0 (exit 92, unless ONEPORT_ALLOW_NICE=1) and says how to launch from bash; every
+session's fingerprint records the runner's nice and timer slack, and each timer row the server's
+nice. The timer part's lateness and G_L are B2's reported distributions and 9.2's G; the
+coordinator may want the slack named in the methods.
 
 ### Analysis changes
 
@@ -5146,7 +5195,8 @@ In the M7 checklist's order, after M7c:
    do not exist and must write the same rows; `runlib.HOST`, `window.py` and `cellwin.py` are L's.
 3. The pins, the slab re-read, the seeds entry (avoiding the development seeds above), the values of
    section 9.1, the final `coverage.json`, `CODE_FREEZE`, the records at it and the gates, as the
-   checklist says; each entry written with the tokens the runners look for (above).
+   checklist says; each entry written with the tokens the runners look for (above); every lab
+   job launched at nice 0 (from bash, as `lab_job.sh` now requires).
 4. Then, in order: `pilot_run.py` on L (frozen: `--seeds --code-freeze --gate`) and W's pilot;
    `pilot.py` on the pinned numpy; the pilot entry; `rule_e.py run` and W's IOCP sessions, then
    `rule_e.py decide`, logged; `m_run.py --part m2-rate`, logged; `b3_run.py` (K_BASE first);
