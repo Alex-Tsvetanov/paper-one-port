@@ -78,7 +78,7 @@ namespace oneport::opgen
 	{
 		return "usage: opgen --port N --proto http1|h2c|tls|mqtt|ssh|tls-stub [--load churn|keepalive]\n"
 		       "             [--conns C] [--rate R] [--threads N] [--cpus LIST] [--src-base A.B.C.D] [--k-src K]\n"
-		       "             [--warmup-ms MS] [--duration-ms MS] [--timeout-ms MS] [--probe] [--out FILE]\n"
+		       "             [--warmup-ms MS] [--duration-ms MS] [--timeout-ms MS] [--spin-us US] [--probe] [--out FILE]\n"
 		       "  --load churn       a new connection per exchange (WL1); with --rate, open loop (WL2)\n"
 		       "  --load keepalive   C connections, one request in flight each (WL3)\n"
 		       "  --cpus             one CPU per worker thread, e.g. 2-13 or 2,3,4; sets --threads\n"
@@ -211,6 +211,12 @@ namespace oneport::opgen
 				else o.timeout = d;
 				if (a != "--warmup-ms" && ms == 0) return bad();
 			}
+			else if (a == "--spin-us")
+			{
+				std::uint64_t us = 0;
+				if (!number(v, us) || us > 1'000'000) return bad();
+				o.spin = std::chrono::microseconds(us);
+			}
 			else if (a == "--out")
 			{
 				out_unused = std::string(v);  // read by main
@@ -305,7 +311,8 @@ namespace oneport::opgen
 		s << "],\"src_base\":\"" << dotted(o.src_base) << "\",\"k_src\":" << o.k_src << ",\"port\":" << o.port;
 		s << ",\"warmup_ms\":" << std::chrono::duration_cast<std::chrono::milliseconds>(o.warmup).count()
 		  << ",\"duration_ms\":" << std::chrono::duration_cast<std::chrono::milliseconds>(o.duration).count()
-		  << ",\"timeout_ms\":" << std::chrono::duration_cast<std::chrono::milliseconds>(o.timeout).count() << ",\"probe\":" << (o.probe ? "true" : "false");
+		  << ",\"timeout_ms\":" << std::chrono::duration_cast<std::chrono::milliseconds>(o.timeout).count()
+		  << ",\"spin_us\":" << std::chrono::duration_cast<std::chrono::microseconds>(o.spin).count() << ",\"probe\":" << (o.probe ? "true" : "false");
 		s << ",\"measure_start_ns\":" << r.start_ns << ",\"measure_end_ns\":" << r.end_ns << ",\"wall_s\":" << r.wall_s;
 		s << ",\"warmup\":" << ph(r.warmup) << ",\"measure\":" << ph(r.measure) << ",\"connects_run\":" << r.measure.connects
 		  << ",\"all_completed\":" << r.all_completed;

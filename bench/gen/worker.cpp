@@ -95,7 +95,7 @@ namespace oneport::opgen::detail
 		conns_.reserve(kOpenSlotsReserved);
 		// Thread k takes the global schedule's exchanges n with n mod threads = k: due at
 		// origin + n / rate. The next exchange's socket is made, set up and bound before it falls
-		// due, so at the due time only the registration and connect run; and the last kSpinNs
+		// due, so at the due time only the registration and connect run; and the last Options::spin
 		// before a due time are spent polling, not asleep, so no wake-up latency delays it.
 		const double step = 1e9 / o_.rate;
 		std::uint64_t n = index_;
@@ -125,7 +125,7 @@ namespace oneport::opgen::detail
 				spare_fd_ = make_socket();
 			}
 			const auto next_due = ctl_.origin + static_cast<std::int64_t>(std::llround(static_cast<double>(n) * step));
-			std::int64_t wait = std::max<std::int64_t>(0, next_due - now_ns() - kSpinNs);
+			std::int64_t wait = std::max<std::int64_t>(0, next_due - now_ns() - o_.spin.count());
 			wait = std::min<std::int64_t>(wait, 50'000'000);
 			if (!retry_.empty()) wait = std::min<std::int64_t>(wait, 1'000'000);
 			pass(std::chrono::nanoseconds(wait));

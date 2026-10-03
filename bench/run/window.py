@@ -39,6 +39,12 @@ CONNS_PER_CORE = 64
 SERVER_CPUS = [14]
 SERVER_IDLE_SIBLINGS = [15]
 GEN_CPUS = list(range(2, 14))
+# Design choice of M3 (design/status.md, the open loop's generator): in an open-loop window opgen
+# runs one worker per physical core of its CPUs, on the first sibling of each (2, 4, ... 12), the
+# other siblings idle, and polls the last 200 us before each due time (opgen's --spin-us default);
+# workers on both siblings of a core slowed the client's own work. Closed-loop windows, which
+# must saturate the server, keep a worker on each of the twelve.
+OPEN_GEN_THREADS = [2, 4, 6, 8, 10, 12]
 HOUSEKEEPING = [0, 1]
 # Section 7 (frozen; the rules of lab/t1/t1.py).
 MAX_ERROR_SHARE = 0.001
@@ -393,6 +399,12 @@ def stop_process(proc: subprocess.Popen, out: "Lines", grace: float = 10.0) -> t
     return proc.returncode, lines
 
 
+def gen_threads(cfg: dict) -> list[int]:
+    """The CPUs that carry one opgen worker each: the cell's override, else OPEN_GEN_THREADS in
+    open loop and all of GEN_CPUS in closed loop."""
+    return cfg.get("gen_threads") or (OPEN_GEN_THREADS if cfg.get("workload") == "open" else GEN_CPUS)
+
+
 def opgen_cmd(build: Path, proto: str, port: int, base: int, k: int) -> list[str]:
     return [str(build / "bench" / "gen" / "opgen"), "--port", str(port), "--proto", proto, "--src-base", dotted(base),
             "--k-src", str(k), "--timeout-ms", str(TIMEOUT_MS)]
@@ -440,6 +452,7 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: Sourc
         "backend": backend, "arm": arm, "position": position, "development": True, "mode": "dedicated",
         "port": port, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "warmup_ms": WARMUP_MS, "duration_ms": DURATION_MS,
         "conns": CONNS_PER_CORE, "rate": cfg.get("rate"), "k_src": cfg["k_src"], "server_cpus": SERVER_CPUS,
+        "generator_thread_cpus": gen_threads(cfg), "spin_us": cfg.get("spin_us"),
         "server_idle_siblings": SERVER_IDLE_SIBLINGS, "generator_cpus": GEN_CPUS, "housekeeping_cpus": HOUSEKEEPING,
         "tag": tag,
     }
@@ -468,12 +481,14 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: Sourc
             reasons.append(f"probe failed: {row['probe']['detail']}")
         out_json = raw / f"{tag}.opgen.json"
         cmd = ["taskset", "-c", ",".join(map(str, GEN_CPUS))] + opgen_cmd(build, proto, target, base, cfg["k_src"]) + [
-            "--cpus", f"{GEN_CPUS[0]}-{GEN_CPUS[-1]}", "--conns", str(CONNS_PER_CORE), "--warmup-ms", str(WARMUP_MS),
+            "--cpus", ",".join(map(str, gen_threads(cfg))), "--conns", str(CONNS_PER_CORE), "--warmup-ms", str(WARMUP_MS),
             "--duration-ms", str(DURATION_MS), "--out", str(out_json)]
         if workload == "keepalive":
             cmd += ["--load", "keepalive"]
         if workload == "open":
             cmd += ["--rate", repr(float(cfg["rate"]))]
+        if cfg.get("spin_us") is not None:
+            cmd += ["--spin-us", str(cfg["spin_us"])]
         row["opgen_cmd"] = cmd
         all_cpus = SERVER_CPUS + GEN_CPUS
         gen = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=open(raw / f"{tag}.opgen.err", "wb"))

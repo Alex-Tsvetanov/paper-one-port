@@ -272,6 +272,11 @@ class Window(unittest.TestCase):
                 b.take(64, now=1030.0)
             self.assertEqual(b.take(64, now=1100.0), window.SourceBlocks.FIRST)  # 98 s later: free again
 
+    def test_generator_threads(self):
+        self.assertEqual(window.gen_threads({"workload": "open"}), [2, 4, 6, 8, 10, 12])
+        self.assertEqual(window.gen_threads({"workload": "churn"}), list(range(2, 14)))
+        self.assertEqual(window.gen_threads({"workload": "open", "gen_threads": [2, 3]}), [2, 3])
+
     def test_one_port_refused(self):
         with self.assertRaises(window.WindowError):
             window.guard_mode(["oneport", "--mode", "one-port"])

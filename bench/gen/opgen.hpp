@@ -81,6 +81,9 @@ namespace oneport::opgen
 		/// fails: churn's from just before connect, keep-alive's from its send (the first one of a
 		/// connection from just before connect, its setup included).
 		std::chrono::nanoseconds timeout = std::chrono::milliseconds(1000);
+		/// Open loop: how long before each due time a worker polls instead of sleeping (0: it
+		/// sleeps until the due time).
+		std::chrono::nanoseconds spin = std::chrono::microseconds(200);
 		/// --probe: one exchange, then report it.
 		bool probe = false;
 	};

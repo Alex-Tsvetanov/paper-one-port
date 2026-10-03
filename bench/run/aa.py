@@ -168,6 +168,9 @@ def main(argv=None) -> int:
     ap.add_argument("--tools", type=Path, default=Path.home() / "lab" / "p3" / "tools")
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
     ap.add_argument("--rates", type=Path, help="rates.json of an earlier job: the open-loop rate per proto.backend")
+    ap.add_argument("--gen-threads", type=lambda s: [int(x) for x in s.split(",")],
+                    help="the generator's CPUs (of section 4.1's 2 to 13) that carry one worker thread each; default all twelve")
+    ap.add_argument("--spin-us", type=int, help="opgen --spin-us (open loop); default opgen's")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     cells = parse_cells(a.cells)
@@ -184,7 +187,8 @@ def main(argv=None) -> int:
         order = [(c, s) for c in group for s in range(1, a.sessions + 1)]
         rng.shuffle(order)
         for c, s in order:
-            cfg = dict(c, build=a.build, k_src=a.k_src, ports={"A": a.port_a, "B": a.port_a + a.port_offset})
+            cfg = dict(c, build=a.build, k_src=a.k_src, ports={"A": a.port_a, "B": a.port_a + a.port_offset},
+                       gen_threads=a.gen_threads, spin_us=a.spin_us)
             if c["workload"] == "open":
                 cfg["rate"] = rates[(c["proto"], c["backend"])]
             fp = window.pin_fingerprint()

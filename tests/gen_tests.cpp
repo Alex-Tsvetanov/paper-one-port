@@ -66,6 +66,8 @@ namespace oneport::test
 			const auto c = ok({"--port", "9", "--proto", "tls-stub", "--rate", "1234.5"});
 			CHECK(c && c->rate == 1234.5 && c->proto == og::Proto::tls_stub, "open loop");
 			CHECK(ok({"--port", "9", "--proto", "mqtt", "--probe"})->probe, "--probe");
+			CHECK(ok({"--port", "9", "--proto", "http1", "--rate", "100", "--spin-us", "0"})->spin == 0ns, "--spin-us 0");
+			CHECK(ok({"--port", "9", "--proto", "http1"})->spin == 200us, "the default spin");
 			// Refused.
 			CHECK(!ok({"--proto", "h2c"}), "no port");
 			CHECK(!ok({"--port", "9"}), "no protocol");
@@ -110,10 +112,13 @@ namespace oneport::test
 			o.proto = p;
 			o.load = l;
 			o.port = port;
-			o.conns = 8;
+			// Short and narrow: each test opens a few thousand connections at most, since L tracks every
+			// connection in a table of 262,144 that holds each closed one 120 s (design/status.md, M3),
+			// and the four sanitizer suites run at once.
+			o.conns = 2;
 			o.threads = 2;
-			o.warmup = 200ms;
-			o.duration = 500ms;
+			o.warmup = 20ms;
+			o.duration = 100ms;
 			o.timeout = 2000ms;
 			o.src_base = 0x7F000A01u;  // 127.0.10.1
 			o.k_src = 4;
@@ -149,7 +154,7 @@ namespace oneport::test
 			      "errors: window " << r.measure.errors.total() << " (timeouts " << r.measure.errors.timeout << ", resets " << r.measure.errors.reset
 			                        << ", eof " << r.measure.errors.eof << ", protocol " << r.measure.errors.protocol << ", tls " << r.measure.errors.tls
 			                        << ", connect " << r.measure.errors.connect << "), warm-up " << r.warmup.errors.total());
-			CHECK(r.wall_s > 0.45 && r.wall_s < 1.0, "window of " << r.wall_s << " s");
+			CHECK(r.wall_s > 0.09 && r.wall_s < 0.5, "window of " << r.wall_s << " s");
 			CHECK(r.ttfb.n == r.measure.completed && r.exchange.n == r.measure.completed, "a TTFB per completed exchange");
 			CHECK(r.ttfb.min > 0 && r.ttfb.median <= static_cast<double>(r.exchange.max), "TTFB within the exchange");
 			CHECK(r.thread_cpu_s.size() == 2 && r.cpu_s > 0, "the workers' CPU time");
@@ -174,11 +179,11 @@ namespace oneport::test
 			a.mode = Mode::dedicated;
 			Running srv(a);
 			og::Options o = short_window(og::Proto::http1, og::Load::churn, srv.port_of(detect::Proto::http1));
-			o.rate = 2000;
+			o.rate = 1000;
 			const og::Result r = og::run(o, nullptr);
 			CHECK(r.ok, "opgen failed: " << r.error);
-			// 2,000 per second over the measured wall time, from the schedule, give or take one.
-			const double expect = 2000.0 * r.wall_s;
+			// 1,000 per second over the measured wall time, from the schedule, give or take one.
+			const double expect = 1000.0 * r.wall_s;
 			CHECK(std::fabs(static_cast<double>(r.due) - expect) <= 2.0, "due " << r.due << ", expected about " << expect);
 			CHECK(r.due_completed == r.due && r.due_unfinished == 0, "completed " << r.due_completed << " of " << r.due);
 			CHECK(r.ttfb.n == r.due_completed && r.issue_lag.n == r.due_completed && r.ttfb_connect.n == r.due_completed, "one sample per exchange");
@@ -273,9 +278,9 @@ namespace oneport::test
 				og::Options o = short_window(og::Proto::http1, og::Load::churn, rec.port);
 				o.k_src = 3;
 				o.src_base = 0x7F000B07u;  // 127.0.11.7
-				o.conns = 4;
+				o.conns = 2;
 				o.warmup = 0ms;
-				o.duration = 200ms;
+				o.duration = 100ms;
 				const og::Result r = og::run(o, nullptr);
 				CHECK(r.ok, "opgen failed: " << r.error);
 				CHECK(r.measure.errors.eof + r.measure.errors.reset > 0, "the recorder's closes are not counted as failures");
@@ -310,7 +315,7 @@ namespace oneport::test
 				og::Options o = short_window(og::Proto::http1, og::Load::churn, ntohs(a.sin_port));
 				o.conns = 2;
 				o.warmup = 0ms;
-				o.duration = 300ms;
+				o.duration = 200ms;
 				o.timeout = 100ms;
 				const og::Result r = og::run(o, nullptr);
 				::close(fd);
@@ -410,8 +415,8 @@ namespace oneport::test
 			CHECK(probe.start({opgen, "--port", std::to_string(port), "--proto", "http1", "--probe"}), "spawn the probe");
 			CHECK(probe.wait() == 0 && probe.text.find("\"probe_detail\":\"http1: exchange completed\"") != std::string::npos, "the probe failed");
 			Process gen;
-			CHECK(gen.start({opgen, "--port", std::to_string(port), "--proto", "http1", "--threads", "2", "--conns", "4", "--warmup-ms", "100",
-			                 "--duration-ms", "300", "--src-base", "127.0.12.1", "--k-src", "2"}),
+			CHECK(gen.start({opgen, "--port", std::to_string(port), "--proto", "http1", "--threads", "1", "--conns", "2", "--warmup-ms", "50",
+			                 "--duration-ms", "150", "--src-base", "127.0.12.1", "--k-src", "2"}),
 			      "spawn opgen");
 			CHECK(gen.wait() == 0, "opgen's exit");
 			CHECK(gen.text.find("MEASURE_START ") != std::string::npos && gen.text.find("MEASURE_END ") != std::string::npos, "no markers");
