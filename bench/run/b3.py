@@ -51,8 +51,18 @@ development data (section 8, step 2: one-port against another one-port option or
 Every reading also records the size of every slab cache of /proc/slabinfo (`slab_all`), which
 decides nothing and attributes Ks's growth to caches (M5).
 
+Every row names what it ran (M7; rule D5): its provenance (aa.py's: the build's commit, compiler
+and pins) with "binaries", {name: sha256}, of each first-party executable the window ran, under
+the names a gate of bench/check_records.py gives them (opcase always; ophold in its windows;
+oneport for the server's arms and, as the stub, behind every relay system; harness_<name> for a
+library's harness), so that bench/check_rows.py can bind the row to a gated build, as it binds
+aa.py's and handoff.py's rows. Beside them: each binary's path, the build's inputs hash per
+target the way the gate hashes it (bench/build_inputs.py), a harness's inputs hash and flavour
+from its build.json, and a proxy's binary and B3 configuration under "competitors" (not
+first-party, so never under "binaries").
+
     b3.py --build DIR --out DIR --job NAME [--system ophold|one-port-relay|one-port-inproc|nginx|...|netty|...]
-          [--case silent|partial-hello] [--n 10000] [--backend epoll|io_uring] [--detect replay|peek]
+          [--case silent|partial-hello] [--n 10000] [--backend epoll|io_uring] [--detect replay|peek] [--tools DIR]
 """
 from __future__ import annotations
 
@@ -71,10 +81,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "competitors"))
+sys.path.insert(0, str(HERE.parent))
 
+import aa  # noqa: E402
+import build_inputs  # noqa: E402
 import competitors as comp  # noqa: E402
 import footprint as fp  # noqa: E402
 import window  # noqa: E402
+from check_records import harness_target  # noqa: E402
 
 SYSTEM_CPUS = [14]  # section 4.1: B3 and hard cases, the system or ophold on CPU 14
 OPCASE_CPUS = list(range(2, 10))  # opcase on CPUs 2 to 9
@@ -118,6 +132,77 @@ TW_STEADY_S = 2.0
 TW_STEADY_MAX_S = 10.0
 # A design choice of M4b-2: the memory sampler's period, M4b-1's diagnostic's.
 SAMPLER_S = 1.0
+# The host whose gate names the binaries (build_inputs.BINARIES): B3 runs on L only (section 6.2).
+HOST = "L"
+
+
+def window_binaries(build: Path, system: str) -> dict[str, Path]:
+    """The first-party executables a window of `system` runs, by the names a gate gives them
+    (bench/check_records.py: build_inputs.BINARIES, and harness_<name> for a harness): opcase in
+    every window (the openings, and ophold's probe); ophold in its own; oneport for the server's
+    arms and, in stub mode, behind every relay system (handoff.start_stub); a library's harness
+    from <build>/harness in its windows. A proxy is not first-party and is not named here."""
+    bins = build_inputs.BINARIES[HOST]
+    out = {"opcase": build / bins["opcase"]}
+    if system == "ophold":
+        out["ophold"] = build / bins["ophold"]
+    if system in RELAY_SYSTEMS or system == SERVER_INPROC:
+        out["oneport"] = build / bins["oneport"]
+    if system in comp.LIBRARIES:
+        out[harness_target(system)] = comp.SYSTEMS[system].binary_path(comp.harness_dir(build))
+    return out
+
+
+def binaries_provenance(build: Path, system: str) -> dict:
+    """What check_rows.py binds a row by, "binaries" ({name: sha256} of the files the window runs),
+    with their paths; for a library, its harness as build_harnesses.sh recorded it in build.json
+    (inputs hash, flavour, tools, the recorded output sha256, and whether the file run is that
+    output); for a proxy, its binary and B3 configuration under "competitors"."""
+    files = window_binaries(build, system)
+    p: dict = {"binaries": {name: window.sha256_file(path) for name, path in files.items()},
+               "binary_paths": {name: str(path) for name, path in files.items()}}
+    if system in comp.LIBRARIES:
+        target = harness_target(system)
+        try:
+            entry = json.loads((comp.harness_dir(build) / "build.json").read_text()).get(system) or {}
+        except (OSError, json.JSONDecodeError):
+            entry = {}
+        p["harness"] = {"target": target, "inputs_hash": entry.get("inputs_hash"), "flavour": entry.get("flavour"),
+                        "tools": entry.get("tools"), "output": entry.get("output"), "output_sha256": entry.get("output_sha256"),
+                        "same_as_build_json": entry.get("output_sha256") == p["binaries"][target]}
+    if system in comp.ORDER:
+        s = comp.SYSTEMS[system]
+        p["competitors"] = {system: {"binary": str(s.binary_path()), "sha256": window.sha256_file(s.binary_path()),
+                                     "b3_config_sha256": window.sha256_file(s.template("b3"))}}
+    return p
+
+
+def gate_inputs_hash(build: Path, out_file: Path, tool: Path | None) -> dict:
+    """The build's inputs hash per target, the way the records and the gate hash a build
+    (bench/build_inputs.py, every first-party target of L), written to `out_file`; on failure the
+    reason, so a development build without the tool still gets its row."""
+    argv = ["--build", str(build), "--host", HOST, "--out", str(out_file)]
+    if tool is not None:
+        argv += ["--inputs-hash", str(tool)]
+    try:
+        rc = build_inputs.main(argv)
+        if rc != 0:
+            return {"inputs_hash_error": f"build_inputs.py exit {rc}"}
+        info = json.loads(out_file.read_text())["builds"][build_inputs.BUILD]
+        return {"inputs_hash_gate": {t: v["inputs_hash"] for t, v in info["targets"].items()},
+                "inputs_hash_gate_config": info.get("config"), "inputs_hash_gate_compiler": info.get("compiler")}
+    except (OSError, KeyError, ValueError, FileNotFoundError, json.JSONDecodeError) as e:
+        return {"inputs_hash_error": repr(e)[-300:]}
+
+
+def provenance(build: Path, system: str, out: Path, tag: str, tools: Path | None) -> dict:
+    """A B3 row's provenance: aa.py's (commit, build, compiler, pins), then the binaries this window
+    ran (binaries_provenance) in place of aa.py's oneport and opgen, and the gate's inputs hash."""
+    p = aa.provenance(build, tools)
+    p.update(binaries_provenance(build, system))
+    tool = tools / "inputs_hash.py" if tools is not None and (tools / "inputs_hash.py").exists() else None
+    p.update(gate_inputs_hash(build, out / f"{tag}.inputs.json", tool))
+    return p
 
 
 def group_memory_kb(pids: list[int]) -> dict[str, int]:
@@ -546,7 +631,7 @@ class InProcessSystem:
 
 
 def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, system: str = "ophold",
-        backend: str = "epoll", detect: str = "replay") -> dict:
+        backend: str = "epoll", detect: str = "replay", tools: Path | None = None) -> dict:
     if system not in SYSTEMS:
         raise ValueError(f"system {system!r}, not one of {SYSTEMS}")
     out.mkdir(parents=True, exist_ok=True)
@@ -559,6 +644,8 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
                  "development": True, "placement": "relay" if relay else "in-process" if inproc else "holder",
                  "system_cpus": SYSTEM_CPUS, "opcase_cpus": OPCASE_CPUS, "port": port, "tag": tag,
                  "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    # What the window runs, before any wait (M7): the row names its binaries for check_rows.py.
+    row["provenance"] = provenance(build, system, out, tag, tools)
     if server_arm:
         row["backend"] = backend
         row["detect"] = detect
@@ -678,6 +765,8 @@ def main(argv=None) -> int:
     ap.add_argument("--backend", default="epoll", choices=("epoll", "io_uring"), help="the server's backend (its two arms)")
     ap.add_argument("--detect", default="replay", choices=("replay", "peek"),
                     help="the server's detection mode: replay, the proposed default until rule E; peek, the other option")
+    ap.add_argument("--tools", type=Path, default=Path.home() / "lab" / "p3" / "tools",
+                    help="where inputs_hash.py is (aa.py's default), for the row's provenance")
     a = ap.parse_args(argv)
     if a.detect != "replay" and a.system not in (SERVER, SERVER_INPROC):
         raise SystemExit("--detect applies to the server's arms only")
@@ -686,7 +775,7 @@ def main(argv=None) -> int:
     if a.system in comp.LIBRARIES and not comp.SYSTEMS[a.system].binary_path(comp.harness_dir(a.build)).exists():
         raise SystemExit(f"{a.system}: no harness at {comp.SYSTEMS[a.system].binary_path(comp.harness_dir(a.build))} "
                          "(bench/competitors/build_harnesses.sh)")
-    row = run(a.build, a.out, a.job, a.case, a.n, a.blocks, a.system, a.backend, a.detect)
+    row = run(a.build, a.out, a.job, a.case, a.n, a.blocks, a.system, a.backend, a.detect, a.tools)
     with open(a.out / "windows.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     f2 = row["footprint"]["sample2"]

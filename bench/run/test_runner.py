@@ -457,6 +457,79 @@ class B3Relay(unittest.TestCase):
             b3.run(Path("."), Path("."), "j", "silent", 1, Path("."), system="traefik")
 
 
+class B3Provenance(unittest.TestCase):
+    """M7: a B3 row names the first-party binaries its window ran, by the names a gate of
+    bench/check_records.py gives them, so bench/check_rows.py binds it to a gated build (rule D5),
+    as it binds aa.py's and handoff.py's rows. On a stand-in build tree; runs anywhere."""
+
+    FILES = {"bench/server/oneport": b"oneport", "bench/gen/opgen": b"opgen", "bench/cases/opcase": b"opcase",
+             "bench/cases/ophold": b"ophold", "harness/netty/harness.jar": b"netty", "harness/jetty/harness.jar": b"jetty",
+             "harness/cmux/oneport-cmux": b"cmux", "harness/hyper-util/oneport-hyper-util": b"hyper-util"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.build = Path(self.tmp.name) / "build"
+        for rel, data in self.FILES.items():
+            (self.build / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.build / rel).write_bytes(data)
+        record = {name: {"flavour": "release", "output": str(b3.comp.SYSTEMS[name].binary_path(self.build / "harness")),
+                         "output_sha256": window.sha256_file(b3.comp.SYSTEMS[name].binary_path(self.build / "harness")),
+                         "inputs_hash": f"{name}-inputs", "tools": "stand-in"} for name in b3.comp.LIBRARIES}
+        (self.build / "harness" / "build.json").write_text(json.dumps(record))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def gate(self, drop: str = "") -> Path:
+        """A passing, citable gate holding this tree's binaries, as check_records.py writes it."""
+        bins = {name: window.sha256_file(self.build / rel) for name, rel in b3.build_inputs.BINARIES["L"].items()}
+        bins.update({b3.harness_target(n): window.sha256_file(b3.comp.SYSTEMS[n].binary_path(self.build / "harness"))
+                     for n in b3.comp.LIBRARIES})
+        bins.pop(drop, None)
+        p = Path(self.tmp.name) / f"gate{drop}.json"
+        p.write_text(json.dumps({"host": "L", "passed": True, "dry_run": False, "citable": True, "binaries": bins}))
+        return p
+
+    def test_names_by_system(self):
+        def names(system: str) -> set[str]:
+            return set(b3.window_binaries(self.build, system))
+        self.assertEqual(names("ophold"), {"opcase", "ophold"})
+        for system in (window.ONE_PORT_RELAY, "one-port-inproc") + b3.comp.ORDER:  # a proxy runs in front of the stub, oneport
+            self.assertEqual(names(system), {"oneport", "opcase"}, system)
+        self.assertEqual(names("cmux"), {"opcase", "harness_cmux"})
+        self.assertEqual(names("hyper-util"), {"opcase", "harness_hyper_util"})
+        self.assertEqual(names("netty"), {"opcase", "harness_netty"})
+        self.assertEqual(names("jetty"), {"opcase", "harness_jetty"})
+        gate_names = set(b3.build_inputs.BINARIES["L"]) | {b3.harness_target(n) for n in b3.comp.LIBRARIES}
+        for system in b3.SYSTEMS:
+            self.assertLessEqual(names(system), gate_names, system)
+
+    def test_rows_bind(self):
+        import check_rows  # bench/, on the path b3.py sets
+        rows = [{"job": "j", "system": s, "provenance": b3.binaries_provenance(self.build, s)}
+                for s in ("ophold", "one-port-inproc", window.ONE_PORT_RELAY, "cmux", "hyper-util", "netty", "jetty")]
+        prov = rows[3]["provenance"]
+        self.assertEqual(prov["binary_paths"]["harness_cmux"], str(self.build / "harness" / "cmux" / "oneport-cmux"))
+        self.assertTrue(prov["harness"]["same_as_build_json"])
+        self.assertEqual((prov["harness"]["target"], prov["harness"]["inputs_hash"]), ("harness_cmux", "cmux-inputs"))
+        covered, left_out = check_rows.load_gates([self.gate()])
+        self.assertEqual((check_rows.check(rows, covered), left_out), ([], []))
+        # The gate lacks the harness a row ran: that row alone is refused.
+        covered, _ = check_rows.load_gates([self.gate(drop="harness_cmux")])
+        self.assertEqual([rows[r["row"]]["system"] for r in check_rows.check(rows, covered)], ["cmux"])
+        # A binary rebuilt after the gate: the rows that ran it are refused.
+        covered, _ = check_rows.load_gates([self.gate()])
+        (self.build / "bench" / "cases" / "ophold").write_bytes(b"ophold, rebuilt")
+        again = [{"job": "j", "system": "ophold", "provenance": b3.binaries_provenance(self.build, "ophold")}]
+        self.assertEqual(len(check_rows.check(again, covered)), 1)
+        # A row as b3.py wrote it before M7, with no provenance, binds to nothing.
+        self.assertEqual(len(check_rows.check([{"job": "j", "system": "ophold"}], covered)), 1)
+
+    def test_harness_differs_from_build_json(self):
+        (self.build / "harness" / "cmux" / "oneport-cmux").write_bytes(b"cmux, built elsewhere")
+        self.assertFalse(b3.binaries_provenance(self.build, "cmux")["harness"]["same_as_build_json"])
+
+
 class B3InProcess(unittest.TestCase):
     """b3.py's parts for an in-process system: the HTTP/1.1 probe and the response reader against
     stand-ins, the collector checks, and on Linux the cmux harness's signal step and jcmd's step
