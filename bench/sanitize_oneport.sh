@@ -36,12 +36,15 @@ records=${2:?usage: sanitize_oneport.sh asan|tsan|msan RECORDS_DIR}
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
 dry=${DRY_RUN:-}
+# Each sanitizer's suite gets its own port block for the integration tests of
+# bench/competitors/test_competitors.py (ONEPORT_TEST_PORT_SHIFT), so the two suites that run at
+# once (bench/records_job.sh) never bind each other's ports.
 case "$san" in
-    asan) sanitizer=address+undefined
+    asan) sanitizer=address+undefined; shift_ports=600
           sanenv=(ASAN_OPTIONS=detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1
                   UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1) ;;
-    tsan) sanitizer=thread; sanenv=() ;;
-    msan) sanitizer=memory; sanenv=() ;;
+    tsan) sanitizer=thread; shift_ports=1800; sanenv=() ;;
+    msan) sanitizer=memory; shift_ports=3000; sanenv=() ;;
     *) echo "sanitize_oneport: unknown sanitizer '$san'" >&2; exit 2 ;;
 esac
 options="${sanenv[*]:-the runtime defaults}"
@@ -73,7 +76,8 @@ ctest_rc=1
 if [ "$build_rc" -eq 0 ]; then
     python3 "$here/build_inputs.py" --build "$work/build" --host L --out "$work/build.inputs.json" \
         ${LAB_BIN:+--inputs-hash "$LAB_BIN/inputs_hash.py"} >> "$work/build.log" 2>&1
-    (cd "$work/build" && env "${sanenv[@]}" ctest -V -j "${CTEST_JOBS:-8}" --timeout 900) > "$work/ctest.log" 2>&1
+    (cd "$work/build" && env "${sanenv[@]}" ONEPORT_TEST_PORT_SHIFT="$shift_ports" ctest -V -j "${CTEST_JOBS:-8}" --timeout 900) \
+        > "$work/ctest.log" 2>&1
     ctest_rc=$?
 fi
 set -e

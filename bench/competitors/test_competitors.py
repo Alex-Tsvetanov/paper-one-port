@@ -16,6 +16,7 @@ the readings and the row). No competitor binary is needed: those probes run as l
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import tempfile
@@ -474,11 +475,50 @@ class HandoffRow(unittest.TestCase):
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")
-def port_shift(build: Path) -> int:
-    """A port offset per build tree, a multiple of 400 below 6400, so two suites run at once (M5's
-    checks run two sanitizer builds together) do not bind each other's ports; every port stays
-    below the ephemeral range."""
-    return 400 * (zlib.crc32(str(build.resolve()).encode()) % 16)
+# The integration tests' ports: probe.PORTS (23000, 23100, 23200) and the hand-off window's 23500,
+# each with its stub's six listeners 10 to 15 above it, so the block is 23000 to 23515.
+PORT_BLOCK = (23000, 23515)
+# A shift is a multiple of PORT_STRIDE, more than the block's 516 ports, so the blocks of two
+# different shifts never overlap. 400, the stride until the code freeze's preparation, was less:
+# the dry run of the records drivers (job dryrun1) ran ASan's suite at shift 3200 and TSan's at
+# 3600, and TSan's probe front (23100 + 3600) took the port of ASan's hand-off window (23500 +
+# 3200), whose stub then did not start.
+PORT_STRIDE = 600
+PORT_SHIFTS = 16
+
+
+def port_shift(build: Path, env: dict | None = None) -> int:
+    """A port offset per build tree, so two suites run at once (M5's checks and the records driver
+    run two sanitizer builds together) do not bind each other's ports: ONEPORT_TEST_PORT_SHIFT
+    when set (bench/sanitize_oneport.sh gives each sanitizer its own), else PORT_STRIDE times the
+    tree's CRC-32 modulo PORT_SHIFTS. Every port stays below L's ephemeral range (32768)."""
+    env = os.environ if env is None else env
+    if env.get("ONEPORT_TEST_PORT_SHIFT"):
+        shift = int(env["ONEPORT_TEST_PORT_SHIFT"])
+        if shift % PORT_STRIDE or not 0 <= shift < PORT_STRIDE * PORT_SHIFTS:
+            raise ValueError(f"ONEPORT_TEST_PORT_SHIFT={shift}: a multiple of {PORT_STRIDE} below {PORT_STRIDE * PORT_SHIFTS}")
+        return shift
+    return PORT_STRIDE * (zlib.crc32(str(build.resolve()).encode()) % PORT_SHIFTS)
+
+
+class PortShifts(unittest.TestCase):
+    """The integration tests' port blocks of two suites at once never overlap (pure)."""
+
+    def test_block_and_stride(self):
+        self.assertEqual(PORT_BLOCK[0], min(probe.PORTS.values()))
+        self.assertEqual(PORT_BLOCK[1], HANDOFF_TEST_PORT + max(comp.STUB_OFFSET.values()) + 10)
+        self.assertGreater(PORT_STRIDE, PORT_BLOCK[1] - PORT_BLOCK[0])
+        self.assertLess(PORT_BLOCK[1] + PORT_STRIDE * (PORT_SHIFTS - 1), 32768)  # L's ephemeral range starts there
+
+    def test_environment_override(self):
+        self.assertEqual(port_shift(Path("."), {"ONEPORT_TEST_PORT_SHIFT": "1800"}), 1800)
+        for bad in ("400", "9600", "-600"):
+            with self.assertRaises(ValueError):
+                port_shift(Path("."), {"ONEPORT_TEST_PORT_SHIFT": bad})
+        self.assertEqual(port_shift(Path("."), {}) % PORT_STRIDE, 0)
+
+
+HANDOFF_TEST_PORT = 23500  # the hand-off window's front in test_one_handoff_window_each_protocol
 
 
 class Integration(unittest.TestCase):
@@ -512,7 +552,7 @@ class Integration(unittest.TestCase):
                 blocks = window.SourceBlocks(Path(d) / "blocks.json")
                 for proto in handoff.M3_PROTOS:
                     cfg = {"build": BUILD, "proto": proto, "k_src": 4, "cell": f"m3.{proto}.test", "arms": {"A": handoff.SERVER},
-                           "ports": {"A": 23500 + self.shift}}
+                           "ports": {"A": HANDOFF_TEST_PORT + self.shift}}
                     session = {"job": "test", "id": f"test-{proto}", "mhz": 1.0}
                     row = handoff.run_window(cfg, session, "A", 0, blocks, Path(d) / "raw")
                     reasons = row.get("invalid_reasons", [])
