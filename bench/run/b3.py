@@ -45,8 +45,14 @@ Unix socket, so no TCP connection); the cmux harness gets SIGUSR1, on which it c
 debug.FreeOSMemory and prints HeapInuse. The harnesses come from <build>/harness
 (bench/competitors/build_harnesses.sh).
 
+The server's arms run in its default detection mode, which is replay, the proposed default (section
+2.1), until rule E decides it after the pilot entry; `--detect peek` runs its other option, as
+development data (section 8, step 2: one-port against another one-port option or a competitor).
+Every reading also records the size of every slab cache of /proc/slabinfo (`slab_all`), which
+decides nothing and attributes Ks's growth to caches (M5).
+
     b3.py --build DIR --out DIR --job NAME [--system ophold|one-port-relay|one-port-inproc|nginx|...|netty|...]
-          [--case silent|partial-hello] [--n 10000] [--backend epoll|io_uring]
+          [--case silent|partial-hello] [--n 10000] [--backend epoll|io_uring] [--detect replay|peek]
 """
 from __future__ import annotations
 
@@ -329,13 +335,13 @@ class RelaySystem:
     """A relay system of B3 on CPU 14 in front of the stub on CPUs 10 and 12: a proxy in its B3
     configuration, or the server's one-port relay with every timer at 60 s (section 1)."""
 
-    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll"):
+    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll", detect: str = "replay"):
         import handoff  # the hand-off runner's stub and front (section 4.1's placement)
         self.system = system
         self.port = port
         self.stub, self.stub_out = handoff.start_stub(build, port + STUB_OFFSET, raw, tag)
         try:
-            self.front = handoff.Front(system, build, port, port + STUB_OFFSET, raw, tag, "b3", backend)
+            self.front = handoff.Front(system, build, port, port + STUB_OFFSET, raw, tag, "b3", backend, detect)
         except Exception:
             window.stop_process(self.stub, self.stub_out)
             raise
@@ -482,16 +488,16 @@ def go_collect(pid: int, stdout_log: Path, timeout: float = GO_COLLECT_TIMEOUT_S
 class InProcessSystem:
     """An in-process system of B3 on CPU 14 (section 5.2; M4b-2): a library's harness in its B3
     configuration, or the server in one-port mode with in-process dispatch, its default detection
-    mode (replay) and every timer at 60 s (section 1). No stub."""
+    mode (replay, unless asked) and every timer at 60 s (section 1). No stub."""
 
-    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll"):
+    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll", detect: str = "replay"):
         self.system = system
         self.port = port
         self.build = build
         self.running = None
         self.out = None
         if system == SERVER_INPROC:
-            cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", "replay", "--dispatch", "inproc",
+            cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", detect, "--dispatch", "inproc",
                    "--backend", backend, "--port", str(port), "--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "60000"]
             self.proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, SYSTEM_CPUS))] + cmd, stdout=subprocess.PIPE,
                                          stderr=open(raw / f"{tag}.server.err", "wb"), start_new_session=True, cwd=raw,
@@ -537,7 +543,7 @@ class InProcessSystem:
 
 
 def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, system: str = "ophold",
-        backend: str = "epoll") -> dict:
+        backend: str = "epoll", detect: str = "replay") -> dict:
     if system not in SYSTEMS:
         raise ValueError(f"system {system!r}, not one of {SYSTEMS}")
     out.mkdir(parents=True, exist_ok=True)
@@ -545,13 +551,14 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
     inproc = system in INPROC_SYSTEMS
     port = B3_PORT if system != "ophold" else OPHOLD_PORT
     server_arm = system in (SERVER, SERVER_INPROC)
-    tag = f"{job}-{system}-{case}" + (f"-{backend}" if server_arm else "")
+    tag = f"{job}-{system}-{case}" + (f"-{backend}" if server_arm else "") + (f"-{detect}" if server_arm and detect != "replay" else "")
     row: dict = {"job": job, "kind": "b3" if system != "ophold" else "ophold", "system": system, "case": case, "n_pend": n,
                  "development": True, "placement": "relay" if relay else "in-process" if inproc else "holder",
                  "system_cpus": SYSTEM_CPUS, "opcase_cpus": OPCASE_CPUS, "port": port, "tag": tag,
                  "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     if server_arm:
         row["backend"] = backend
+        row["detect"] = detect
     if relay:
         row["stub_port"] = port + STUB_OFFSET
     row["gap_wait_s"] = wait_after_other_windows(blocks_file)
@@ -560,9 +567,9 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
     row["fingerprint"] = window.pin_fingerprint()
     ns0 = window.nstat()
     if relay:
-        sysm = RelaySystem(build, system, port, out, tag, backend)
+        sysm = RelaySystem(build, system, port, out, tag, backend, detect)
     elif inproc:
-        sysm = InProcessSystem(build, system, port, out, tag, backend)
+        sysm = InProcessSystem(build, system, port, out, tag, backend, detect)
     else:
         sysm = Holder(build, port, n)
     row["command"] = sysm.command
@@ -666,17 +673,21 @@ def main(argv=None) -> int:
     ap.add_argument("--n", type=int, default=fp.N_PEND)
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
     ap.add_argument("--backend", default="epoll", choices=("epoll", "io_uring"), help="the server's backend (its two arms)")
+    ap.add_argument("--detect", default="replay", choices=("replay", "peek"),
+                    help="the server's detection mode: replay, the proposed default until rule E; peek, the other option")
     a = ap.parse_args(argv)
+    if a.detect != "replay" and a.system not in (SERVER, SERVER_INPROC):
+        raise SystemExit("--detect applies to the server's arms only")
     if a.system in comp.ORDER and not comp.SYSTEMS[a.system].binary_path().exists():
         raise SystemExit(f"{a.system}: no binary at {comp.SYSTEMS[a.system].binary_path()} (bench/competitors/install.sh)")
     if a.system in comp.LIBRARIES and not comp.SYSTEMS[a.system].binary_path(comp.harness_dir(a.build)).exists():
         raise SystemExit(f"{a.system}: no harness at {comp.SYSTEMS[a.system].binary_path(comp.harness_dir(a.build))} "
                          "(bench/competitors/build_harnesses.sh)")
-    row = run(a.build, a.out, a.job, a.case, a.n, a.blocks, a.system, a.backend)
+    row = run(a.build, a.out, a.job, a.case, a.n, a.blocks, a.system, a.backend, a.detect)
     with open(a.out / "windows.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     f2 = row["footprint"]["sample2"]
-    print(f"{a.system} {a.case}{' ' + a.backend if 'backend' in row else ''}: valid={row['valid']} {'; '.join(row['invalid_reasons'])}")
+    print(f"{a.system} {a.case}{' ' + a.backend + ' ' + a.detect if 'backend' in row else ''}: valid={row['valid']} {'; '.join(row['invalid_reasons'])}")
     print(f"  U {f2['U']:.1f}  Kq {f2['Kq']:.1f}  Ks {f2['Ks']:.1f}  W {f2['W']:.1f} bytes per pending connection; "
           f"established {f2['established']}; skb growth {f2['skb_growth']}; shared cache growth {f2['shared_growth']}")
     return 0

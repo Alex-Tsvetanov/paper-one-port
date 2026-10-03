@@ -154,6 +154,7 @@ class Reading:
     sockets: list[SsSocket]           # the system's established accepted sockets
     time_wait: int                    # the host's TIME-WAIT count
     problems: list[str] = field(default_factory=list)  # a cache that could not be found or read
+    slab_all: dict[str, int] = field(default_factory=dict)  # every /proc/slabinfo cache's size (M5), deciding nothing
 
     @property
     def rss_total_kb(self) -> int:
@@ -308,7 +309,8 @@ def read(pids: list[int], port: int) -> Reading:
     tw = len([ln for ln in _run(["ss", "-Htan", "state", "time-wait"]).splitlines() if ln.strip()])
     return Reading(t_ns=t, rss_kb=rss, slab_kb=slab_kb, caches=sizes, fclone_target=target or "",
                    fclone_cotenants=cot, fclone_listed_as=listed, fclone_slabs=slabs, fclone_objects=objects,
-                   sockets=socks, time_wait=tw, problems=problems)
+                   sockets=socks, time_wait=tw, problems=problems,
+                   slab_all={name: cache_bytes(e, page) for name, e in slab.items()})
 
 
 def reading_dict(r: Reading) -> dict:
@@ -319,4 +321,5 @@ def reading_dict(r: Reading) -> dict:
         "fclone_listed_as": r.fclone_listed_as, "fclone_slabs": r.fclone_slabs, "fclone_objects": r.fclone_objects,
         "established": len(r.sockets), "r_sum": sum(x.skmem.get("r", 0) for x in r.sockets),
         "f_sum": sum(x.skmem.get("f", 0) for x in r.sockets), "time_wait": r.time_wait, "problems": r.problems,
+        "slab_all": r.slab_all,
     }

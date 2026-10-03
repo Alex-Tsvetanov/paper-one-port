@@ -26,6 +26,7 @@ sys.path.insert(0, str(HERE))
 
 import aa  # noqa: E402
 import b3  # noqa: E402
+import counterdelta  # noqa: E402
 import systrace  # noqa: E402
 import footprint as fp  # noqa: E402
 import window  # noqa: E402
@@ -654,6 +655,57 @@ class Trace(unittest.TestCase):
         g = {"ok": True, "warmup": {"completed": 10}, "measure": {"completed": 90, "errors": {"total": 0}}, "connect_failures": 0,
              "ttfb_ns": {"median": 1}, "wall_s": 2.0}
         self.assertEqual(set(systrace.counts_only(g)), {"ok", "warmup", "measure", "errors", "connect_failures"})
+
+
+def cost_trace_row(mode: str, detect: str, accepted: int, repeat: int = 0, idle: dict | None = None, **counters) -> dict:
+    sc = {"accepted": accepted, **counters}
+    return {"kind": "cost", "cell": "churn.http1.epoll", "mode": mode, "detect": detect, "repeat": repeat, "server_counters": sc,
+            "idle": {"server_counters": idle or {}}, "opgen": {"warmup": 10, "measure": 89}}
+
+
+class CounterDelta(unittest.TestCase):
+    """counterdelta.py (M5, criterion 1): one-port against dedicated per connection, the idle pass's
+    counters first taken away, and the verdict per counter."""
+
+    def test_idle_pass_is_taken_away(self):
+        ded = cost_trace_row("dedicated", "replay", 100, idle={"epoll_ctl_calls": 6}, epoll_ctl_calls=106, recv_calls=200)
+        c = counterdelta.load_counters(ded)
+        self.assertEqual((c["epoll_ctl_calls"], c["recv_calls"], c["accepted"]), (100.0, 200.0, 100.0))
+        u = cost_trace_row("dedicated", "replay", 10, idle={"io_uring_submissions": {"ACCEPT": 6}},
+                           io_uring_submissions={"ACCEPT": 6, "RECV": 20})
+        c = counterdelta.load_counters(u)
+        self.assertEqual((c["ring:ACCEPT"], c["ring:RECV"]), (0.0, 20.0))
+
+    def test_verdicts(self):
+        ded = [cost_trace_row("dedicated", "replay", 100, r, recv_calls=200 + r, send_calls=100, bytes_copied=0) for r in (1, 2)]
+        one = [cost_trace_row("one-port", "replay", 100, r, recv_calls=201 + r, send_calls=100, bytes_copied=50) for r in (1, 2)]
+        d = counterdelta.compare(ded, one)
+        self.assertEqual(d["send_calls"]["verdict"], "equal")
+        self.assertEqual(d["recv_calls"]["verdict"], "within the spread")  # 2.01, 2.02 against 2.02, 2.03
+        self.assertEqual(d["bytes_copied"]["verdict"], "differs")
+        self.assertAlmostEqual(d["bytes_copied"]["delta"], 0.5)
+        rep = counterdelta.cost_report(ded + one)
+        self.assertEqual(set(rep), {"churn.http1.epoll.replay"})
+        self.assertEqual(rep["churn.http1.epoll.replay"]["rows"], {"dedicated": 2, "one-port": 2})
+
+    def test_per_request(self):
+        r = cost_trace_row("dedicated", "replay", 3, send_calls=100)
+        self.assertAlmostEqual(counterdelta.per_unit(r, "request")["send_calls"], 1.0)  # 10 + 89 + the probe's 1
+
+    def test_detection_mode_reaches_the_commands(self):
+        import handoff
+        cmd = handoff.server_front_cmd(Path("/b"), 1, 11, "b3", "io_uring", "peek")
+        self.assertEqual(cmd[cmd.index("--detect") + 1], "peek")
+        self.assertEqual(cmd[cmd.index("--backend") + 1], "io_uring")
+        default = handoff.server_front_cmd(Path("/b"), 1, 11)
+        self.assertEqual(default[default.index("--detect") + 1], "replay")  # the proposed default
+        with self.assertRaises(ValueError):
+            handoff.server_front_cmd(Path("/b"), 1, 11, detect="sniff")
+        self.assertEqual(systrace.DETECTS, ("replay", "peek"))
+
+    def test_slab_all_is_recorded(self):
+        r = reading(slab_all={"io_kiocb": 4096, "eventpoll_epi": 8192})
+        self.assertEqual(fp.reading_dict(r)["slab_all"], {"io_kiocb": 4096, "eventpoll_epi": 8192})
 
 
 CLOCKFLOOR = HERE / "clockfloor.sh"
