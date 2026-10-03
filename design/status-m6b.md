@@ -406,7 +406,8 @@ How long: 12 cells x 6 sessions x 4 windows = 288 windows and 72 session fingerp
 - each session's fingerprint: 4.8 s, timed once on a busy W (the Defender and Update reading, the
   plan's read-back, 3 s of frequency samples);
 - once: the lock, the checks before the session (the quiet check is 10 s), the plan switch.
-Not yet measured: a full-length window's overhead (func2 was to give more of it and was stopped). An
+Not yet measured: a full-length window's overhead (func2 was to give more of it and was stopped;
+replaced by the estimate from func2b, "The A/A job's length, from measured parts" below). An
 upper bound from the parts above, every window taken with the full 40 s wait: 288 x (6 + 1.4 + 0.4
 + 40) s + 72 x 4.8 s = 14,112 s, about 3.9 h. Keep-alive windows need no wait unless they follow a
 churn or open-loop window, so the job is shorter; the job can also be split in two (C1 and C2 first,
@@ -415,7 +416,8 @@ then C3 with `--rates` from the first job's rates.json).
 ## Open, and what blocks
 
 - **Blocking the W A/A job:** Alex's pause of Windows Update, the Defender exclusion, and a free
-  W. The coordinator asks him.
+  W. The coordinator asks him. (Done by Alex on 2026-10-03, as the coordinator reported; see "M6b resumed"
+  below for what then stopped the job.)
 - **The frequency counter** did not pass; W windows are validated without the frequency rule unless
   Alex decides otherwise (section 9.1).
 - **Not in this brief, so not built:** more than one worker on IOCP (listed under M6b in
@@ -484,3 +486,286 @@ load mean more than 2% from the lab plan's. Beside the rule: work falling by mor
 counter still means a blind counter; neither moving means an inconclusive test. The A/A job runs as
 briefed whatever the outcome (FREQ_RULE off, the counter in every row); the outcome is a reading
 for the coordinator.
+
+### What ran, in order
+
+Brief of the resumed M6b: merge the last tested state of main (0567012, M7b) into `m6b-windows`, build
+and run the suite on W in Debug and ASan, dry-run the W sanitizer-records driver, finish func2, take
+the A/A job's per-window overhead from it, prepare the A/A job, and (the coordinator's change of
+2026-10-03) start it once all of that passed, with the frequency retest right before it. Alex had
+paused Windows Update until 2026-11-01 21:07 UTC, added a Defender exclusion of `C:\Users\alext\lab`
+and freed W for about 4 h (the coordinator's message; this session read neither setting). L was not
+used, except one `git fetch lab` at the start of this session, before the hard rule was applied to
+the remote (`lab` is `alex@192.168.1.62`, L); nothing was pushed there.
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 83cbb77 | chore: merge 0567012 (M7b on main) into m6b-windows |
+| 2b6aed0 | fix: the merged tree builds on W with MSVC: opcase's JSON quoting helper is json_quoted; record.cpp's fopen without C4996 |
+| 84c7912 | feat: the frequency retest (wpower.py create-cap, wfreq.py --control cap, the work-rate reading) |
+| 0698947 | docs: w-procedure.md section 4's revision and the retest's plan, written before it ran |
+| 0c1420a | feat: wfreq.py --require-quiet |
+
+### The merge (83cbb77)
+
+No conflicts. The two sides share one file, `tests/CMakeLists.txt`, whose hunks are apart: main's
+in the Linux block and the pure tests, M6b's in the Windows block and the Python tests. Main's side
+changes nothing under `bench/gen` and nothing of `window.py` or `aa.py`, which the W runner imports.
+
+### The build on W, and what was fixed (2b6aed0)
+
+The merged tree did not compile on W. `bench/cases/run_cases.cpp` (new on main, compiled into the
+`opcase` library on every platform) failed with C2677, C2676 and C2039 at lines 110, 127 and 183:
+its helper `quoted(std::string_view)` lost to `std::quoted`, which MSVC's standard headers declare
+and argument-dependent lookup found for every `std::string` argument (`v.id`, the TLS fields). The
+helper is now `json_quoted`, in its anonymous namespace; Linux's behaviour is unchanged. Also,
+`bench/server/record.cpp` (new on main) drew warning C4996 for `std::fopen`; the warning is now
+disabled around that line under `_MSC_VER` (push, disable, pop), so the open is the same call on
+every platform. Nothing else of the merged tree needed a change on W.
+
+### The suite on W (development checks, not records)
+
+From exported copies (`git archive`) in `C:\Users\alext\lab\p3\m6b\check\`, with M6b's `check.cmd`
+(MSVC 19.51.36246.0, Build Tools 18, Ninja, `ctest -V -j 4`, ASan with
+`ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1` in the vcvars64
+environment). Report lines: lines of the ctest log matching the shared report pattern
+(`bench/oneport_record.py`, `REPORT`).
+
+| Build | Commit | Build warnings | CTest | Test time | Report lines |
+|---|---|---|---|---|---|
+| Debug (release libraries) | 2b6aed0 | 0 | 160 passed, 0 failed | 52.91 s | 0 |
+| ASan (`-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address`, asan libraries) | 2b6aed0 | 0 | 160 passed, 0 failed | 56.91 s | 0 |
+| Release (the A/A build, below) | 0698947 | 0 | 160 passed, 0 failed | 50.77 s | not counted (no sanitizer) |
+
+The ASan build is instrumented as M6b's was: `opgen.exe` and `oneport_tests.exe` import
+`clang_rt.asan_dynamic-x86_64.dll`; `worker_win.cpp.obj`, `worker.cpp.obj` and `opgen.cpp.obj` hold
+148, 122 and 100 symbol lines naming `__asan_`. W's suite grew from 156 to 160 entries: main's four
+new pure tests `clienthello.scan`, `.helloroom1`, `.refusal` and `.need_bound`. 0698947 changes only
+Python files against 2b6aed0 (`bench/run/wpower.py`, `wfreq.py`, `test_wrunner.py`, now 19 checks),
+and its Release suite passed them.
+
+Linux-only tests, and how W skips them:
+- Not registered on W: every test that `tests/CMakeLists.txt` adds inside
+  `if(CMAKE_SYSTEM_NAME STREQUAL "Linux")`: the `server.*`, `handlers.*` and `relay.*` tests per Linux
+  backend (with main's new `server.cases_by_port`, `server.binary_record.*`, `handlers.tls_deferred`,
+  `relay.pass_through_storage.*`), the kernel pins (`server.kernel_*`, with main's new
+  `server.kernel_nodelay_inherited`), opgen's tests on epoll and io_uring, and the opcase and ophold
+  programs. W registers the IOCP forms (`iocp.*`, `loop.IOCP.*`, `handlers.*.IOCP`, `gen.*.IOCP`,
+  `case.HC*.IOCP.inproc.*`) instead.
+- Skipped inside the Python tests: `run.test_runner` skips 13 checks (`skipUnless` Linux: bash,
+  signals, `/proc`, taskset, L's cpufreq layout, the system OpenSSL); `run.test_competitors` skips 2
+  (Linux only); `gate.test_record_writers` skips its comparison with the Papers repo's
+  `lab/bin/test_report_pattern.sh` when the checkout is not inside the Papers repo (the exported
+  copies). In the records driver's dry run, which builds from the work tree inside the Papers repo,
+  the comparison ran: "ok: the shared pattern equals lab/bin/test_report_pattern.sh's".
+
+### The W sanitizer-records driver, dry run
+
+    powershell -ExecutionPolicy Bypass -File bench\sanitize_oneport.ps1 -DryRun ^
+      -Records C:\Users\alext\lab\p3\m6b\records-dry\records -Work C:\Users\alext\lab\p3\m6b\records-dry
+
+From the work tree at 2b6aed0 (clean). It parsed (PowerShell's parser: 0 errors) and ran green in
+80 s: the whole project built with MSVC ASan, `build_inputs.py --host W` hashed 9 targets with no
+mismatch against the compile database, the suite passed 160 of 160 with 0 report lines, the logs
+were kept and packed with their sha256, and `oneport_record.py --dry-run` wrote
+`oneport-2b6aed09b-W-asan-dryrun.json` (green, `"dry_run": true`, compiler MSVC 19.51.36246.0, config
+Release and IOCP, pins 2d49d03bacf8). Never citable; nothing was written into
+`lab\sanitizer-records`. Seen in passing: vcvarsall.bat printed "'vswhere.exe' is not recognized as
+an internal or external command" on the driver's console (its standard error is not redirected);
+the build still identified MSVC 19.51.36246.0 and the record is unaffected. Left as is.
+
+The gate, on the A/A job's Release build (`C:\Users\alext\lab\p3\build-0698947`):
+- `build_inputs.py --host W`: 9 targets, no mismatch, so `TARGETS["W"]` holds for the merged tree
+  (M7 checklist item 2); `BINARIES["W"]` (`oneport.exe`, `opgen.exe`) are found and hashed.
+- `check_records.py --host W` with the dry-run record among the records: refused, exit 1,
+  "oneport-2b6aed09b-W-asan-dryrun.json is a dry run of the records driver: it never gates a build
+  and never belongs among the records".
+- With no records: refused, exit 1, "oneport (inputs d10d4f45b353) has no green asan record on W
+  with compiler MSVC 19.51.36246.0, its configuration and pins 2d49d03bacf8, and no declared gap".
+- With `--accept-dry-run`: passed, every one of the 9 targets covered by the dry-run record,
+  output marked `"dry_run": true`, `"citable": false`. The record was built from the work tree at
+  2b6aed0 and the gated build from a clone at 0698947 in another directory, and their inputs hashes
+  are equal, so on W too the hash does not depend on the source path.
+
+### func2, finished (job func2b)
+
+The stopped func2 (76d05c8's runner, 4 windows of churn h2c) is replaced by func2b: the 9 cells of
+the A/A job that func1 did not cover (churn h2c, TLS, MQTT; keep-alive HTTP/1.1, h2c, MQTT; open loop
+HTTP/1.1, h2c, TLS), one session each, dedicated mode only, full-length functional windows (1 s
+warm-up, 5 s window, flagged functional, no ratio), K_SRC 16, the open loop at a fixed 2,000 per
+second (`--rates`), seed 20261003, from the A/A job's source copy and Release build. Launched
+detached through WMI (`Win32_Process.Create`, below), under wjob.py with `--allow-noisy`.
+
+- Start 23:26:35, end 23:42:13 +0300. The preflight's quiet check failed (mean idle 91.3%; MsMpEng
+  12.8%, dwm 11.6% and System 9.4% of one CPU), so the job was a functional check by its own rule.
+- 36 of 36 functional windows valid. Every row: probe exit 0, no connect failure, the server's
+  affinity 0x400 and opgen's 0x3FC, the lab plan active at both ends, the server stopped by its event,
+  the timer resolution 1.0 ms. The job exited 0 and Alex's plan was restored (23:42:12) and read back.
+- Provenance names commit 069894782873 with `dirty` false (the source copy is a clone, so git
+  answers in it) and the binaries' sha256 below.
+- RK2 on W, functional only: at churn rates up to 6,064.6 connections per second in these windows
+  (W not quiet), K_SRC = 16 gave no connect failure. A churn window ended with up to 40,561
+  TIME-WAIT entries.
+- The open loop's issue lag on a busy W: median 0.6 to 0.7 us in all 12 open-loop windows; p99 4.0
+  to 63.8 us in 11 of them and 2,499.8 us in one (open HTTP/1.1, p2); maximum 200.0 us to 27,363.7
+  us. Still to read again on a quiet W.
+
+Per-window parts, measured in func2b (`C:\Users\alext\lab\p3\m6b\estimate.py`; overhead = the row's
+`window_overhead_s` less its TIME-WAIT wait and the 6 s of warm-up and window, so the start, the
+probe, the readings, opgen's drain and the stop):
+
+| Part | n | Median | Min | Max |
+|---|---|---|---|---|
+| overhead, churn window | 12 | 0.35 s | 0.29 s | 0.42 s |
+| overhead, keep-alive window | 12 | 0.26 s | 0.24 s | 0.35 s |
+| overhead, open-loop window | 12 | 0.28 s | 0.26 s | 0.36 s |
+| TIME-WAIT wait of a window after a churn or open-loop window | 23 | 29.07 s | 24.77 s | 30.08 s |
+| gap between sessions (the session's fingerprint), from the rows' 1 s start stamps | 8 | 4.67 s | 3.76 s | 4.77 s |
+
+A keep-alive window after a keep-alive window found 65 to 328 TIME-WAIT entries and waited 0 s. The
+job's start (lock, core layout, Defender and Update read, 10 s quiet check) took 11 s before the
+preflight record was written.
+
+### The A/A job's length, from measured parts
+
+The 3.9 h bound of "The planned W A/A job" (every window with a 40 s wait) is replaced. With seed
+861, waa.py's order (replayed with the same calls on `random.Random(861)`) gives 288 windows in 72
+sessions, of which 191 follow a churn or open-loop window (11 of those are keep-alive windows). Sum
+of 6 s per window, the median overhead of its workload, the median wait (29.07 s) for those 191, and
+the median session gap for the 72 sessions: 7,702 s, 2.14 h; with the largest measured wait (30.08
+s) for each: 7,895 s, 2.19 h. A bound with a 40 s wait for each of the 191 and the largest measured
+overhead and session gap: 9,820 s, 2.73 h. Measured: the overheads, the waits, the session gap and
+the start; taken from the design: the 6 s per window and the 40 s bound. Not measured: the A/A job's
+open-loop rates, which are RATE_FRAC (0.5) of the job's churn medians rather than 2,000 per second;
+an open-loop window's wait is bounded by `TcpTimedWaitDelay` (30 s) and `TW_WAIT_MAX_S` (40 s) all
+the same.
+
+### The frequency retest: not run (W not quiet)
+
+`wpower.py create-cap` created the control plan at 23:42:34 +0300, no command elevated: "oneport W
+cap50", `ea6245cb-3cb9-491a-986c-1cb98f8a7164`, duplicated from the lab plan, read back as boost
+mode 0, minimum and maximum processor state 50%, parking 100%, idle disable 0 (record
+`freq\cap-create.json`). It is left in place; deleting a plan is a settings change nobody approved.
+
+`wfreq.py --control cap --require-quiet` ran twice, and each time stopped at its quiet check before
+any plan switch:
+- 23:42:35: mean idle 90.3%; CPUs 2, 3, 7, 8, 9, 10 below 95% (8 to 10 at 80.9 to 81.8%);
+  BackgroundDownload.exe at 57.5% of one CPU (pid 24352, Visual Studio Installer's background
+  download, from `%TEMP%\lijzlvr4.ipp\...\Microsoft.VisualStudio.Setup.Service\`, started 23:41:40),
+  System 16.1%, MsMpEng 5.2%. That process ended by 23:43:55; it was not touched.
+- 23:44:26: mean idle 97.5%; CPU 8 idle 93.4%; System at 8.4% of one CPU.
+
+So the counter was not retested, and section 9.1's fallback stands as after the first test.
+
+### The W A/A job: prepared, start refused by its quiet check
+
+Prepared:
+- Source copy: `C:\Users\alext\lab\p3\src-0698947`, a clone of the work tree checked out at
+  0698947 (detached, clean), not a `git archive` export: waa.py's provenance asks git for the commit
+  and whether the tree is dirty in the build's source directory, and in an archive both read empty.
+  bench is the same at 0c1420a except `wfreq.py`, which the job does not run.
+- Release build: `C:\Users\alext\lab\p3\build-0698947`, MSVC 19.51.36246.0, Ninja,
+  `-DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release` (`m6b\release.cmd`), 0 warnings, its suite 160
+  of 160. sha256: `oneport.exe` b6074f485a9758f36bf782d079ddfdccf61dfd04284c53e69d61c67035155aa8,
+  `opgen.exe` d3b0fc173520166c1223d94e9f9597d8b5358f3ef81e07c5141df98bd0979b0f.
+- Under `C:\Users\alext\lab` as well: the job directory `C:\Users\alext\lab\p3\w-aa`, so the one
+  Defender exclusion covers the source copy, the binaries, the logs and the rows. Outside it: the
+  interpreter `C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe` and the Papers
+  repo's `lab\bin\inputs_hash.py`, which waa.py reads once at its start.
+- Development seed: 861 (the job's order and arms; no seed of that value is named in status.md or
+  in the Papers repo's `lab/journal.jsonl`). func2b used 20261003. The seeds entry must avoid both.
+
+The start command (one line; launched through WMI so that it runs in Alex's session, 1, outside the
+job object of the agent's shell, and outlives that shell; from an ordinary console the same line
+runs in the foreground):
+
+    "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-0698947\bench\run\wjob.py run --dir C:\Users\alext\lab\p3\w-aa --name waa1 -- "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-0698947\bench\run\waa.py --build C:\Users\alext\lab\p3\build-0698947 --out C:\Users\alext\lab\p3\w-aa\waa1 --job waa1 --cells churn:http1,churn:h2c,churn:tls,churn:mqtt,keepalive:http1,keepalive:h2c,keepalive:tls,keepalive:mqtt,open:http1,open:h2c,open:tls,open:mqtt --sessions 6 --seed 861 --k-src 16
+
+The launcher used (`C:\Users\alext\lab\p3\m6b\wlaunch.ps1`, not committed):
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\alext\lab\p3\m6b\wlaunch.ps1 -Dir C:\Users\alext\lab\p3\w-aa -CommandLine "<the line above>"
+
+The stop command:
+
+    "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-0698947\bench\run\wjob.py stop --dir C:\Users\alext\lab\p3\w-aa --name waa1
+
+Its pid file is `C:\Users\alext\lab\p3\w-aa\waa1.pid` and its done file `...\waa1.done`. A new
+attempt needs another `--name` (waa2), or the waa1 files moved aside, since the pid, start, preflight
+and done files of waa1 are kept.
+
+What happened: launched at 23:45:00 +0300 (pid 16184). wjob.py refused at its preflight, exit 90
+("W is not quiet", done file at 23:45:11), before any plan switch; no window ran. Its quiet check:
+mean idle 96.3% (passes), but CPU 8 idle 92.2% and CPU 10 idle 92.8%, MsMpEng (pid 5780) at 5.2%
+and System (pid 4) at 7.2% of one CPU. The top processes it named: System 7.2%, MsMpEng 5.2%,
+CrossDeviceService 2.5%, HapticService 1.1%, and this session's own wait loop (grep, 0.5%). One of
+its ten 1 s idle samples read 84.8%, the others 95.9 to 98.6%. As the coordinator's change says, the
+check was not weakened and the job was not started again.
+
+A reading right after (23:45:38 to 23:45:48, `Get-Counter`, read only): CPUs 0 to 7 idle 97.7 to
+99.4%, CPUs 8 to 11 idle 94.0 to 95.1%, every CPU's interrupt and DPC shares at most 0.31%. So the
+load on CPUs 8 to 11 is thread time, not interrupts; which threads was not established. Not
+established either, and worth a look by the coordinator: wjob.py's preflight reads Defender's
+state (`Get-MpComputerStatus`, a PowerShell call) right before its 10 s quiet check, so Defender's
+own work for that query may fall into the check. MsMpEng read 5.2% in waa1's check, 12.8% in func2b's
+and 0.6% in the second retest's, which also reads the state first.
+
+### Readings for the revision log (the coordinator's; none was added to hypotheses.md)
+
+1. The frequency counter was not retested: W failed the quiet check both times (above). Section
+   9.1's fallback stands as recorded after the first test; the rule's use for confirmatory windows
+   is still to be decided before the code freeze.
+2. RK2 on W, functional evidence only: K_SRC = 16 gave no connect failure in func2b's 36 windows at
+   churn rates up to 6,064.6 connections per second; W was not quiet, so this is not a window's
+   evidence.
+3. The seeds entry (M7 checklist item 5): development seeds 861 (waa1, refused before any window,
+   so no order was drawn) and 20261003 (func2b) were used on W; no frozen seed may take either.
+4. M7 checklist item 2, W's half: the merged tree builds on W after 2b6aed0's two fixes, and the
+   suite passes in Debug and ASan (160 each, 0 report lines); `build_inputs.py`'s `TARGETS["W"]`
+   and `BINARIES["W"]` hold.
+5. The W records driver (`sanitize_oneport.ps1`) works as written in dry-run mode; the gate refuses
+   its dry-run record and a missing record, and matches the record to a Release build in another
+   directory. Seen in it: on W the record's `third_party` is empty (`fetched` and `found`), so the
+   gate's pins check (`gate_lib.pins_differ`: the pins file's sha256, then each archive both
+   fetched) compares the pins file only on W. Whether W needs more there is for the coordinator.
+
+### Open, and what needs Alex
+
+- The W A/A job did not start: W did not pass the quiet check (above). To run it, W must be quiet
+  at the job's start; the start command above runs it as briefed.
+- The frequency retest is still to run, right before the A/A job and with W quiet; its plan exists.
+- The plan "oneport W cap50" (`ea6245cb-3cb9-491a-986c-1cb98f8a7164`) stays in W's plan list until
+  Alex removes it or approves its removal.
+- `m6b-windows` was pushed to `origin` only. The `lab` remote is on L, which this task did not use.
+
+### Where M6b stopped (2026-10-03, 23:46 +0300)
+
+At the stop: Alex's plan "ChrisTitus - Ultimate Power Plan" active (`powercfg /getactivescheme`);
+none of the 39 process ids this session recorded (the two jobs, func2b's guard, its 36 servers) is
+running; no build, suite or job of this session is running.
+
+### Records (C:\Users\alext\lab\p3\)
+
+    f59a3f8ab34c13e400417408d7e07d98a56f9c0b0382fb08655c795190e04821  m6b\records-dry\records\oneport-2b6aed09b-W-asan-dryrun.json
+    61a41fd4f5d44c8e31c4f637489ffed7ad27a5d1c378994ef78e8fa20810c621  m6b\records-dry\records-logs\oneport-2b6aed09b-W-asan-dryrun.tar.gz
+    877c0b2d4c3e69ba97266bef32e8dbe3012e15dabf324fba85a11c563ea6964c  m6b\gate\release-0698947.inputs.json
+    2493acb5b98c0e0c8f6095f546995f7fb4608f3d0d0810c9a51ed13b9a7bd298  m6b\gate\gate-W-dryrun.json
+    ce5b1f1233283f20e116f5b7c151aa7ba5990f95270e47a173f09afd1d36823c  m6b\check\2b6aed0\debug-2b6aed0.build.log
+    25306ffa2efc108b9fd44517fbf76b76c560a1a60b788e1d07a55f8482b9b968  m6b\check\2b6aed0\debug-2b6aed0.ctest.log
+    7ab77673b39e8f44a3edc4b41db263381a80dd619ea6b07064f650e3dd252f95  m6b\check\2b6aed0\asan-2b6aed0.build.log
+    08c7c4ca67d263a33c1f4fec2cb96755a14ea4beeadeed459abceae04aeb753c  m6b\check\2b6aed0\asan-2b6aed0.ctest.log
+    5732ef7702e11e9e67f4cd3f0a10c4cdbfaa2181c9a4dd7060517db53db7ebf9  m6b\release-0698947.build.log
+    de05562ef55f7fee12fe0c2fe42411eab8184b7425c7df513e88e281c5434485  m6b\release-0698947.build.log.ctest
+    4aff7cb81704ad9279e045a2a97945fbbb7036606f3b0fff2e2885a7bb0a9dd7  m6b\func\func2b.preflight.json
+    5f6c219d4832376d85f5254fc71a833b41ae90d9a2ce5ceb331354a395bb5f6b  m6b\func\func2b.plan.json
+    09118e02f6b8450dc1fd556981d2288f8a484e0e1a72e6043b51e15676e3a749  m6b\func\func2b.done
+    9c0b23f581284c67cf2ea6ed0e6209b3067f8b49f08fe74e3917cefbfd59e17c  m6b\func\func2b.log
+    a9b7855b1031f53b4a604249465274bf7162c3fc7d8582d3bce1542c32a623f6  m6b\func\func2b\windows.jsonl
+    2b0342186e1ab029cbb5d5ef1c4fb8a83055505057a8cf6fb068c22bf8695b57  m6b\func\func2b\provenance.json
+    f100affa736fdcb1c04098e66bbae9300ff34031eb3734622be08ad1b2d647b7  m6b\func\func2b\summary.json
+    5103643fd24d2dfe846a2a52d46bf989e51f89977d55e52c552d2eeb19662bbc  m6b\freq\cap-create.json
+    672be675fca834ce57e9f0448cceb849bece95e294b5177f119eb6f6b03ffd35  m6b\freq\freq-20261003T234235.json
+    e2ce76a9d92e0b36de23b243199c6a1e6057b7de398c49364d4ec5de280a9e6f  m6b\freq\freq-20261003T234426.json
+    ba6bbac1d3edf4d2e09c29e4fef858020e7e8d3db7af2681bfbb631db49fb9b5  w-aa\waa1.preflight.json
+    7051dd1fce46525f8a486539cfdcafe72d3cbc1582a0884884938da458275ecd  w-aa\waa1.done
+    7ff455be3f24fe96ae8b02000a0326c92499c3939c91c02b2f0c19cc4c0496b5  m6b\estimate.py
+    9264a15c41688469e29b51e5aed3020367e396fa9b4fb373c8a85dbd966ef6eb  m6b\wlaunch.ps1
