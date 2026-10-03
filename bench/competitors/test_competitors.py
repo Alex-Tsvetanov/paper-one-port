@@ -474,7 +474,6 @@ class HandoffRow(unittest.TestCase):
         self.assertIsNone(handoff.session_ratio(rows))
 
 
-@unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")
 # The integration tests' ports: probe.PORTS (23000, 23100, 23200) and the hand-off window's 23500,
 # each with its stub's six listeners 10 to 15 above it, so the block is 23000 to 23515.
 PORT_BLOCK = (23000, 23515)
@@ -521,6 +520,7 @@ class PortShifts(unittest.TestCase):
 HANDOFF_TEST_PORT = 23500  # the hand-off window's front in test_one_handoff_window_each_protocol
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")  # it decorated port_shift until e68087f
 class Integration(unittest.TestCase):
     """Real processes on this host: the server's relay as the front, the stub behind it."""
 
