@@ -27,6 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "run"))
+sys.path.insert(0, str(HERE.parent))
 
 import cases_check  # noqa: E402
 import competitors as comp  # noqa: E402
@@ -34,6 +35,7 @@ import harness_inputs  # noqa: E402
 import handoff  # noqa: E402
 import probe  # noqa: E402
 import window  # noqa: E402
+from oneport_record import REPORT  # noqa: E402  (bench/: the lab's shared report pattern)
 
 BUILD: Path | None = None
 RUN = Path("/tmp/oneport-run")  # only a string in the rendered text; nothing is written there
@@ -531,6 +533,41 @@ class PortShifts(unittest.TestCase):
 HANDOFF_TEST_PORT = 23500  # the hand-off window's front in test_one_handoff_window_each_protocol
 
 
+def child_reports(d: Path) -> list[str]:
+    """The sanitizer reports in the files the started processes wrote under d (each stub's and
+    front's standard error and output, opgen's), with the lab's shared pattern
+    (bench/oneport_record.py's REPORT). Those files live in a temporary directory that is gone when
+    the test ends, so a sanitizer build's record (bench/sanitize_oneport.sh) would not see a report
+    in them; the test prints each one and fails on it, so the CTest log carries it."""
+    found = []
+    for f in sorted(p for p in d.rglob("*") if p.is_file()):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if REPORT.search(line):
+                found.append(f"{f.relative_to(d)}: {line}")
+    for line in found:
+        print(line)
+    return found
+
+
+class ChildReports(unittest.TestCase):
+    """child_reports finds a report in a started process's file (pure). Its printed lines are
+    captured here: a line of the report pattern in the CTest log would turn a record red."""
+
+    def test_found_and_clean(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "raw").mkdir()
+            (Path(d) / "raw" / "x.stub.err").write_text("==1==ERROR: Address" + "Sanitizer: heap-use-after-free\n")
+            (Path(d) / "raw" / "x.front.err").write_text("oneport: listening\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                found = child_reports(Path(d))
+            self.assertEqual(len(found), 1)
+            self.assertTrue(found[0].startswith("raw/x.stub.err: ") or found[0].startswith("raw\\x.stub.err: "))
+            (Path(d) / "raw" / "x.stub.err").write_text("oneport: counters\n")
+            self.assertEqual(child_reports(Path(d)), [])
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")  # it decorated port_shift until e68087f
 class Integration(unittest.TestCase):
     """Real processes on this host: the server's relay as the front, the stub behind it."""
@@ -546,6 +583,7 @@ class Integration(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as d:
                 res = probe.run(probe.SERVER, "m3", BUILD, Path(d))
+                self.assertEqual(child_reports(Path(d)), [])
         finally:
             probe.PORTS.update(saved)
         self.assertTrue(res["checks"]["routes"]["ok"], res["checks"]["routes"])
@@ -573,6 +611,7 @@ class Integration(unittest.TestCase):
                     self.assertEqual(row["server_counters"]["relayed"], row["backend_counters"]["accepted"], proto)
                     self.assertIn("wl6_cpu_us_per_exchange", row, proto)
                     self.assertEqual(set(row["backend_core_busy"]), {"10", "12"})
+                self.assertEqual(child_reports(Path(d)), [])
         finally:
             window.WARMUP_MS, window.DURATION_MS, window.wait_conntrack = saved
 
