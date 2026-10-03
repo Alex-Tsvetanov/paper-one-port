@@ -519,6 +519,8 @@ class Trace(unittest.TestCase):
         row = systrace.finish_checks({"checks": list(by.values())}, {"ok": True}, [])
         self.assertFalse(row["agrees_with_perf_stat"])
         self.assertIsNone(by["accept"]["stat"])  # no stat count for accept4 here
+        self.assertAlmostEqual(row["trace_shortfall_max_share"], 10 / 330)  # recvfrom: 330 by perf stat, 320 by perf trace
+        self.assertIsNone(systrace.trace_shortfall([by["accept"]]))
 
     def test_load_has_no_time(self):
         g = {"ok": True, "warmup": {"completed": 10}, "measure": {"completed": 90, "errors": {"total": 0}}, "connect_failures": 0,

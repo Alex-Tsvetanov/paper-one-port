@@ -22,8 +22,11 @@ An idle pass of the same arm first (start, attach, IDLE_S with no load, stop) me
 start-up offset per check. A wait in progress when perf attaches or stops can fall on either side,
 which WAIT_SLACK allows for the loop's wait calls. Beside perf trace, `perf stat` counts the entry
 tracepoints of the same system calls (counters, no ring buffer), so a shortfall of perf trace
-itself shows as stat_minus_trace. A row's `agrees` is section 10's check (against perf trace -s);
-`agrees_with_perf_stat` is the same check against perf stat's counts. The load (design choices of M4b-1): churn and open loop at
+itself shows as stat_minus_trace. Section 10's check is read as the comparison with perf stat's
+count of the same system calls' entry tracepoints (the coordinator's decision of 2026-10-03,
+hypotheses.md revision log): a row's `agrees_with_perf_stat` is section 10's check; `agrees`, the
+same check against perf trace -s, is its cross-check, and `trace_shortfall_max_share` reports perf
+trace's largest shortfall against perf stat as a share of a call's count. The load (design choices of M4b-1): churn and open loop at
 TRACE_RATE exchanges per second for TRACE_MS after a TRACE_WARM_MS warm-up, open loop;
 keep-alive with TRACE_KA_CONNS connections for TRACE_KA_MS. perf trace's "LOST" lines are
 recorded, and a lost event fails the check.
@@ -249,11 +252,20 @@ def idle_pass(build: Path, mode: str, backend: str, raw: Path, tag: str) -> dict
     return {"offsets": startup_offsets(counters, calls, backend), "server_counters": counters, "perf_calls": calls}
 
 
+def trace_shortfall(checks: list[dict]) -> float | None:
+    """perf trace -s's largest shortfall against perf stat over a row's checks, as a share of perf
+    stat's count; None where no check has both."""
+    shares = [c["stat_minus_trace"] / c["stat"] for c in checks if c.get("stat") and c.get("stat_minus_trace") is not None]
+    return max(shares) if shares else None
+
+
 def finish_checks(row: dict, g: dict | None, extra: list[str]) -> dict:
-    """`agrees`: section 10's check, the counters against perf trace -s. `agrees_with_perf_stat`:
-    the same counters against perf stat's count of the entry tracepoints (found in M4b-1: on L perf
-    trace -s fell short of perf stat by up to 0.4% of a call's count with no lost event reported,
-    also with a larger ring buffer, while perf stat matched the counters exactly)."""
+    """`agrees_with_perf_stat`: section 10's check, the counters against perf stat's count of the
+    entry tracepoints (the coordinator's reading of 2026-10-03). `agrees`: the cross-check, the same
+    counters against perf trace -s (found in M4b-1: on L perf trace -s fell short of perf stat by up
+    to 0.42% of a call's count with no lost event reported, also with a larger ring buffer, while
+    perf stat matched the counters exactly); `trace_shortfall_max_share`: that shortfall's largest
+    share over the row's checks, (stat - trace) / stat."""
     reasons = [f"{c['check']}: perf {c['perf']}, counters {c['server']} less {c['startup_offset']} at start-up"
                for c in row.get("checks", []) if not c["agrees"]] + extra
     if row.get("perf_lost"):
@@ -262,6 +274,7 @@ def finish_checks(row: dict, g: dict | None, extra: list[str]) -> dict:
         reasons.append("opgen failed")
     row["agrees"] = not reasons
     row["agrees_with_perf_stat"] = all(c.get("stat_agrees") for c in row.get("checks", [])) if row.get("checks") else None
+    row["trace_shortfall_max_share"] = trace_shortfall(row.get("checks", []))
     row["problems"] = reasons
     return row
 
