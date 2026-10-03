@@ -4418,7 +4418,7 @@ the Papers repo's rule D5.
 |---|---|
 | `bench/build_inputs.py` | Hashes a oneport build the one way the records and the gate share: every first-party target per host (L: oneport, oneport_server, oneport_config, oneport_loop, oneport_tls, opcase, opcase_bin, ophold, record_clienthello, opgen, opgen_core, oneport_tests; W the same less opcase_bin, ophold and record_clienthello), checked against the compile database first (a target compiled but not listed, or listed and not compiled, stops it); config keys `CMAKE_BUILD_TYPE` and `ONEPORT_BACKENDS`; root label `oneport`. Adds the compiler identification, the host and the inputs_hash.py used (path, sha256). Names the measured binaries per host. |
 | `bench/sanitize_oneport.sh` | L: one record of oneport per sanitizer (ASan+UBSan, TSan, MSan with the MSan libc++), Release, from a clean checkout: build, inputs hash, `ctest -V` (M5's green options), logs kept and packed (`keep_record_logs.sh`), `oneport-<commit>-L-<san>.json` by `oneport_record.py`. Each sanitizer's suite gets its own port block (`ONEPORT_TEST_PORT_SHIFT`). |
-| `bench/sanitize_oneport.ps1` | W: the same with MSVC ASan from a vcvars x64 shell, M6a's ASan options. Untested: W was in use. |
+| `bench/sanitize_oneport.ps1` | W: the same with MSVC ASan from a vcvars x64 shell, M6a's ASan options. Untested and not even parsed: W was in use, and nothing ran there. Run it only with Alex's yes. |
 | `bench/sanitize_harness.sh`, `bench/harness_record.py` | L: one record of the Go or Rust harness per sanitizer (ASan, TSan): the flavour's build (`build_harnesses.sh`), then its probe in its cases kinds and its route checks at both timer settings, in the environment its flavour runs with (`run_env` of build.json: hyper-util's TSan with its tsan.supp), as M4b-2's development checks ran. The record names the target as `coverage.json` does (`harness_cmux`, `harness_hyper_util`), the inputs hash of `harness_inputs.py`, the toolchain as its compiler, and counts the lab's report pattern and Go's race report. |
 | `bench/records_job.sh` | L: every record in order in one lab job: a Release build and the release harnesses; oneport ASan and TSan at once (two suites at most), then MSan; the four harness records one at a time (fixed ports); then the gate of the Release build, into `gate-L.json`, and the inputs hash and sha256 of every measured binary into `measured-L.json`. Stops at the first record that is not green. |
 | `bench/keep_record_logs.sh` | P2's, unchanged: logs in `~/lab/records-logs/<record>/`, packed, with a sha256. |
@@ -4565,7 +4565,10 @@ gave, the reason is in the item. Each item names what decides it.
    (four builds) and W (Debug, ASan). From then on no commit may touch a first-party input
    (anything a target compiles, a harness input, `pins.cmake`): records match by inputs hash, so
    a commit of docs only (hypotheses.md, status.md) keeps them, and any other is a later change
-   under section 8.
+   under section 8. The gate sees compiled targets and harness inputs only, not the Python half
+   of the suite (`bench/*.py`, `bench/run/*.py`, `bench/competitors/*.py`) or `coverage.json`,
+   which section 8 freezes with "the tests" too: before any frozen run, `git diff
+   CODE_FREEZE..HEAD -- bench tests CMakeLists.txt` must show nothing, checked by hand.
 9. **The sanitizer records at `CODE_FREEZE`** (section 11, rule D5), for every first-party input,
    on every platform:
    - L, one lab job from a fresh clone at `CODE_FREEZE`:
@@ -4576,7 +4579,8 @@ gave, the reason is in the item. Each item names what decides it.
      ASan and TSan records, TSan with tokio's suppression (`tsan.supp`, the coordinator's
      decision); the JVM harnesses have none, their gap declared whole. Every record must be
      green; the job stops at the first that is not. Logs: `~/lab/records-logs/<record>/` and its
-     `.tar.gz` with a sha256.
+     `.tar.gz` with a sha256. Set `REPO_URL` to the paper's repository URL, as P2's records name
+     theirs; unset, a record names the clone's origin, L's bare repository path.
    - W: `bench/sanitize_oneport.ps1 -Records <dir>` at `CODE_FREEZE`, MSVC 19.51.36246 ASan,
      the server, opgen and the suite, with Alex's yes when W is free.
    - The records go into the Papers repo's `lab/sanitizer-records/`, committed there (pushed only
@@ -4586,7 +4590,11 @@ gave, the reason is in the item. Each item names what decides it.
     sha256 of oneport, opgen, opcase, ophold and each harness output); on W,
     `build_inputs.py --host W` on the measured Release build, then `check_records.py --host W`.
     Every runner's rows name the binaries they ran, and `check_rows.py` passes them against these
-    gates before any number is cited.
+    gates before any number is cited. The pilot and every frozen run use the binaries and
+    harnesses of the records job's `build-release` (or show equal sha256 before any window): the
+    C++ binaries reproduced byte for byte across build directories (dryrun4 against m5m3c), but
+    the Rust harness's release profile may embed its checkout path, so a harness built elsewhere
+    can differ and `check_rows.py` would refuse its rows.
 11. **The code freeze's revision-log entry** (section 8 step 3, section 9.1): `CODE_FREEZE`, the
     values of item 6, the pins as frozen, the slab re-read of item 4, the records' names and the
     gates' sha256. Then section 8 step 4, on the frozen binary in dedicated mode only.
