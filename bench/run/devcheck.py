@@ -66,6 +66,8 @@ def main(argv=None) -> int:
     ap.add_argument("--parts", type=Path, action="append", default=[])
     ap.add_argument("--rows", type=Path, action="append", default=[])
     ap.add_argument("--hardcases", type=Path, action="append", default=[])
+    ap.add_argument("--gate-only", type=Path, action="append", default=[],
+                    help="rows that analysis/ does not read (rule E's and M2_RATE's development sessions): flags and gate only")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     seeds = json.loads(a.seeds.read_text(encoding="utf-8"))
@@ -77,7 +79,8 @@ def main(argv=None) -> int:
     ok = True
     pilot_rows, parts, rows = read(a.pilot_rows), read(a.parts), read(a.rows)
     hard = read(a.hardcases)
-    everything = pilot_rows + parts + rows + hard
+    other = read(a.gate_only)
+    everything = pilot_rows + parts + rows + hard + other
     try:
         RW.refuse_flags(everything, frozen=False, allow_synthetic=False)
         out["flags"] = {"rows": len(everything), "all_development": all(r.get("development") is True for r in everything)}

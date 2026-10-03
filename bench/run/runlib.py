@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -129,6 +130,12 @@ def job_provenance(build: Path, tools: Path | None, out: Path, job: str) -> dict
             allb[name] = window.sha256_file(f)
     p["binaries_all"] = allb
     p.pop("binaries", None)
+    # The runner's own code (the Python half, frozen with the tests at CODE_FREEZE), beside the
+    # build's commit that aa.py records.
+    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True)
+    dirty = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "bench", "analysis"], capture_output=True, text=True)
+    p["runner_commit"] = head.stdout.strip() if head.returncode == 0 else None
+    p["runner_dirty"] = bool(dirty.stdout.strip()) if dirty.returncode == 0 else None
     return p
 
 

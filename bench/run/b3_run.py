@@ -84,11 +84,11 @@ def all_binaries(build: Path, systems: set[str]) -> dict[str, str]:
     return out
 
 
-def run_kbase(a: argparse.Namespace, n: int, clearance) -> None:
+def run_kbase(a: argparse.Namespace, n: int, clearance, windows: int = K_BASE_WINDOWS) -> None:
     path = a.out / "windows.jsonl"
     rows = [r for r in SS.read_rows(path) if r.get("kind") == "ophold"]
-    cap = K_BASE_WINDOWS + SS.rerun_cap(K_BASE_WINDOWS)
-    while sum(1 for r in rows if r.get("valid")) < K_BASE_WINDOWS and len(rows) < cap:
+    cap = windows + SS.rerun_cap(windows)
+    while sum(1 for r in rows if r.get("valid")) < windows and len(rows) < cap:
         k = len(rows) + 1
         try:
             row = b3.run(a.build, a.out / "raw" / f"ophold-{k:02d}", a.job, "silent", n, a.blocks, "ophold", tools=a.tools)
@@ -115,10 +115,11 @@ def main(argv=None) -> int:
     ap.add_argument("--other-mode-system", choices=(C.SERVER_RELAY, C.SERVER_INPROC),
                     help="the server's system in section 10's B3 cells of the other detection mode (no default: the frozen text names none)")
     ap.add_argument("--dev-n", type=int, help="development mode: N_PEND per window instead of 10,000")
+    ap.add_argument("--dev-k-base-windows", type=int, help="development mode: valid ophold windows instead of 16")
     a = ap.parse_args(argv)
     runlib.check_mode_args(a)
-    if not a.development and a.dev_n is not None:
-        raise runlib.InputRefused("--dev-n is for development runs only")
+    if not a.development and (a.dev_n is not None or a.dev_k_base_windows is not None):
+        raise runlib.InputRefused("--dev-n and --dev-k-base-windows are for development runs only")
     parts = a.parts.split(",")
     a.out.mkdir(parents=True, exist_ok=True)
     seed, _ = runlib.order_seed(a, "SEED_ORDER_B_L")
@@ -142,7 +143,7 @@ def main(argv=None) -> int:
         if s in comp.LIBRARIES and not comp.SYSTEMS[s].binary_path(comp.harness_dir(a.build)).exists():
             raise runlib.InputRefused(f"{s}: no harness in {comp.harness_dir(a.build)}")
     if "kbase" in parts:
-        run_kbase(a, n, clearance)
+        run_kbase(a, n, clearance, a.dev_k_base_windows or K_BASE_WINDOWS)
     if "sessions" not in parts:
         return 0
 
