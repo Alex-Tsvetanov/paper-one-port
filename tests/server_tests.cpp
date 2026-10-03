@@ -733,7 +733,7 @@ namespace oneport::test
 			std::vector<server::DetectionReport> reps;
 			srv.collector.wait_close(t.local_port, 10000ms, reps);
 			const std::string ln = opcase::run_line(*it, 1, 1, srv.port(), t);
-			for (const std::string want : {std::string("\"id\": \"") + it->id + "\"", std::string("\"expect\": \"classified\""),
+			for (const std::string& want : {std::string("\"id\": \"") + it->id + "\"", std::string("\"expect\": \"classified\""),
 			                               std::string("\"proto\": \"HTTP/1.1\""), std::string("\"connected\": true"),
 			                               std::string("\"local_port\": ") + std::to_string(t.local_port), std::string("485454502f312e3120323030")})
 			{

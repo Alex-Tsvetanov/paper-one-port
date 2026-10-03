@@ -199,14 +199,16 @@ namespace oneport::test
 		/// OpenSSL's state comes with the whole ClientHello (M5), in each mode: half the recorded
 		/// ClientHello and then a reset never gets one; the ClientHello in two writes gets one with
 		/// the second, and the server's flight follows; half and then the peer's end gets one at the
-		/// end (OpenSSL sees what it saw before) and is closed; a handshake record that is not a
-		/// ClientHello gets one at once and OpenSSL's alert.
+		/// end (OpenSSL sees what it saw before) and is closed; a ClientHello whose length no
+		/// ClientHello can have (past B_CH and OpenSSL's limit, 131396 bytes) gets one at once and
+		/// OpenSSL's alert. Its first 6 bytes pass the detector's TLS matcher, so both modes reach
+		/// the handler.
 		Result tls_deferred()
 		{
 			const Bytes rec = opcase::recorded_client_hello();
 			const Bytes half = opcase::slice(rec, 0, 5 + (rec.size() - 5) / 2);
 			Bytes other = rec;
-			other[5] = std::byte{0x02};  // a ServerHello's type in the handshake header
+			other[6] = std::byte{0x03};  // the handshake length's top byte: at least 196608 bytes
 			for (const Arm& a : kArms)
 			{
 				ServerArgs args;
@@ -221,7 +223,8 @@ namespace oneport::test
 				t = run_and_wait(srv, Script{}.write(half).gap(100ms).shutdown_write().await_close(), port);
 				CHECK(t.received.empty() && (t.eof || t.reset), a.name << ": half and the peer's end: " << t.received.size() << " bytes, or no close");
 				t = run_and_wait(srv, Script{}.write(other).await_close(), port);
-				CHECK(!t.received.empty() && std::to_integer<int>(t.received[0]) == 0x15 && (t.eof || t.reset), a.name << ": no alert for a record that is no ClientHello");
+				CHECK(!t.received.empty() && std::to_integer<int>(t.received[0]) == 0x15 && (t.eof || t.reset),
+				      a.name << ": no alert for a ClientHello too long to be one (" << t.received.size() << " bytes)");
 				if (auto bad = srv.stop_and_check()) return a.name + ": " + *bad;
 				const server::Counters c = srv.server->totals();
 				CHECK(c.tls_states == 3, a.name << ": " << c.tls_states << " OpenSSL states for 4 connections, 3 expected");
