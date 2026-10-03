@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -56,6 +57,9 @@ ATTACH_S = 3.0
 IDLE_S = 2.0
 WAIT_SLACK = 2  # per worker: a wait in progress at attach and at detach
 PERF = ["sudo", "-n", "taskset", "-c", "0,1", "perf"]
+# perf trace's ring buffer in pages (its -m); 0 keeps perf's default. SYSTRACE_MMAP_PAGES sets it
+# for a run.
+TRACE_MMAP_PAGES = int(os.environ.get("SYSTRACE_MMAP_PAGES", "0"))
 MODES = ("dedicated", "one-port")
 PROXY_PROTOS = ("tls-stub", "http1")
 PORTS = {"cost": 24000, "proxy": 24100}  # design choices of M4b-1, off the ephemeral range; the stub 10 above
@@ -144,7 +148,8 @@ class Perf:
     def __init__(self, pids: list[int], base: Path):
         self.base = base
         target = ["-p", ",".join(map(str, pids))]
-        self.trace = subprocess.Popen(PERF + ["trace", "-s"] + target + ["-o", str(self.path("trace.txt"))],
+        mmap = ["-m", str(TRACE_MMAP_PAGES)] if TRACE_MMAP_PAGES else []
+        self.trace = subprocess.Popen(PERF + ["trace", "-s"] + mmap + target + ["-o", str(self.path("trace.txt"))],
                                       stdout=subprocess.DEVNULL, stderr=open(self.path("trace.err"), "wb"))
         events = ",".join(f"syscalls:sys_enter_{c}" for c in STAT_CALLS)
         self.stat = subprocess.Popen(PERF + ["stat", "-x", ",", "-e", events] + target + ["-o", str(self.path("stat.txt"))],
