@@ -24,8 +24,11 @@
 # decides), CGO_ENABLED=1 and CC=clang (L's clang 22.1.8, the compiler of the records; -asan and
 # -race need cgo). Every Rust build: --locked and --target x86_64-unknown-linux-gnu (the sanitizer
 # flags then reach the target's crates and not the build scripts). UBSan has no Go or Rust form.
-# OUT/build.json records, per harness, the flavour, the tools, the commands, and the sha256 of its
-# sources and of what was built. An existing OUT/<harness> is replaced.
+# OUT/build.json records, per harness, the flavour, the tools, the commands, the sha256 of its
+# sources and of what was built, and its named inputs with their inputs hash and the environment
+# its flavour runs with (bench/competitors/harness_inputs.py: the hash the records gate matches;
+# the hyper-util harness's tsan.supp is one of its inputs, and its TSan flavour runs with
+# TSAN_OPTIONS=suppressions=<that file>). An existing OUT/<harness> is replaced.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -57,17 +60,20 @@ note() {  # note NAME FILE COMMAND...: one entry of build.json
     shift 2
     BH_NAME=$name BH_FILE=$file BH_FLAVOUR=$flavour BH_RECORD=$record BH_SRC="$here/$name" BH_CMD="$*" \
     BH_TOOLS="$(tools "$name")" python3 - <<'PY'
-import hashlib, json, os
+import hashlib, json, os, sys
 from pathlib import Path
 e = os.environ
 src = Path(e["BH_SRC"])
+sys.path.insert(0, str(src.parent))
+import harness_inputs
 h = hashlib.sha256()
 for p in sorted(x for x in src.rglob("*") if x.is_file() and "target" not in x.relative_to(src).parts):
     h.update(str(p.relative_to(src)).encode() + b"\0" + p.read_bytes())
 rec = json.loads(Path(e["BH_RECORD"]).read_text())
 rec[e["BH_NAME"]] = {"flavour": e["BH_FLAVOUR"], "output": e["BH_FILE"],
                      "output_sha256": hashlib.sha256(Path(e["BH_FILE"]).read_bytes()).hexdigest(),
-                     "sources_sha256": h.hexdigest(), "command": e["BH_CMD"], "tools": e["BH_TOOLS"]}
+                     "sources_sha256": h.hexdigest(), "command": e["BH_CMD"], "tools": e["BH_TOOLS"],
+                     **harness_inputs.describe(e["BH_NAME"], e["BH_FLAVOUR"])}
 Path(e["BH_RECORD"]).write_text(json.dumps(rec, indent=1))
 PY
 }

@@ -28,6 +28,7 @@ sys.path.insert(0, str(HERE.parent / "run"))
 
 import cases_check  # noqa: E402
 import competitors as comp  # noqa: E402
+import harness_inputs  # noqa: E402
 import handoff  # noqa: E402
 import probe  # noqa: E402
 import window  # noqa: E402
@@ -325,6 +326,46 @@ class Libraries(unittest.TestCase):
         self.assertFalse(probe.judge_lib("greet", dict(quiet, first_bytes_at_s=0.0, bytes_back=24), 3.0)[0])
         self.assertTrue(probe.judge_lib("reject", dict(quiet, closed_at_s=0.01), 3.0)[0])
         self.assertEqual(probe.judge_lib(None, quiet, 3.0), (None, "observed only"))
+
+
+class HarnessInputs(unittest.TestCase):
+    """The harnesses' named inputs and their inputs hash (harness_inputs.py; M5, step 0): the
+    hyper-util harness's TSan suppression file is one of its inputs, so editing it changes the hash
+    the records gate matches."""
+
+    def test_every_input_exists(self):
+        self.assertEqual(set(comp.LIBRARIES), set(harness_inputs.INPUTS))
+        for name in harness_inputs.INPUTS:
+            lines = harness_inputs.input_lines(name)
+            self.assertEqual(len(lines), len(harness_inputs.INPUTS[name]), name)
+            self.assertTrue(all(ln.startswith(f"bench/competitors/{name}/") for ln in lines), name)
+            self.assertRegex(harness_inputs.inputs_hash(name), r"^[0-9a-f]{64}$")
+
+    def test_suppression_is_an_input(self):
+        self.assertIn("tsan.supp", harness_inputs.INPUTS["hyper-util"])
+        self.assertEqual(harness_inputs.run_env("hyper-util", "release"), {})
+        env = harness_inputs.run_env("hyper-util", "tsan")
+        self.assertTrue(env["TSAN_OPTIONS"].endswith("bench/competitors/hyper-util/tsan.supp"))
+        entries = [ln for ln in (HERE / "hyper-util" / "tsan.supp").read_text().splitlines() if ln and not ln.startswith("#")]
+        self.assertEqual(entries, ["race:tokio::runtime::io::registration_set::RegistrationSet>::allocate"])  # one entry, in tokio
+
+    def test_editing_an_input_changes_the_hash(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel in harness_inputs.INPUTS["hyper-util"]:
+                p = root / "bench" / "competitors" / "hyper-util" / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes((HERE / "hyper-util" / rel).read_bytes())
+            same = harness_inputs.inputs_hash("hyper-util", root)
+            self.assertEqual(same, harness_inputs.inputs_hash("hyper-util"))
+            supp = root / "bench" / "competitors" / "hyper-util" / "tsan.supp"
+            supp.write_bytes(supp.read_bytes().replace(b"\n", b"\r\n"))  # CRLF is read as LF
+            self.assertEqual(harness_inputs.inputs_hash("hyper-util", root), same)
+            supp.write_text(supp.read_text() + "race:tokio::runtime::task\n")
+            self.assertNotEqual(harness_inputs.inputs_hash("hyper-util", root), same)
+            supp.unlink()
+            with self.assertRaises(FileNotFoundError):
+                harness_inputs.inputs_hash("hyper-util", root)
 
 
 class Guard(unittest.TestCase):
