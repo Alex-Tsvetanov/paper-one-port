@@ -114,10 +114,6 @@ namespace oneport::opgen::detail
 	/// (each holds a 16 KB input buffer) far above WL2's concurrency per thread.
 	inline constexpr std::size_t kRecordsReserved = 131072;
 	inline constexpr std::size_t kOpenSlotsReserved = 256;
-	/// Open loop: the time before each due time that a worker polls instead of sleeping (a design
-	/// choice of M3, design/status.md: M3's first open-loop windows measured a median issue lag of
-	/// 65.6 us with the sleep, most of it wake-up latency).
-	inline constexpr std::int64_t kSpinNs = 200'000;
 
 	class Worker
 	{
