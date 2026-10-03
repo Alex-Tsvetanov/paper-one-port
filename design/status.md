@@ -16,7 +16,7 @@ has run.
 | M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
 | M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) open |
-| M7 | Code freeze | |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the freeze itself open |
 
 ## Engineering constraints
 
@@ -4279,7 +4279,318 @@ chains (no window ran). Everything stays on L under `~/lab/p3/m5/`, archived in
 5,993 members; made under the lab lock, job m5arch); build trees, source clones and the check
 builds are left out.
 
-## Follow-ups outside this repository
+## M7 preparation, 2026-10-03
+
+The preparation of the code freeze, not the freeze: M4b-1's reading 4 fixed in the configurations
+instead of logged; M5's readings in the revision log; the records drivers, written and tried in a
+dry run that makes no citable record; and the checklist of the freeze (next section). Nothing here
+is a result. No window ran: `cases_check.py`, the reassembler check and the drivers' dry run are
+functional and untimed, so no lab-journal line was written. `m6b-windows` and W were not touched.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| f7d62a2 | feat: the route for a ClientHello without ALPN in the five proxies' cases configurations; cases_check.py checks it |
+| 785b66b | feat: the code freeze's records drivers, prepared and not run for records |
+| b701194 | fix: build_inputs.py finds L's inputs_hash.py in ~/lab/p3/tools and records the tool's sha256 |
+| e68087f | fix: the integration tests' port shift is a multiple of 600 (two suites at once collided at 400) |
+| 3627355 | fix: test_competitors.py's Linux-only decorator moves to class Integration (e68087f broke the file) |
+| 9afccbc | fix: sanitize_oneport.ps1 names cl as the C++ compiler |
+| c644ffd | docs: hypotheses.md revision log, M5's readings 1 and 5; reading 4 reported |
+| 6795407 | fix: the integration tests bind their ports below 10000, apart from the in-process servers' random ports |
+| 8e01e1d | fix: the integration tests fail on a sanitizer report in their started processes' files |
+| 49e4bb3 | docs: test_competitors.py's comment on the port move (dryrun3's cause is likely, not proven) |
+
+Then this section (the commit after these). Papers 53b929a (local, not
+pushed): `lab/bin/test_report_pattern.sh`'s list of record writers held a literal `\n` where a
+line continuation was meant, so the loop also took a token `n` and printed "skip: n" (the one-port
+writer after it was still checked); fixed. A copy of the fixed script on L, with sanitize.sh,
+sanitize.ps1 and oneport_record.py beside it as in the Papers tree, prints PASS and no "skip: n".
+
+### M4b-1's reading 4: the route for a ClientHello without ALPN, added
+
+The server's pass-through route table (`bench/server/relay.cpp`, `routable`) sends a ClientHello
+for oneport.test with no ALPN, or with an ALPN list that offers http/1.1 or h2, to the backend's
+TLS port. The proxies' cases configurations held only the ALPN part. Appendix B asks for "every
+route its features cover", so the route without ALPN is now in each (f7d62a2):
+
+| System | How | Exact? |
+|---|---|---|
+| nginx | map key `"oneport.test "`: `$ssl_preread_alpn_protocols` is empty without the extension | yes |
+| HAProxy | `use_backend tls_backend if { req.ssl_sni -m str oneport.test } !tls_has_alpn`, with `acl tls_has_alpn req.ssl_alpn -m found`: the fetch returns no sample without the extension (src/payload.c, `smp_fetch_ssl_hello_alpn`, v3.4.6) | yes |
+| Envoy | a second chain, `server_names` and `transport_protocol: tls`, no `application_protocols`: FilterChainMatch has no form for "none", so the chain without the field takes any list the ALPN chain does not | no: also takes ALPN lists that offer neither h2 nor http/1.1 |
+| caddy-l4 | a route `tls { sni oneport.test }` after the ALPN route, on both listeners: the alpn matcher matches only a protocol the client offers (modules/l4tls/alpn_matcher.go, v0.1.2) | no: as Envoy |
+| sslh-ev | a second `tls` entry with `sni_hostnames` alone: with both lists set, a ClientHello without the extension does not match (tls.c lines 207 to 209, v2.3.1) | no: as Envoy |
+
+- The brief named four proxies. By their features and sources all five can carry the route, two
+  of them exactly, so all five carry it; this is for the coordinator, and leaving one out is a
+  small revert of that system's file and of `cases_check.NOALPN_SYSTEMS`.
+- What else changes, in Envoy, caddy-l4 and sslh-ev only: a ClientHello for oneport.test whose
+  ALPN offers neither h2 nor http/1.1 now reaches the backend's TLS port, where the server refuses
+  it with no_application_protocol (M2a's reading 6), instead of the path a ClientHello without
+  ALPN took before (the control below). No hard case of Appendix A sends one.
+- `cases_check.py` checks the route on every proxy (`routes["tls-noalpn"]`, with `exact`): a TLS
+  1.3 handshake for oneport.test without the ALPN extension against the test certificate
+  (`b3.tls_probe`, which now takes the offered ALPN list), then HTTP/1.1; it passes only if the
+  backend's TLS port answered 200 with the 13-byte body and no protocol was selected. Judged at
+  matched timers, and at the defaults where routes are judged (not HAProxy's, M4b-1's reading 5).
+- Tests: `test_competitors.Configurations.test_no_alpn_route` (the five rendered configurations),
+  `test_runner.test_tls_probe_without_alpn` (the probe against a local TLS stand-in).
+
+The check on L, job casecheck1 (f7d62a2, lab_job.sh: lock, clock floor, THP at madvise, NOTRACK;
+a Release build; `ctest -L run` 2 of 2 passed, the runner's and the competitors' tests with their
+integration part; then `cases_check.py` on the five proxies, both kinds, both timer settings).
+Every judged check passed (exit 0):
+
+| System, kind | Matched: routes / no ALPN / PROXY / fallback | Default: routes / no ALPN |
+|---|---|---|
+| nginx, cases | HTTP/1.1, TLS / ok / v1, v2 | the same / ok |
+| HAProxy, cases | all five / ok / v1, v2 | all but TLS / no (both recorded, not judged) |
+| HAProxy, cases-fallback | all five / ok / v1, v2 / SMTP at 3.00 s | the same as cases / no (recorded); SMTP at 0.00 s |
+| Envoy, cases | HTTP/1.1, h2c, TLS / ok / v1, v2 | the same / ok |
+| Envoy, cases-fallback | the same / ok / v1, v2 / SMTP at 3.00 s | the same / ok; SMTP at 15.00 s |
+| caddy-l4, cases | all five / ok / v1, v2 | the same / ok |
+| sslh-ev, cases | HTTP/1.1, TLS, MQTT, SSH / ok / none | the same / ok |
+| sslh-ev, cases-fallback | the same / ok / none / no greeting (recorded, as M4b-1) | the same / ok |
+
+The control, job casecontrol1: the same `cases_check.py` against the five configurations as they
+were at 9853131, matched timers. The no-ALPN check failed on every proxy in every kind: the
+connection closed or reset (nginx, HAProxy, Envoy and caddy-l4 in "cases", sslh-ev's), or the SMTP
+greeting came back (every "cases-fallback"). So the check tells the route apart.
+
+Raw data on L, `~/lab/p3/m7prep/`: casecheck1/cases_check.jsonl
+8848cb61fe989aa5262d495ac158853cc8162ce060f68635fd7137e4f7646c73, casecheck1.log
+5acd1b152d8c09a588cb1e1ae8de95184f0e221f1836cd22cd9cd8783f99b8cf, casecontrol1/cases_check.jsonl
+3387f2fd262661ee6f84e878f023e3724aea5086e5e10d048603d57e267b0124, casecontrol1.log
+eb57c93b8ff93680cf9df432d77b3fb45a6159579f592aced71b170daa90b1cc.
+
+### M5's readings in the revision log
+
+The entry "Readings fixed during engineering (M5), before the code freeze" logs readings 1 (relay
+dispatch has no dedicated counterpart, so the relay's operations are given per detection mode)
+and 5 (M2b's reading 1 holds with `close()` for the last direction), one line each with why it
+follows. Readings 2 and 3 were logged by the coordinator's entry after M5. Reading 4 is not
+logged (below). A note in the same entry says M4b-1's reading 4 no longer describes the
+configurations (f7d62a2).
+
+### For the coordinator: M5's reading 4 does not hold for every record framing
+
+Reading 4 says section 2.1's bounds hold as frozen, the pass-through ClientHello "now in storage
+sized to the records it needs next (at most the message and 5 bytes per record, M2b's reading
+3)". That holds when each record ends with the ClientHello. It does not when a record header
+announces more payload than the ClientHello can still take:
+- `clienthello::reassemble` returns "more" with `need` = the bytes so far, 5 and the length the
+  incomplete record's header announces (clienthello.hpp lines 64 to 68); it refuses a record that
+  would take the message past B_CH only once that record is whole (line 69).
+- In replay, `try_route` sizes the ClientHello's storage to `need` (relay.cpp lines 241 and 253;
+  `hello_room`, capped at `kHelloWireMax` = 6 × B_CH, worker.hpp line 111), and the resize writes
+  zeros, so the storage is memory the pending connection holds. In peek, `SO_RCVLOWAT` is set to
+  the same `need` (relay.cpp line 236); the kernel then holds only what arrived.
+
+A check of the pure function at f7d62a2 (job helloroom1; `~/lab/p3/m7prep/hello-room/need.cpp`,
+sha256 7741b32a41c8d4d8a185f72b465f8d83b2d2c29b9ea8e9de22d59a54692818b2; log
+ddc2d4a9fe1a73946ec733fb9d9a129878b9ca26b3220c16c54c1e8870d7b225):
+
+| Framing | Received | need | The message and 5 bytes per record |
+|---|---|---|---|
+| A: a 512-byte ClientHello in one record, its first 9 bytes | 9 | 517 | 517 |
+| B: a 104-byte ClientHello in a record whose header announces 16,384 | 9 | 16,389 | 109 |
+| C: a 16,384-byte ClientHello, record 1 whole with 16,000 bytes, record 2's header announcing 16,384 | 16,010 | 32,394 | 16,394 |
+
+B3's partial ClientHello is A's shape (the recorded ClientHello in one record), so no development
+B3 window was affected. Two readings of the frozen text meet here: B2(d) bounds the "user-space
+payload bytes" a pending connection holds, and the bytes received stay within reading 3's bound;
+section 2.1 bounds the "memory held by a pending connection", and in C the storage is about twice
+B_CH. A candidate fix, not made: `reassemble` and `scan` return "no" at a record header whose
+length would take the message past B_CH (`got + len > cap`), the verdict that record gets once
+whole, only earlier; the storage then stays within B_CH and 5 bytes per record. B (a record longer
+than the short ClientHello it carries, within B_CH) would remain; bounding it by the message
+needs the message's length from a partial record. Either change is first-party code, so it must
+land before `CODE_FREEZE` and before the records.
+
+### The records drivers (785b66b, b701194, e68087f)
+
+Prepared for the freeze; no citable record was made. Each follows P2's drivers (same author) and
+the Papers repo's rule D5.
+
+| File | What it does |
+|---|---|
+| `bench/build_inputs.py` | Hashes a oneport build the one way the records and the gate share: every first-party target per host (L: oneport, oneport_server, oneport_config, oneport_loop, oneport_tls, opcase, opcase_bin, ophold, record_clienthello, opgen, opgen_core, oneport_tests; W the same less opcase_bin, ophold and record_clienthello), checked against the compile database first (a target compiled but not listed, or listed and not compiled, stops it); config keys `CMAKE_BUILD_TYPE` and `ONEPORT_BACKENDS`; root label `oneport`. Adds the compiler identification, the host and the inputs_hash.py used (path, sha256). Names the measured binaries per host. |
+| `bench/sanitize_oneport.sh` | L: one record of oneport per sanitizer (ASan+UBSan, TSan, MSan with the MSan libc++), Release, from a clean checkout: build, inputs hash, `ctest -V` (M5's green options), logs kept and packed (`keep_record_logs.sh`), `oneport-<commit>-L-<san>.json` by `oneport_record.py`. Each sanitizer's suite gets its own port block (`ONEPORT_TEST_PORT_SHIFT`). |
+| `bench/sanitize_oneport.ps1` | W: the same with MSVC ASan from a vcvars x64 shell, M6a's ASan options. Untested: W was in use. |
+| `bench/sanitize_harness.sh`, `bench/harness_record.py` | L: one record of the Go or Rust harness per sanitizer (ASan, TSan): the flavour's build (`build_harnesses.sh`), then its probe in its cases kinds and its route checks at both timer settings, in the environment its flavour runs with (`run_env` of build.json: hyper-util's TSan with its tsan.supp), as M4b-2's development checks ran. The record names the target as `coverage.json` does (`harness_cmux`, `harness_hyper_util`), the inputs hash of `harness_inputs.py`, the toolchain as its compiler, and counts the lab's report pattern and Go's race report. |
+| `bench/records_job.sh` | L: every record in order in one lab job: a Release build and the release harnesses; oneport ASan and TSan at once (two suites at most), then MSan; the four harness records one at a time (fixed ports); then the gate of the Release build, into `gate-L.json`, and the inputs hash and sha256 of every measured binary into `measured-L.json`. Stops at the first record that is not green. |
+| `bench/keep_record_logs.sh` | P2's, unchanged: logs in `~/lab/records-logs/<record>/`, packed, with a sha256. |
+| `bench/gate_lib.py`, `bench/check_records.py` | The gate also refuses a dry-run record found among the records; `--accept-dry-run` lets one count and marks the output never citable. `--harnesses build.json` gates the measured harnesses (release flavour) against their records, with `coverage.json`'s declared gaps (Netty and Jetty whole, MSan for cmux and hyper-util). The output holds `binaries`, the sha256 of the measured executables and harness outputs. |
+| `bench/check_rows.py` | A row is refused unless every first-party binary its provenance names (aa.py and handoff.py write `binaries`) has the same name and sha256 in a gate that passed and is citable. |
+
+Dry runs: `DRY_RUN=1` names every record `...-dryrun`, marks it, refuses to write into
+`lab/sanitizer-records`, and keeps the logs under the job's directory, so the citable records'
+log directories stay free. Records match builds by inputs hash, not commit, so a dry-run record
+must never gate the freeze's build; the gate refuses one, and `check_rows.py` refuses a gate made
+with `--accept-dry-run`.
+
+Tests: `gate.test_gates` (new: a dry-run record stops the gate; `--accept-dry-run` marks the output;
+the harnesses' gate, covered, missing TSan, another toolchain, other inputs, a sanitizer flavour
+as the measured build; the gate's binaries; `check_rows.py` passes a covered row and refuses a row
+whose binary has no matching green record, a row with no binary, a row whose only gate is a dry
+run or did not pass; `build_inputs`' target check), `gate.test_record_writers` (new: `--dry-run`;
+`harness_record.py` green and red cases), `run.test_competitors` (new: `PortShifts`, the port
+blocks of two shifts never overlap and lie below the in-process servers' random ports;
+`ChildReports`, the scan of the started processes' files). On L before the dry run (job unit1, the patch of 785b66b on f7d62a2):
+test_gates and test_record_writers all checks passed, test_competitors 35 checks passed (2 skipped,
+no build); `bash -n` found the quoting fault fixed in 785b66b before its commit.
+
+### The drivers' dry run
+
+`DRY_RUN=1 bench/records_job.sh`, one lab job each (lab_job.sh: lock, clock floor, THP at madvise,
+NOTRACK), from a clone of the lab remote, the records and their logs under
+`~/lab/p3/m7prep/dryrun<n>/`. None is citable, and none was copied anywhere.
+
+| Job | Commit | What happened |
+|---|---|---|
+| dryrun1 | b701194 | ASan's suite red (382 of 383): `run.test_competitors`, a hand-off stub that did not start. Two suites at once at port shifts 3200 and 3600: TSan's probe front (23100 + 3600) took ASan's hand-off port (23500 + 3200); the stride of 400 was less than the tests' block of 516 ports (fixed in e68087f). TSan green. |
+| dryrun2 | e68087f | Both suites red: e68087f broke `test_competitors.py` (a decorator above the new constants; fixed in 3627355). |
+| dryrun3 | 9afccbc | ASan green, TSan red: the probe's stub for the silent case (port 24910) exited at once although the two suites' blocks were apart. The C++ tests' in-process servers take random runs of free ports from 10000 up to the ephemeral range (`server.cpp`, `bind_all`), so with two suites' C++ tests running one could hold it; the stub's standard error was in the test's temporary directory, gone, so the cause is not proven. Alone, the same stub started 20 times of 20 and the same probe passed 6 times of 6. 6795407 moves the integration tests below 10000; dryrun4 and dryrun5 then passed. |
+| dryrun4 | 6795407 | Every step green (below). |
+| dryrun5 | 8e01e1d | The three oneport records again, after the integration tests learned to fail on a sanitizer report in their processes' files (8e01e1d): all three green, 383 of 383 tests each, 0 report lines, `run.test_competitors` passing in each with ASan and TSan at once (records sha256 95ea5bdf..., 7e39d1b4..., 7b3458d4...; records.log b538d76e52ef22df1be603028baa3d030eed489a5eba09a83fc0f9ec42c30957). |
+
+dryrun4, every record a dry run (`-dryrun`, `"dry_run": true`):
+
+| Record | Green | What it ran | Seconds |
+|---|---|---|---|
+| oneport ASan+UBSan | yes | 383 of 383 tests, 0 report lines; 12 targets hashed | 154 (with TSan beside it) |
+| oneport TSan | yes | 383 of 383, 0 | 148 (with ASan beside it) |
+| oneport MSan | yes | 383 of 383, 0 | 146 |
+| harness_cmux ASan (`go build -asan`) | yes | probe in cases and cases-fallback, route checks at both timer settings, 0 reports | 36 |
+| harness_cmux TSan (`go build -race`) | yes | the same, 0 reports or races | 34 |
+| harness_hyper_util ASan | yes | probe in cases, route checks, 0 | 54 |
+| harness_hyper_util TSan | yes | the same, with `TSAN_OPTIONS=suppressions=<checkout>/bench/competitors/hyper-util/tsan.supp`, 0 | 50 |
+
+- The gate (`check_records.py --accept-dry-run`): passed, marked `"dry_run": true` and
+  `"citable": false`. It matched the Release build's 12 targets (inputs hash of `oneport`
+  d10d4f45b353, config `CMAKE_BUILD_TYPE` Release, `ONEPORT_BACKENDS` epoll;io_uring, compiler
+  Clang 22.1.8, pins 2d49d03bacf8) to the three oneport records, and the release harnesses to
+  their four records, with Netty and Jetty allowed by their declared gap and the harnesses' MSan
+  by theirs. `measured-L.json` holds the inputs hash of 16 targets (12 and the four harnesses) and
+  the sha256 of 8 binaries (oneport, opgen, opcase, ophold and the four harness outputs).
+- The refusals, on the same build (job gateneg, under the lock): without `--accept-dry-run` the
+  gate refuses the dry-run records ("is a dry run of the records driver"); with no records it
+  refuses the build ("oneport ... has no green asan, tsan, msan record"); `check_rows.py` refuses
+  all 48 rows of M5's job m5m3c and a row naming this build's oneport and opgen, since the only
+  gate is a dry run. The Release oneport and opgen of 6795407 have the same sha256 as m5m3c's at
+  ac84f2d (2f2d9d35582e, 0c0f3457a34c): no compiled input changed between them, and the build
+  reproduced the same bytes. The unit tests cover a passing row and a row whose binary differs.
+- Seen in passing: in dryrun2's ASan suite `run.test_runner` passed but printed a thread's
+  exception from its stand-in stub (`B3Relay.serve_once`: `ENOTCONN` at its `shutdown`, the
+  client having reset first); it matches no report pattern.
+
+dryrun4's files (sha256): gate-L.json
+b35c4271fd1345c6229bceb6dbf81fef47a9672d0739ee65f44c85345a1c7ba6, measured-L.json
+6c6c67904685e0ec95efbfdf7aa33a4ef6cfaa9c86a102467648f1ab66a4c607, release.inputs.json
+4fe72ec3d5a68a1c90efcf1f2b84388bd1ecf770efb46c3019052a800fc509dc, records.log
+cd2994a12f2b16d1e30ed8af621420c2c847ad35720649d0166cd23d43786fcc.
+
+## M7 checklist
+
+The code freeze needs these, in this order. Where the order differs from the list the coordinator
+gave, the reason is in the item. Each item names what decides it.
+
+1. **Open decisions that block the freeze** (the coordinator's, or Alex's where named):
+   - M5's reading 4 (above): accept that section 2.1's bound counts what B2(d) counts, or fix the
+     reassembler's early refusal (and decide case B). A fix is first-party code: before item 9.
+   - `ANALYSIS_COMMIT` (section 8 step 2: "the analysis code that runs 4.6 is committed with its
+     tests" before engineering ends). `analysis/` holds only `appendix_a_r_rule.py`, which says
+     it is not that code. Section 8 makes each step start after the one before it is committed,
+     so this precedes the code freeze.
+   - The harnesses' LeakSanitizer: the checks end each harness by SIGTERM, whose default action
+     ends it before any exit handler (cmux's main.go and hyper-util's main.rs install none), so the
+     harnesses' ASan records see no leak check. Either a SIGTERM handler that exits normally (a
+     change of the harnesses' inputs, before item 9) or a declared gap in `coverage.json` (item 7).
+   - The proxies that carry the route without ALPN: five here, four in the brief (above).
+   - `b3.py`'s rows name no binary: it writes no provenance with `binaries`, so `check_rows.py`
+     refuses every B3 row. Its rows must name the sha256 of oneport, opcase, ophold and the
+     harness outputs they ran before a B3 number can be cited (a runner change, not a compiled
+     input).
+   - Section 9.1's background counts `N_BG_TLS`, `N_BG_MQTT` and `N_BG_SILENT` are not set yet
+     (no file of this repository names a value); "before or at the code freeze".
+2. **The final merge of `m6b-windows`** into main, then the build of the merged tree:
+   - L: Debug, ASan+UBSan, TSan and MSan, the whole suite in each (as `checks_job.sh` ran M5's).
+   - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free.
+   - Check `bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` against the merged tree
+     (M6b built opgen on Windows): a compiled target added or removed stops the hash until the
+     list is right.
+3. **The pins, re-read before the records**, since every record carries the sha256 of
+   `bench/cmake/pins.cmake` and the gate refuses a build whose pins differ from its records':
+   - The JDK. Section 2.3: Netty and Jetty "on the latest LTS JDK at the code freeze"; section
+     9.1: the JDK (latest LTS) is pinned "by archive URL and sha256"; section 2.3: "each change is
+     recorded in the revision log then". The rule: on the day of the freeze, before its commit,
+     read Adoptium's Temurin 25 releases. If a build newer than 25.0.4.1+1 (25.0.5 is due in
+     October) is published, pin it (URL and the published sha256, checked against the archive),
+     install it (`install.sh jdk`), build the Java harnesses again, run their probes and route
+     checks, write out the heap bounds again from L's MemTotal with it (M4b-2's list), and log
+     the change. If none is published by the freeze commit, 25.0.4.1+1 stays: "at the code freeze"
+     is fixed by that commit, and a JDK released after it changes nothing; adopting one later
+     would be a later change under section 8 (new records, the runs of the old build archived).
+   - The others of section 9.1's row, the same way: OpenSSL (the latest 3.5 release at the freeze,
+     section 2.1), nghttp2, every competitor (section 2.3: a newer release at the freeze replaces
+     the survey's), caddy-l4's commit (Appendix B: "read again at the code freeze"), xcaddy, the
+     Rust toolchain; Netty's allocators read again (M4b-2's reading 11). A changed library is
+     rebuilt in every flavour (`build_deps.sh` on L, `build_deps.ps1` on W) before item 9.
+4. **The `/sys/kernel/slab/` re-read on L** (section 9.1): as root, read only: that
+   `/proc/slabinfo` exists; for skbuff_head_cache, skbuff_fclone_cache and skbuff_small_head, the
+   name `/proc/slabinfo` lists each under and the co-tenants of a merged one (the links in
+   `/sys/kernel/slab/`, `aliases`); the page size. Compared with WL7's reading and the re-read of
+   2026-10-03 12:11 (the entry "Host change before the code freeze", item 1); a difference is
+   handled by WL7's rule for merged caches and logged.
+5. **The seeds entry** (sections 4.7, 8 step 2 and 9.1): one revision-log entry fixing every seed,
+   `SEED_ORDER_C_L`, `SEED_ORDER_C_W`, `SEED_ORDER_B_L`, `SEED_ORDER_M_L`, `SEED_ORDER_M_W`,
+   `SEED_ORDER_S_L`, `SEED_ORDER_S_W`, `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`,
+   `SEED_BOOT_S`, `SEED_PILOT_L`, `SEED_PILOT_W` and `SEED_SIM`, each checked against the Papers
+   repo's `lab/journal.jsonl` as used by no earlier run, committed before the code-freeze commit
+   and never changed after.
+6. **The values engineering set**, ready for the code freeze's entry (section 9.1): `K_SRC` = 16
+   (logged, M3 entry item 9), `N_ACCEPTEX` = 64 (M6a), `RELAY_BUF` = 4096 bytes per direction
+   beside each proxy's default, the three background counts (item 1), ℓ from
+   `tests/fixtures/tls/clienthello.hex`, and the pins as item 3 leaves them.
+7. **The final `bench/coverage.json`**, in the freeze commit: every declared gap of section 11 as
+   now, plus what items 1 and 2 decide (the harnesses' leak check; any third-party library W
+   cannot build with MSVC's ASan, which section 11 asks to declare "before the code freeze"). One
+   gap may go: OpenSSL's tsan flavour is built with `-fsanitize=thread` (`build_deps.sh`), so if
+   the TSan record is green, section 11 lets the revision log record that OpenSSL ran under TSan
+   and the gap "OpenSSL under TSan" is removed.
+8. **The code-freeze commit, `CODE_FREEZE`** (section 8 step 3): one commit of the server, the
+   generators, the holder, the harnesses, the pins and the tests, with the suite passing on L
+   (four builds) and W (Debug, ASan). From then on no commit may touch a first-party input
+   (anything a target compiles, a harness input, `pins.cmake`): records match by inputs hash, so
+   a commit of docs only (hypotheses.md, status.md) keeps them, and any other is a later change
+   under section 8.
+9. **The sanitizer records at `CODE_FREEZE`** (section 11, rule D5), for every first-party input,
+   on every platform:
+   - L, one lab job from a fresh clone at `CODE_FREEZE`:
+     `setsid nohup bash <clone>/bench/run/lab_job.sh <dir> records bash <clone>/bench/records_job.sh <OUT> <RECORDS>`.
+     It makes oneport's ASan+UBSan and TSan records at once, then MSan (the server, opgen,
+     opcase, ophold, the suite and the libraries they link, on epoll and io_uring); then the Go
+     harness's ASan (`go build -asan`) and race (`go build -race`) records and the Rust harness's
+     ASan and TSan records, TSan with tokio's suppression (`tsan.supp`, the coordinator's
+     decision); the JVM harnesses have none, their gap declared whole. Every record must be
+     green; the job stops at the first that is not. Logs: `~/lab/records-logs/<record>/` and its
+     `.tar.gz` with a sha256.
+   - W: `bench/sanitize_oneport.ps1 -Records <dir>` at `CODE_FREEZE`, MSVC 19.51.36246 ASan,
+     the server, opgen and the suite, with Alex's yes when W is free.
+   - The records go into the Papers repo's `lab/sanitizer-records/`, committed there (pushed only
+     with Alex's yes). `lab/bin/test_report_pattern.sh` passes on the Papers repo.
+10. **The gate and the inputs hash of every measured binary**: `records_job.sh`'s gate step writes
+    `gate-L.json` and `measured-L.json` (every target's inputs hash, the harnesses', and the
+    sha256 of oneport, opgen, opcase, ophold and each harness output); on W,
+    `build_inputs.py --host W` on the measured Release build, then `check_records.py --host W`.
+    Every runner's rows name the binaries they ran, and `check_rows.py` passes them against these
+    gates before any number is cited.
+11. **The code freeze's revision-log entry** (section 8 step 3, section 9.1): `CODE_FREEZE`, the
+    values of item 6, the pins as frozen, the slab re-read of item 4, the records' names and the
+    gates' sha256. Then section 8 step 4, on the frozen binary in dedicated mode only.
+
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
   added `papers/one-port/bench/oneport_record.py` to it.
@@ -4309,6 +4620,10 @@ builds are left out.
 - M5's items for the coordinator: proposal I11's and I15's `IORING_OP_RECV`, now `IORING_OP_READ`; the
   revision log's M3 item 2 example list; M4b-1's readings still unlogged (M5, "Readings, and changes
   against the proposal's text").
+- M7 preparation: Papers 53b929a (local, not pushed) fixes `lab/bin/test_report_pattern.sh`'s
+  writer list. No lab-journal line: no window ran. The submodule pointer is the coordinator's.
+  For the coordinator: M5's reading 4 (not logged), the five proxies against the brief's four, and
+  the blockers at the top of the M7 checklist.
 
 ## What M1 starts from
 
