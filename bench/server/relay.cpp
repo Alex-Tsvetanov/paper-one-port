@@ -94,6 +94,7 @@ namespace oneport::server::detail
 		// The client's side may hold bytes the relay has not read: a peek left them queued, a read
 		// filled the buffer, the peer's end was seen, or nothing was read yet (T_fb).
 		r.up_ready = entry != Entry::replay || c->last_read_full || c->eof_seen || c->observe_pass == pass_;
+		r.up_rdhup = c->eof_seen || c->observe_pass == pass_;
 		if (p != Proto::tls)
 		{
 			relay_connect(c, Route::by_class);
@@ -121,6 +122,7 @@ namespace oneport::server::detail
 	void Worker::route_readable(Conn* c, bool rdhup)
 	{
 		Relay& r = *c->relay;
+		if (rdhup) r.up_rdhup = true;
 		if (peeks(c))
 		{
 			if (hello_scratch_.size() < kHelloWireMax) hello_scratch_.resize(kHelloWireMax);
@@ -364,8 +366,8 @@ namespace oneport::server::detail
 		}
 		// Epoll is edge-triggered: a side that may hold bytes is read now; the bytes replay holds
 		// are sent in any case.
-		if (r.up_ready ? !relay_pump(c, true) : !send_held(c, true)) return;
-		if (alive() && r.down_ready) relay_pump(c, false);
+		if ((r.up_ready || r.up_rdhup || c->eof_seen) ? !relay_pump(c, true) : !send_held(c, true)) return;
+		if (alive() && (r.down_ready || r.down_rdhup)) relay_pump(c, false);
 	}
 
 	void Worker::relay_report(const Conn* c, Route route)
@@ -546,9 +548,14 @@ namespace oneport::server::detail
 				if (error == 0) error = ECONNREFUSED;
 			}
 			r.down_ready = (events & (EPOLLIN | EPOLLRDHUP)) != 0;
+			r.down_rdhup = (events & EPOLLRDHUP) != 0 && (events & EPOLLERR) == 0;
 			relay_connected(c, error);
 			return;
 		}
+		// A side's half-close, remembered; an error forgets it, so the reads go on to the error.
+		bool& side_rdhup = backend ? r.down_rdhup : r.up_rdhup;
+		if ((events & EPOLLERR) != 0) side_rdhup = false;
+		else if ((events & EPOLLRDHUP) != 0) side_rdhup = true;
 		if (!r.connected)
 		{
 			r.up_ready = true;  // the client's readiness while the connect is pending: read it at the start
@@ -563,8 +570,7 @@ namespace oneport::server::detail
 		{
 			if (!relay_pump(c, dst_up)) return;
 		}
-		// A reported half-close with no error (a reset raises EPOLLERR) lets a short read end the source.
-		if (in && c->id == id && c->fd >= 0) relay_pump(c, !backend, (events & EPOLLRDHUP) != 0 && (events & EPOLLERR) == 0);
+		if (in && c->id == id && c->fd >= 0) relay_pump(c, !backend);
 	}
 
 	bool Worker::relay_pump(Conn* c, bool up, bool src_rdhup)
@@ -578,6 +584,9 @@ namespace oneport::server::detail
 		Dir& d = up ? r.up : r.down;
 		const int src = up ? c->fd : r.fd;
 		bool drained = false;
+		// The source's half-close was reported, now or by an earlier event (Relay::up_rdhup,
+		// down_rdhup), or its end was already read (a receive after the end returns 0 again).
+		const bool rdhup = src_rdhup || (up ? r.up_rdhup || c->eof_seen : r.down_rdhup);
 		for (;;)
 		{
 			if (!send_held(c, up)) return false;
@@ -605,7 +614,7 @@ namespace oneport::server::detail
 				// byte before the FIN.
 				if (static_cast<std::uint32_t>(n) < room)
 				{
-					if (src_rdhup) d.eof = true;
+					if (rdhup) d.eof = true;
 					else drained = true;
 				}
 				continue;

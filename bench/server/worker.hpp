@@ -357,6 +357,11 @@ namespace oneport::server::detail
 		// read at the start (its next bytes raise an edge-triggered event).
 		bool up_ready = false;
 		bool down_ready = false;
+		// Epoll: whether a side's half-close was reported (EPOLLRDHUP without EPOLLERR) by any
+		// event so far. A short read then has reached the end, and no later event will report it
+		// again, so the copy takes the end there rather than wait for an edge that has passed.
+		bool up_rdhup = false;
+		bool down_rdhup = false;
 		Route route = Route::by_class;
 		Dir up;
 		Dir down;
