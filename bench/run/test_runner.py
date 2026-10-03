@@ -498,6 +498,43 @@ class B3InProcess(unittest.TestCase):
         self.assertFalse(b3.http1_probe(port)["ok"])
         th.join(5)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the test certificate's key with the system OpenSSL")
+    def test_tls_probe(self):
+        import ssl
+        fixtures = HERE.parent.parent / "tests" / "fixtures" / "tls"
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+        ctx.load_cert_chain(fixtures / "test-cert.pem", fixtures / "test-key.pem")
+        ctx.set_alpn_protocols(["http/1.1"])
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        seen: dict = {}
+
+        def one() -> None:
+            c, _ = srv.accept()
+            with ctx.wrap_socket(c, server_side=True) as s:
+                seen["got"] = s.recv(4096)
+                s.sendall(b"HTTP/1.1 200 OK
+Content-Length: 13
+
+Hello, World!")
+                try:
+                    seen["after"] = s.recv(16)
+                except (ConnectionResetError, ssl.SSLError) as e:
+                    seen["after"] = type(e).__name__
+            srv.close()
+
+        th = threading.Thread(target=one, daemon=True)
+        th.start()
+        r = b3.tls_probe(srv.getsockname()[1], fixtures / "test-cert.pem")
+        th.join(5)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((r["tls"]["version"], r["tls"]["alpn"]), ("TLSv1.3", "http/1.1"))
+        self.assertTrue(seen["got"].startswith(b"GET / HTTP/1.1
+"))
+        self.assertIn(seen["after"], ("ConnectionResetError", "SSLError", b""))  # a reset, never a close_notify
+
     def test_response_ok(self):
         self.assertTrue(b3.response_ok(b"HTTP/1.1 200 OK\r\ncontent-length: 13\r\n\r\nHello, World!"))
         self.assertFalse(b3.response_ok(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nHello"))

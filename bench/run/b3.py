@@ -429,15 +429,19 @@ def tls_probe(port: int, cert: Path, timeout: float = PROBE_TIMEOUT_S) -> dict:
     except OSError as e:
         return {"proto": "tls", "ok": False, "detail": f"connect: {e!r}", "s": time.monotonic() - t0}
     raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    # wrap_socket takes over the descriptor (raw is closed by it), so the reset goes through the
+    # TLS socket, whose close() ends the descriptor without close_notify (found in M4b-2's job b3lib1).
+    conn = raw
     try:
-        s = ctx.wrap_socket(raw, server_hostname="oneport.test")
-        s.sendall(REQUEST)
-        resp = read_http_response(s.recv)
-        info = {"version": s.version(), "cipher": (s.cipher() or ("",))[0], "alpn": s.selected_alpn_protocol()}
+        conn = ctx.wrap_socket(raw, server_hostname="oneport.test")
+        conn.sendall(REQUEST)
+        resp = read_http_response(conn.recv)
+        info = {"version": conn.version(), "cipher": (conn.cipher() or ("",))[0], "alpn": conn.selected_alpn_protocol()}
     except (OSError, ssl.SSLError) as e:
-        reset_close(raw)
+        if conn.fileno() >= 0:
+            reset_close(conn)
         return {"proto": "tls", "ok": False, "detail": f"exchange: {e!r}", "s": time.monotonic() - t0}
-    reset_close(raw)
+    reset_close(conn)
     ok = response_ok(resp)
     return {"proto": "tls", "ok": ok, "detail": ("200 with the 13-byte body" if ok else f"got {resp[:80]!r}"), "tls": info,
             "s": time.monotonic() - t0}
