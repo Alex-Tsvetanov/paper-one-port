@@ -1234,3 +1234,10 @@ M5 (`design/status.md`, "M5, 2026-10-03", "Readings, and changes against the pro
 Item 4 is not logged: it is reported to the coordinator (`design/status.md`, "M7 preparation, 2026-10-03").
 
 Note, not a reading: M4b-1's reading 4, left open in item 4 of the entry "Coordinator decisions after M5", no longer describes the configurations. Since one-port f7d62a2 every proxy's cases configuration also holds the route for a ClientHello without ALPN, as Appendix B's "every route its features cover" asks (`design/status.md`, "M7 preparation, 2026-10-03").
+
+### 2026-10-03: The code freeze's preparation (M7), before the code freeze
+
+Item 1 is the coordinator's decision of 2026-10-03; item 2 records three values of section 9.1 set in engineering (`design/status.md`, "M7 fixes, 2026-10-03"). Nothing above this log is edited, and no rule is added. No hard case of Appendix A changes outcome by them.
+
+1. The route for a ClientHello without ALPN is in all five proxies' cases configurations (one-port f7d62a2), and Envoy, caddy-l4 and sslh-ev route any other ALPN list to the TLS port by SNI alone, which no hard case sends.
+2. `N_BG_TLS` = `N_BG_MQTT` = `N_BG_SILENT` = 64 (section 9.1, set in engineering, step 2), a design choice. Section 9.1 gives no rule for them beyond the cell they size, section 10 makes the background fixed and the same in both modes, and section 9 forbids a value chosen after data that could favour it: no window of the mixed-protocol cell has run, and none ran to set them. The reason: C = 64, WL1's connection slots per server core and WL3's connections, is the only count of connections per core that the text fixes for a cost cell, so each kind of background holds as many connections as the cell's churn has slots, and equal counts weigh no kind above another. The code freeze's entry names them again with the other values of section 9.1.
