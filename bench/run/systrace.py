@@ -16,11 +16,16 @@ Two kinds:
          process; each counter of I29 that names a system call is compared with perf trace's count.
 
 perf trace attaches after the system listens and before the probe, and stops before the system
-does, so both count the same connections; a wait in progress when it attaches or stops can fall
-on either side, which WAIT_SLACK allows for the loop's wait calls. The load (design choices of
-M4b-1): churn and open loop at TRACE_RATE exchanges per second for TRACE_MS after a TRACE_WARM_MS
-warm-up, open loop, so that perf trace loses no event; keep-alive with TRACE_KA_CONNS connections
-for TRACE_KA_MS. perf trace's "LOST" lines are recorded, and a lost event fails the check.
+does, so both count the same connections, except the calls the server makes while it starts (its
+listeners' epoll_ctl, the ring's first submissions), which its counters hold and perf cannot see.
+An idle pass of the same arm first (start, attach, IDLE_S with no load, stop) measures that
+start-up offset per check. A wait in progress when perf attaches or stops can fall on either side,
+which WAIT_SLACK allows for the loop's wait calls. Beside perf trace, `perf stat` counts the entry
+tracepoints of the same system calls (counters, no ring buffer), so a shortfall of perf trace
+itself shows as stat_minus_trace. The load (design choices of M4b-1): churn and open loop at
+TRACE_RATE exchanges per second for TRACE_MS after a TRACE_WARM_MS warm-up, open loop;
+keep-alive with TRACE_KA_CONNS connections for TRACE_KA_MS. perf trace's "LOST" lines are
+recorded, and a lost event fails the check.
 
     systrace.py --build DIR --out DIR --job NAME --kind proxy --systems nginx,...,one-port-relay [--protos tls-stub,http1]
     systrace.py --build DIR --out DIR --job NAME --kind cost --cells churn:http1:epoll,... [--modes dedicated,one-port]
@@ -47,9 +52,10 @@ TRACE_WARM_MS = 500
 TRACE_MS = 2000
 TRACE_KA_CONNS = 2
 TRACE_KA_MS = 500
-ATTACH_S = 1.5
+ATTACH_S = 3.0
+IDLE_S = 2.0
 WAIT_SLACK = 2  # per worker: a wait in progress at attach and at detach
-PERF = ["sudo", "-n", "taskset", "-c", "0,1", "perf", "trace", "-s"]
+PERF = ["sudo", "-n", "taskset", "-c", "0,1", "perf"]
 MODES = ("dedicated", "one-port")
 PROXY_PROTOS = ("tls-stub", "http1")
 PORTS = {"cost": 24000, "proxy": 24100}  # design choices of M4b-1, off the ephemeral range; the stub 10 above
@@ -72,6 +78,7 @@ CHECKS = (
     ("shutdown", ("shutdown_calls",), ("shutdown",), False, ("epoll", "io_uring")),
     ("splice", ("splice_calls",), ("splice",), False, ("epoll", "io_uring")),
 )
+STAT_CALLS = tuple(dict.fromkeys(c for check in CHECKS for c in check[2]))
 
 ROW = re.compile(r"^\s+([a-z_][a-z_0-9]*)\s+(\d+)\s+(\d+)\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+%?\s*$")
 LOST = re.compile(r"LOST (\d+) events")
@@ -91,37 +98,81 @@ def parse_summary(text: str) -> tuple[dict[str, dict[str, int]], int]:
     return out, lost
 
 
-def check_counters(counters: dict, calls: dict[str, dict[str, int]], backend: str, workers: int) -> list[dict]:
+def parse_stat(text: str) -> dict[str, int | None]:
+    """perf stat -x , on the syscalls:sys_enter_* tracepoints: the count of each call (None where
+    perf could not count it)."""
+    out: dict[str, int | None] = {}
+    for line in text.splitlines():
+        p = line.split(",")
+        if len(p) >= 3 and p[2].startswith("syscalls:sys_enter_"):
+            out[p[2][len("syscalls:sys_enter_"):]] = int(p[0]) if p[0].isdigit() else None
+    return out
+
+
+def check_counters(counters: dict, calls: dict[str, dict[str, int]], backend: str, workers: int,
+                   offsets: dict[str, int] | None = None, stat: dict[str, int | None] | None = None) -> list[dict]:
     """Each counter of CHECKS against perf trace's calls, on the backends where they are system
-    calls: equal, or within WAIT_SLACK per worker for the loop's waits."""
+    calls: equal after the start-up offset of the idle pass (calls the counters hold that perf,
+    attached later, cannot see), or within WAIT_SLACK per worker for the loop's waits. perf stat's
+    count is reported beside each."""
     out = []
     for label, cs, ss, slack, backends in CHECKS:
         if backend not in backends:
             continue
         mine = sum(int(counters.get(c, 0)) for c in cs)
         seen = sum(calls.get(s, {}).get("calls", 0) for s in ss)
+        off = (offsets or {}).get(label, 0)
         tol = WAIT_SLACK * workers if slack else 0
-        out.append({"check": label, "counters": list(cs), "calls": list(ss), "server": mine, "perf": seen,
-                    "difference": seen - mine, "tolerance": tol, "agrees": abs(seen - mine) <= tol})
+        row = {"check": label, "counters": list(cs), "calls": list(ss), "server": mine, "perf": seen, "startup_offset": off,
+               "difference": seen - (mine - off), "tolerance": tol, "agrees": abs(seen - (mine - off)) <= tol}
+        if stat is not None:
+            st = [stat.get(s) for s in ss]
+            row["stat"] = None if any(v is None for v in st) else sum(st)
+            row["stat_minus_trace"] = None if row["stat"] is None else row["stat"] - seen
+        out.append(row)
     return out
 
 
-def start_perf(pids: list[int], out_file: Path) -> subprocess.Popen:
-    p = subprocess.Popen(PERF + ["-p", ",".join(map(str, pids)), "-o", str(out_file)], stdout=subprocess.DEVNULL,
-                         stderr=open(out_file.with_suffix(".err"), "wb"))
-    time.sleep(ATTACH_S)
-    if p.poll() is not None:
-        raise window.WindowError(f"perf trace exited at once: {out_file.with_suffix('.err').read_text(errors='replace')[-300:]}")
-    return p
+def startup_offsets(counters: dict, calls: dict[str, dict[str, int]], backend: str) -> dict[str, int]:
+    """From an idle pass: per check, the calls the counters hold that perf did not see."""
+    return {c["check"]: c["server"] - c["perf"] for c in check_counters(counters, calls, backend, 1)}
 
 
-def stop_perf(p: subprocess.Popen) -> int | None:
-    subprocess.run(["sudo", "-n", "kill", "-INT", str(p.pid)], check=False)  # sudo passes SIGINT on to perf
-    try:
-        return p.wait(timeout=60)
-    except subprocess.TimeoutExpired:
-        subprocess.run(["sudo", "-n", "kill", "-KILL", str(p.pid)], check=False)
-        return p.wait()
+class Perf:
+    """perf trace -s and perf stat on the same processes, from attach to stop."""
+
+    def __init__(self, pids: list[int], base: Path):
+        self.base = base
+        target = ["-p", ",".join(map(str, pids))]
+        self.trace = subprocess.Popen(PERF + ["trace", "-s"] + target + ["-o", str(self.path("trace.txt"))],
+                                      stdout=subprocess.DEVNULL, stderr=open(self.path("trace.err"), "wb"))
+        events = ",".join(f"syscalls:sys_enter_{c}" for c in STAT_CALLS)
+        self.stat = subprocess.Popen(PERF + ["stat", "-x", ",", "-e", events] + target + ["-o", str(self.path("stat.txt"))],
+                                     stdout=subprocess.DEVNULL, stderr=open(self.path("stat.err"), "wb"))
+        time.sleep(ATTACH_S)
+        for name, p in (("trace", self.trace), ("stat", self.stat)):
+            if p.poll() is not None:
+                self.stop()
+                raise window.WindowError(f"perf {name} exited at once: {self.path(name + '.err').read_text(errors='replace')[-300:]}")
+
+    def path(self, suffix: str) -> Path:
+        return self.base.parent / f"{self.base.name}.{suffix}"
+
+    def stop(self) -> dict:
+        codes = {}
+        for name, p in (("trace", self.trace), ("stat", self.stat)):
+            subprocess.run(["sudo", "-n", "kill", "-INT", str(p.pid)], check=False)  # sudo passes SIGINT on to perf
+            try:
+                codes[name] = p.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                subprocess.run(["sudo", "-n", "kill", "-KILL", str(p.pid)], check=False)
+                codes[name] = p.wait()
+        return codes
+
+    def results(self) -> tuple[dict[str, dict[str, int]], int, dict[str, int | None]]:
+        calls, lost = parse_summary(self.path("trace.txt").read_text(errors="replace"))
+        stat = parse_stat(self.path("stat.txt").read_text(errors="replace"))
+        return calls, lost, stat
 
 
 def load_cmd(build: Path, proto: str, port: int, base: int, k: int, workload: str, gen: tuple[int, ...], out: Path) -> list[str]:
@@ -174,11 +225,41 @@ def start_server(build: Path, mode: str, backend: str, port: int, raw: Path, tag
     return proc, out, ports, cmd
 
 
+def idle_pass(build: Path, mode: str, backend: str, raw: Path, tag: str) -> dict:
+    """The arm started, perf attached, IDLE_S without load, perf stopped, the arm stopped: the
+    start-up offset of each check."""
+    proc, out, _, _ = start_server(build, mode, backend, PORTS["cost"], raw, tag)
+    perf = None
+    try:
+        perf = Perf([proc.pid], raw / tag)
+        time.sleep(IDLE_S)
+    finally:
+        if perf is not None:
+            perf.stop()
+        _, lines = window.stop_process(proc, out)
+    calls, _, _ = perf.results()
+    counters = window.parse_counters(lines)
+    return {"offsets": startup_offsets(counters, calls, backend), "server_counters": counters, "perf_calls": calls}
+
+
+def finish_checks(row: dict, g: dict | None, extra: list[str]) -> dict:
+    reasons = [f"{c['check']}: perf {c['perf']}, counters {c['server']} less {c['startup_offset']} at start-up"
+               for c in row.get("checks", []) if not c["agrees"]] + extra
+    if row.get("perf_lost"):
+        reasons.append(f"perf trace lost {row['perf_lost']} events")
+    if not (g or {}).get("ok"):
+        reasons.append("opgen failed")
+    row["agrees"] = not reasons
+    row["problems"] = reasons
+    return row
+
+
 def cost_row(build: Path, cell: dict, mode: str, blocks: window.SourceBlocks, raw: Path, job: str) -> dict:
     tag = f"{job}-{cell['workload']}.{cell['proto']}.{cell['backend']}-{mode}"
     row: dict = {"job": job, "kind": "cost", "untimed": True, "development": True, "cell": f"{cell['workload']}.{cell['proto']}.{cell['backend']}",
                  "mode": mode, "tag": tag, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     row["conntrack_wait_s"], _ = window.wait_conntrack()
+    row["idle"] = idle_pass(build, mode, cell["backend"], raw, tag + ".idle")
     proc, out, ports, cmd = start_server(build, mode, cell["backend"], PORTS["cost"], raw, tag)
     row["command"] = cmd
     target = PORTS["cost"] if mode == "one-port" else ports.get(window.LISTENER[cell["proto"]])
@@ -187,33 +268,47 @@ def cost_row(build: Path, cell: dict, mode: str, blocks: window.SourceBlocks, ra
     try:
         if target is None:
             raise window.WindowError(f"no {window.LISTENER[cell['proto']]} listener in {sorted(ports)}")
-        perf = start_perf([proc.pid], raw / f"{tag}.trace.txt")
+        perf = Perf([proc.pid], raw / tag)
         row["load"], g = run_load(build, cell["proto"], target, blocks, cell["workload"], tuple(window.OPEN_GEN_THREADS) if
                                   cell["workload"] != "keepalive" else tuple(window.GEN_CPUS[:2]), raw, tag)
         time.sleep(0.5)
     finally:
-        row["perf_exit"] = stop_perf(perf) if perf is not None else None
+        row["perf_exit"] = perf.stop() if perf is not None else None
         code, lines = window.stop_process(proc, out)
         row["server_exit"] = code
     counters = window.parse_counters(lines)
-    calls, lost = parse_summary((raw / f"{tag}.trace.txt").read_text(errors="replace"))
+    calls, lost, stat = perf.results()
     row["opgen"] = counts_only(g)
     row["server_counters"] = counters
     row["perf_calls"] = calls
     row["perf_lost"] = lost
-    row["checks"] = check_counters(counters, calls, cell["backend"], 1)
+    row["perf_stat"] = stat
+    row["checks"] = check_counters(counters, calls, cell["backend"], 1, row["idle"]["offsets"], stat)
     acc = counters.get("accepted", 0)
     row["calls_per_connection"] = {k: v["calls"] / acc for k, v in calls.items()} if acc else None
-    reasons = [f"{c['check']}: perf {c['perf']}, counters {c['server']}" for c in row["checks"] if not c["agrees"]]
-    if lost:
-        reasons.append(f"perf trace lost {lost} events")
-    if row["server_exit"] != 0:
-        reasons.append(f"server exit {row['server_exit']}")
-    if not (g or {}).get("ok"):
-        reasons.append("opgen failed")
-    row["agrees"] = not reasons
-    row["problems"] = reasons
-    return row
+    return finish_checks(row, g, [f"server exit {row['server_exit']}"] if row["server_exit"] != 0 else [])
+
+
+def relay_idle_pass(build: Path, port: int, raw: Path, tag: str) -> dict:
+    """The server's relay and its stub started, perf on the front for IDLE_S without load: the
+    front's start-up offsets."""
+    import handoff
+    stub, stub_out = handoff.start_stub(build, port + 10, raw, tag)
+    front = perf = None
+    lines: list[str] = []
+    try:
+        front = handoff.Front(window.ONE_PORT_RELAY, build, port, port + 10, raw, tag, "m3")
+        perf = Perf(comp.group_pids(front.pgid), raw / tag)
+        time.sleep(IDLE_S)
+    finally:
+        if perf is not None:
+            perf.stop()
+        if front is not None:
+            _, lines = front.stop()
+        window.stop_process(stub, stub_out)
+    calls, _, _ = perf.results()
+    counters = window.parse_counters(lines)
+    return {"offsets": startup_offsets(counters, calls, "epoll"), "server_counters": counters, "perf_calls": calls}
 
 
 def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks, raw: Path, job: str) -> dict:
@@ -223,6 +318,8 @@ def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks,
     row: dict = {"job": job, "kind": "proxy", "untimed": True, "development": True, "system": system, "proto": proto, "tag": tag,
                  "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     row["conntrack_wait_s"], _ = window.wait_conntrack()
+    if system == window.ONE_PORT_RELAY:
+        row["idle"] = relay_idle_pass(build, port, raw, tag + ".idle")
     stub, stub_out = handoff.start_stub(build, port + 10, raw, tag)
     front = perf = g = None
     front_lines: list[str] = []
@@ -231,36 +328,27 @@ def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks,
         row["command"] = front.command
         pids = comp.group_pids(front.pgid)
         row["front_pids"] = pids
-        perf = start_perf(pids, raw / f"{tag}.trace.txt")
+        perf = Perf(pids, raw / tag)
         row["load"], g = run_load(build, proto, port, blocks, "churn", handoff.PL.open_gen_threads, raw, tag)
         time.sleep(0.5)
     finally:
-        row["perf_exit"] = stop_perf(perf) if perf is not None else None
+        row["perf_exit"] = perf.stop() if perf is not None else None
         if front is not None:
             row["front_exit"], front_lines = front.stop()
         _, stub_lines = window.stop_process(stub, stub_out)
-    calls, lost = parse_summary((raw / f"{tag}.trace.txt").read_text(errors="replace"))
+    calls, lost, stat = perf.results()
     stub_counters = window.parse_counters(stub_lines)
     row["opgen"] = counts_only(g)
     row["perf_calls"] = calls
     row["perf_lost"] = lost
+    row["perf_stat"] = stat
     row["stub_accepted"] = acc = stub_counters.get("accepted", 0)
     row["calls_per_connection"] = {k: v["calls"] / acc for k, v in calls.items()} if acc else None
-    reasons = []
     if system == window.ONE_PORT_RELAY:
         counters = window.parse_counters(front_lines)
         row["server_counters"] = counters
-        row["checks"] = check_counters(counters, calls, "epoll", 1)
-        reasons += [f"{c['check']}: perf {c['perf']}, counters {c['server']}" for c in row["checks"] if not c["agrees"]]
-    if lost:
-        reasons.append(f"perf trace lost {lost} events")
-    if not acc:
-        reasons.append("the stub accepted no connection")
-    if not (g or {}).get("ok"):
-        reasons.append("opgen failed")
-    row["agrees"] = not reasons
-    row["problems"] = reasons
-    return row
+        row["checks"] = check_counters(counters, calls, "epoll", 1, row["idle"]["offsets"], stat)
+    return finish_checks(row, g, [] if acc else ["the stub accepted no connection"])
 
 
 def main(argv=None) -> int:
@@ -297,7 +385,9 @@ def main(argv=None) -> int:
             f.write(json.dumps(r) + "\n")
     for r in rows:
         name = r.get("cell", r.get("system"))
-        print(f"{r['kind']} {name} {r.get('mode', r.get('proto'))}: agrees={r['agrees']} {'; '.join(r['problems'])}")
+        lost = {c["check"]: c["stat_minus_trace"] for c in r.get("checks", []) if c.get("stat_minus_trace")}
+        print(f"{r['kind']} {name} {r.get('mode', r.get('proto'))}: agrees={r['agrees']} {'; '.join(r['problems'])}"
+              + (f" [perf stat minus perf trace: {lost}]" if lost else ""))
     return 0
 
 

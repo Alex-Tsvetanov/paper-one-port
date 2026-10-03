@@ -500,6 +500,22 @@ class Trace(unittest.TestCase):
         self.assertIn("recv (peek and check)", u)
         self.assertNotIn("accept", u)  # a ring operation on io_uring
 
+    def test_stat_and_startup_offset(self):
+        stat = systrace.parse_stat("1,,syscalls:sys_enter_recvfrom,635543,100.00,,\n"
+                                   "<not counted>,,syscalls:sys_enter_splice,0,0.00,,\n"
+                                   "120,,syscalls:sys_enter_epoll_ctl,635543,100.00,,\n")
+        self.assertEqual(stat, {"recvfrom": 1, "splice": None, "epoll_ctl": 120})
+        calls, _ = systrace.parse_summary(PERF_SUMMARY)
+        # An idle pass: the counters hold 6 epoll_ctl of the listeners that perf never saw.
+        offsets = systrace.startup_offsets({"epoll_ctl_calls": 6}, {}, "epoll")
+        self.assertEqual(offsets["epoll_ctl"], 6)
+        counters = {"accept_calls": 100, "recv_calls": 320, "send_calls": 100, "epoll_wait_calls": 120, "epoll_ctl_calls": 106}
+        calls["epoll_ctl"] = {"calls": 100, "errors": 0}
+        by = {c["check"]: c for c in systrace.check_counters(counters, calls, "epoll", 1, offsets, {"epoll_ctl": 100, "recvfrom": 330})}
+        self.assertTrue(by["epoll_ctl"]["agrees"])  # 106 less 6 at start-up
+        self.assertEqual(by["recv"]["stat_minus_trace"], 10)
+        self.assertIsNone(by["accept"]["stat"])  # no stat count for accept4 here
+
     def test_load_has_no_time(self):
         g = {"ok": True, "warmup": {"completed": 10}, "measure": {"completed": 90, "errors": {"total": 0}}, "connect_failures": 0,
              "ttfb_ns": {"median": 1}, "wall_s": 2.0}
