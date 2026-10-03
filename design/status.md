@@ -2696,7 +2696,12 @@ it, and Python's default SIGTERM ended the runner before its `finally` blocks st
 aa-nt1's arm-B server (port 20100) and aa-nt2's arm-A server (20000) kept running; they were found
 with `ss` and stopped by their pids. `window.stop_on_signals()` (e528256) turns SIGTERM, SIGINT and
 SIGHUP into `SystemExit`, so the `finally` blocks run; `aa.py`, `b3.py`, `ksrc_sweep.py`,
-`handoff.py` and `probe.py` install it.
+`handoff.py` and `probe.py` install it. Tested on L at 835bb44 (job sigtest1, no row written): an
+`aa.py` job stopped by SIGTERM to its process group during its first window left no listener on
+ports 20000 to 20105, its done file reads exit 143 and signal TERM, and its NOTRACK record shows both
+rules removed and the ruleset restored (sigtest1.notrack.json sha256
+ecd62a66968d33014da18428fb61adfb319039fb474519a51dcb2d046067c232; made after the archive below, its
+files stay in `~/lab/p3/m4a/`).
 
 ### The proxies: installation
 
@@ -2735,7 +2740,7 @@ system's own documents; plumbing (pid file, logs, foreground) is marked as such.
 | System | M3 | B3 adds |
 |---|---|---|
 | nginx | `worker_processes 1`, `worker_cpu_affinity` CPU 14, `multi_accept on`, `ssl_preread on`, `map $ssl_preread_server_name` (oneport.test to the TLS stub, default to the HTTP stub), `preread_timeout 3s`, no access log, backlog default (511) | `worker_connections` and `worker_rlimit_nofile` 20,000, `listen ... backlog=10000`, `preread_timeout 60s`; buffers kept |
-| HAProxy | `mode tcp`, `inspect-delay 3s`, `accept if { req.ssl_hello_type 1 }` and `accept if HTTP`, `use_backend` on `req.ssl_sni`, `default_backend` HTTP stub, no log, one thread from taskset, timeouts unset (startup warning), no splice | global `maxconn 20000` (also the backlog), `inspect-delay 60s`, `option use-small-buffers` in both backends |
+| HAProxy | `mode tcp`, `inspect-delay 3s`, `accept if { req.ssl_hello_type 1 }` and `accept if HTTP`, `use_backend` on `req.ssl_sni`, `default_backend` HTTP stub, no log, one thread from taskset, timeouts unset (the startup warning "missing timeouts" for the frontend and each backend, seen in the probes' stderr), no splice | global `maxconn 20000` (also the backlog), `inspect-delay 60s`, `option use-small-buffers` in both backends |
 | Envoy | `--concurrency 1`, `--disable-hot-restart`, tls_inspector, a chain by `server_names` and `transport_protocol: tls`, the default chain to the HTTP stub, tcp_proxy, `listener_filters_timeout 3s`, circuit breaking off (the FAQ's 1000000000 at both priorities), no admin and no access log, default statistics | `tcp_backlog_size 10000`, `listener_filters_timeout 60s`, `per_connection_buffer_limit_bytes 32768` on the listener and both clusters, tls_inspector `initial_read_buffer_size 256` |
 | caddy-l4 | Caddyfile: `matching_timeout 3s` (its default too), `@tls tls sni oneport.test` to the TLS stub, a route with no matcher to the HTTP stub, admin on a run port, log level default (INFO); GOMAXPROCS 1 from taskset; Caddy's adaptation to JSON kept per run (`adapted.json`) | `matching_timeout 60s` |
 | sslh-ev | `verbose-connections 0`, `numeric: true`, `log_level 0` on both protocols, `timeout 3`, `on-timeout "http"`, tls with `sni_hostnames` then http last | `timeout 60`; `max_connections` unset |
