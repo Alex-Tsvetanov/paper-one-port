@@ -92,6 +92,9 @@ namespace oneport::server
 		const std::lock_guard<std::mutex> lock(m_);
 		std::fwrite(s.data(), 1, s.size(), f_);
 		std::fputc('\n', f_);
+		// Each line reaches the file at once (M7c): a hard-case run, and the pilot's timer part, read
+		// a connection's lines while the server still runs.
+		std::fflush(f_);
 	}
 
 	void Recorder::flush()

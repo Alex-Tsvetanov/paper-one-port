@@ -4,8 +4,10 @@
 // each connection's detection, each relayed connection's route and each close, with every time
 // in nanoseconds of the server's clock (std::chrono::steady_clock, CLOCK_MONOTONIC on L, the
 // clock of opcase's write times). A hard-case run against a server in its own process matches the
-// lines to opcase's transcripts by the client's local port (peer_port). Without --record no hook
-// is set, and the server runs exactly as before. Never set in a measured window.
+// lines to opcase's transcripts by the client's local port (peer_port); each line is written
+// through to the file at once (M7c), so a runner reads a connection's lines while the server runs.
+// Without --record no hook is set, and the server runs exactly as before. Never set in a measured
+// window.
 #pragma once
 
 #include "server.hpp"
