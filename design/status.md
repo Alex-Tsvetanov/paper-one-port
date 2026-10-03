@@ -2442,7 +2442,10 @@ kernel the rules cannot be added, so no job has run with them, and the A/A re-ch
   ruleset before, the rules added and when, the connection-tracking count at the job's start and
   end, the removal check, the job's exit status.
 - `bench/run/lab_job.sh` runs every job as `lablock bash notrack.sh DIR/NAME.notrack.json COMMAND...`,
-  so the rules are added only once the lock is held and never meet another job's.
+  so the rules are added only once the lock is held and never meet another job's. Before taking the
+  lock it refuses (exit 93, with its done file) a job that notrack.sh would refuse because the
+  running kernel has no module tree, so that a queued job does not fail hours later (a later fix,
+  below the status commit; tested on L as t4, and t5 with `ONEPORT_NOTRACK=off`).
 - `window.py`: `notrack_state()` reads the two rules with `sudo -n iptables-nft -t raw -S`
   (`parse_notrack()` also takes the target printed as `CT --notrack`: iptables-nft says "The NOTRACK
   target is converted into CT target in rule listing and saving"); `pin_fingerprint()` records it,

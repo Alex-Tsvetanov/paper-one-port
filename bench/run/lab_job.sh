@@ -20,6 +20,15 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 lablock=${ONEPORT_LABLOCK:-$HOME/lab/Papers/lab/bin/lablock}
 echo $$ > "$dir/$name.pid"
 date -Is > "$dir/$name.start"
+# Before the lock, so that a queued job does not fail hours later: NOTRACK needs a kernel module,
+# and a kernel whose module tree is gone (upgraded without a reboot) can load none. notrack.sh, in
+# the lock, still decides; this only refuses early what it would refuse.
+if [ "${ONEPORT_NOTRACK:-on}" != off ] && [ ! -d "/lib/modules/$(uname -r)" ]; then
+  echo "lab_job: kernel $(uname -r) has no module tree, so NOTRACK cannot be added; the job does not run" \
+    "(ONEPORT_NOTRACK=off runs it with loopback tracked)" > "$dir/$name.log"
+  printf '{"exit": %d, "end": "%s"}\n' 93 "$(date -Is)" > "$dir/$name.done"
+  exit 93
+fi
 "$lablock" bash "$here/notrack.sh" "$dir/$name.notrack.json" "$@" > "$dir/$name.log" 2>&1
 rc=$?
 printf '{"exit": %d, "end": "%s"}\n' "$rc" "$(date -Is)" > "$dir/$name.done"
