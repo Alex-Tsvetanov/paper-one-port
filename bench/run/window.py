@@ -59,8 +59,14 @@ TIMEOUT_MS = 1000
 # window's connections. Design choices of M3: before a window the runner waits until the table
 # holds at most CT_START_MAX entries, at most CT_WAIT_MAX_S, so every window starts from an empty
 # table; the count and the drop counters are recorded at the window's start and end.
+# Since 2026-10-03 (Alex's approval) every lab job runs notrack.sh (lab_job.sh), which adds the raw
+# table's two loopback NOTRACK rules below for the job's length, unless ONEPORT_NOTRACK=off. With
+# them the wait stays as a safety check that passes at once; without them it is M3's wait. Each
+# session's fingerprint records whether the rules were in place, and each row the table's count
+# before the wait, at the window's start and at its end.
 CT_START_MAX = 2000
 CT_WAIT_MAX_S = 180.0
+NOTRACK_RULES = {"prerouting_lo": "-A PREROUTING -i lo -j NOTRACK", "output_lo": "-A OUTPUT -o lo -j NOTRACK"}
 PROTOS = ("http1", "h2c", "tls", "mqtt", "ssh", "tls-stub")
 # The dedicated listener of each protocol, in the order of I20 (listening lines' names).
 LISTENER = {"http1": "HTTP/1.1", "h2c": "h2c", "tls": "TLS", "mqtt": "MQTT", "ssh": "SSH", "tls-stub": "TLS"}
@@ -217,6 +223,27 @@ def wait_conntrack(limit: int = CT_START_MAX, max_wait: float = CT_WAIT_MAX_S) -
         time.sleep(1.0)
 
 
+def parse_notrack(text: str) -> dict:
+    """`iptables -t raw -S`: whether each loopback NOTRACK rule of notrack.sh is in place. iptables
+    prints the target as NOTRACK, or as its synonym `CT --notrack`."""
+    rules = {" ".join(ln.split()).replace("-j CT --notrack", "-j NOTRACK") for ln in text.splitlines()}
+    out = {k: v in rules for k, v in NOTRACK_RULES.items()}
+    out["active"] = all(out.values())
+    return out
+
+
+def notrack_state() -> dict:
+    """The raw table's loopback NOTRACK rules now, read with the iptables Docker uses on L
+    (iptables-nft); `active` is None when they cannot be read."""
+    try:
+        p = subprocess.run(["sudo", "-n", "iptables-nft", "-t", "raw", "-S"], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"active": None, "error": repr(e)}
+    if p.returncode != 0:
+        return {"active": None, "error": p.stderr.strip()[-200:]}
+    return parse_notrack(p.stdout)
+
+
 def time_wait_count() -> int:
     p = subprocess.run(["ss", "-Htan", "state", "time-wait"], capture_output=True, text=True, check=True)
     return len([ln for ln in p.stdout.splitlines() if ln.strip()])
@@ -229,6 +256,7 @@ def pin_fingerprint() -> dict:
     except (IndexError, json.JSONDecodeError):
         raise WindowError(f"pin.sh printed no fingerprint: {p.stdout!r} {p.stderr!r}")
     fp["pin_exit"] = p.returncode
+    fp["notrack"] = notrack_state()
     return fp
 
 
@@ -462,6 +490,7 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: Sourc
     base = blocks.take(cfg["k_src"])
     row["src_block"] = {"base": dotted(base), "k": cfg["k_src"]}
     reasons: list[str] = []
+    ct_before = conntrack()
     waited, _ = wait_conntrack()
     ct0 = conntrack()
     row["conntrack_wait_s"] = waited
@@ -537,6 +566,8 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: Sourc
     row["nstat_delta"] = {k: ns1[k] - ns0[k] for k in NSTAT_KEYS}
     ct1 = conntrack()
     row["conntrack"] = {"start": ct0, "end": ct1}
+    row["conntrack_count"] = {"before_wait": (ct_before or {}).get("count"), "start": (ct0 or {}).get("count"),
+                              "end": (ct1 or {}).get("count")}
     if ct0 and ct1:
         row["conntrack_delta"] = {k: ct1[k] - ct0[k] for k in CT_STAT_KEYS}
     finish(row, gen_report, snaps, mhz, session, reasons)

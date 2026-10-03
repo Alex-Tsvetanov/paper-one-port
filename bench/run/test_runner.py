@@ -253,6 +253,21 @@ class Window(unittest.TestCase):
         st = window.parse_ct_stat(text)
         self.assertEqual(st, {"invalid": 8, "insert_failed": 0xc8 + 0xa2, "drop": 0x1d8 + 0x16f, "early_drop": 0})
 
+    def test_notrack_rules(self):
+        # `iptables-nft -t raw -S` with notrack.sh's two rules, with one, with none, and with the
+        # target printed as its synonym; other rules (Docker's, if it adds any) change nothing.
+        policies = ["-P PREROUTING ACCEPT", "-P OUTPUT ACCEPT"]
+        both = "\n".join(policies + ["-A PREROUTING -i lo -j NOTRACK", "-A OUTPUT -o lo -j NOTRACK"]) + "\n"
+        self.assertEqual(window.parse_notrack(both), {"prerouting_lo": True, "output_lo": True, "active": True})
+        one = "\n".join(policies + ["-A PREROUTING -i lo -j NOTRACK"]) + "\n"
+        self.assertEqual(window.parse_notrack(one), {"prerouting_lo": True, "output_lo": False, "active": False})
+        none = "\n".join(policies + ["-A PREROUTING -d 172.17.0.2/32 ! -i docker0 -j DROP"]) + "\n"
+        self.assertFalse(window.parse_notrack(none)["active"])
+        ct = "-A PREROUTING -i lo -j CT --notrack\n-A OUTPUT -o lo -j CT --notrack\n"
+        self.assertTrue(window.parse_notrack(ct)["active"])
+        other = "-A PREROUTING -i eth0 -j NOTRACK\n-A OUTPUT -o lo -p udp -j NOTRACK\n"
+        self.assertEqual(window.parse_notrack(other), {"prerouting_lo": False, "output_lo": False, "active": False})
+
     def test_interrupts(self):
         head = "            CPU0       CPU1       CPU14"
         t0 = [head, "  0:        135          0          0   IR-IO-APIC    2-edge      timer",

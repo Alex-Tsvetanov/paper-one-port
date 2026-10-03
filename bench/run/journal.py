@@ -6,7 +6,7 @@ variant, summary, cells, note. Every window of the job is listed in `cells` with
 arm, position, metric and validity. `run` names the job as development data (hypotheses.md,
 section 8, step 2: cited only in the revision log and the journal, disclosed in the methods).
 
-    journal.py --job-dir DIR --run TEXT --variant TEXT [--note TEXT] [--commit SHA]
+    journal.py --job-dir DIR --run TEXT --variant TEXT [--note TEXT] [--commit SHA] [--milestone M3]
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 
-def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None) -> dict:
+def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str = "M3") -> dict:
     rows = [json.loads(ln) for ln in (job_dir / "windows.jsonl").read_text().splitlines() if ln.strip()]
     summary = json.loads((job_dir / "summary.json").read_text()) if (job_dir / "summary.json").exists() else {}
     prov = next((r["provenance"] for r in rows if "provenance" in r), {})
@@ -32,10 +32,11 @@ def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None) 
         "date": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "paper": "P3",
         "host": host,
-        "run": f"development, M3 A/A (dedicated against dedicated): {run}",
+        "run": f"development, {milestone} A/A (dedicated against dedicated): {run}",
         "code_commit": commit or prov.get("commit") or "",
         "variant": variant,
         "summary": {"windows": len(rows), "valid": sum(1 for r in rows if r.get("valid")), "spread": spread,
+                    "notrack_windows": sum(1 for r in rows if ((r.get("fingerprint") or {}).get("notrack") or {}).get("active")),
                     "rates": summary.get("rates", {}), "binaries": prov.get("binaries"), "inputs_hash": prov.get("inputs_hash")},
         "cells": cells,
         "note": note,
@@ -49,8 +50,9 @@ def main(argv=None) -> int:
     ap.add_argument("--variant", required=True)
     ap.add_argument("--note", default="")
     ap.add_argument("--commit")
+    ap.add_argument("--milestone", default="M3", help="the milestone named in `run`")
     a = ap.parse_args(argv)
-    print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit), ensure_ascii=False))
+    print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit, a.milestone), ensure_ascii=False))
     return 0
 
 

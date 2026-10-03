@@ -199,6 +199,8 @@ def main(argv=None) -> int:
             session = {"job": a.job, "id": sid, "mhz": fp["mean_mhz"], "fingerprint": fp, "x": x}
             if not fp.get("pinned"):
                 print(f"{sid}: host not pinned: {fp}", flush=True)
+            if not fp["notrack"].get("active"):
+                print(f"{sid}: loopback is tracked (notrack.sh not in effect): {fp['notrack']}", flush=True)
             srows = []
             for pos, arm in enumerate([x, y, y, x]):
                 r = window.run_window(cfg, session, arm, pos, blocks, a.out / "raw")
