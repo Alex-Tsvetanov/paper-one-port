@@ -182,7 +182,9 @@ namespace oneport::opgen::detail
 			const Deadline d = deadlines_.front();
 			deadlines_.pop_front();
 			Conn& c = conns_[d.idx];
-			if (c.active && c.xid == d.xid) fail(d.idx, End::timeout);
+			// A connect that has not completed by the deadline failed (section 7: "any connect
+			// failed"), as one refused at once; any other exchange timed out.
+			if (c.active && c.xid == d.xid) fail(d.idx, c.connecting ? End::connect : End::timeout);
 		}
 		if (!retry_.empty())
 		{

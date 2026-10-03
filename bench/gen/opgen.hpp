@@ -105,7 +105,9 @@ namespace oneport::opgen
 	/// Failures, by kind. Each failed exchange counts once, in its first kind.
 	struct Errors
 	{
-		std::uint64_t connect = 0;   // connect() refused or failed, at once or later (SO_ERROR)
+		/// connect() refused or failed, at once or later (SO_ERROR), or not complete at the
+		/// exchange's timeout (a SYN never answered).
+		std::uint64_t connect = 0;
 		std::uint64_t timeout = 0;   // no progress for Options::timeout
 		std::uint64_t reset = 0;     // the server reset the connection, or a send or receive failed
 		std::uint64_t eof = 0;       // the server closed before the exchange was complete
