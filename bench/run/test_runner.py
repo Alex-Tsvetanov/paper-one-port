@@ -171,6 +171,16 @@ class Footprint(unittest.TestCase):
         self.assertTrue(any("skbuff_small_head" in p for p in fp.window_problems(base, broken, good, n)))
 
 
+class KBase(unittest.TestCase):
+    def test_median_of_sixteen_valid(self):
+        def row(ks, valid=True, kind="ophold"):
+            return {"kind": kind, "valid": valid, "footprint": {"sample2": {"Ks": ks}}}
+        rows = [row(7400.0 + i) for i in range(16)] + [row(1.0, valid=False), row(99999.0, kind="b3")]
+        self.assertAlmostEqual(fp.k_base(rows), (7407.0 + 7408.0) / 2)
+        with self.assertRaises(ValueError):
+            fp.k_base(rows[:15])
+
+
 COUNTER_LINES = """oneport: listening HTTP/1.1 127.0.0.1:20000
 counter accept_calls 1200
 counter recv_calls 2400

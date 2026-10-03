@@ -33,6 +33,7 @@ SKB_CACHES = ("skbuff_head_cache", "skbuff_small_head", "skbuff_fclone_cache")
 SETTLE_REL = 0.02
 SETTLE_ABS = 8.0
 N_PEND = 10_000  # WL7, a design choice
+K_BASE_WINDOWS = 16  # WL7: "over 16 windows" (R_B, a design choice of the frozen text)
 
 
 # ---------------------------------------------------------------- parsers
@@ -248,6 +249,18 @@ def window_problems(base: Reading, s1: Reading, s2: Reading, n_pend: int) -> lis
         if sorted(r.fclone_cotenants) != sorted(base.fclone_cotenants):
             out.append(f"{name}: the shared cache's co-tenants {r.fclone_cotenants} differ from the baseline's {base.fclone_cotenants}")
     return out
+
+
+def k_base(rows: list[dict], windows: int = K_BASE_WINDOWS) -> float:
+    """K_BASE (WL7; section 9.3): the median of Ks, net of the skb caches, at sample 2 of ophold's
+    valid windows, over exactly `windows` of them (the first that many valid rows, in order).
+    Raises ValueError with fewer."""
+    ks = [r["footprint"]["sample2"]["Ks"] for r in rows if r.get("kind") == "ophold" and r.get("valid")]
+    if len(ks) < windows:
+        raise ValueError(f"K_BASE needs {windows} valid ophold windows, got {len(ks)}")
+    ks = sorted(ks[:windows])
+    mid = len(ks) // 2
+    return ks[mid] if len(ks) % 2 else (ks[mid - 1] + ks[mid]) / 2
 
 
 # ---------------------------------------------------------------- readers (L)
