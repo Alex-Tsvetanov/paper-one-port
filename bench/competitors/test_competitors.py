@@ -179,12 +179,15 @@ class Cases(unittest.TestCase):
                     self.assertIn(port, text, f"{s}: backend port +{off}")
                 elif not (off == 5 and s in comp.FALLBACK_SYSTEMS):
                     self.assertNotIn(port, text, f"{s}: backend port +{off} has no route")
-            self.assertIn(str(22100 + comp.PROXY_PORT_OFFSET), text, f"{s}: the PROXY listener")
+            if s in comp.PROXY_SYSTEMS:
+                self.assertIn(str(22100 + comp.PROXY_PORT_OFFSET), text, f"{s}: the PROXY listener")
+            else:
+                self.assertNotIn(str(22100 + comp.PROXY_PORT_OFFSET), text, f"{s}: no PROXY listener")
         self.assertIn("proxy_protocol;", live(rendered("nginx", "cases")))
         self.assertIn("accept-proxy", live(rendered("haproxy", "cases")))
         self.assertIn("envoy.filters.listener.proxy_protocol", live(rendered("envoy", "cases")))
         self.assertIn("proxy_protocol {", live(rendered("caddy-l4", "cases")))
-        self.assertIn("proxyprotocol: true;", live(rendered("sslh-ev", "cases")))
+        self.assertNotIn("proxyprotocol", live(rendered("sslh-ev", "cases")))  # not in the pinned build (libproxyprotocol)
 
     def test_alpn(self):
         self.assertIn("$ssl_preread_alpn_protocols", live(rendered("nginx", "cases")))

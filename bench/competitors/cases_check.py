@@ -10,14 +10,16 @@ has a fallback) at matched timers or at its defaults. The checks:
   routes    opgen --probe on the plain listener for HTTP/1.1, h2c, TLS (SNI oneport.test, ALPN
             http/1.1), MQTT and SSH: each exchange completes only if the system routed it to the
             backend's port of its class;
-  proxy     on the PROXY listener, a PROXY v1 and a PROXY v2 header, each followed by an HTTP/1.1
-            request in the same write: the backend's 200 must come back (the header consumed);
+  proxy     on the PROXY listener (competitors.PROXY_SYSTEMS), a PROXY v1 and a PROXY v2 header,
+            each followed by an HTTP/1.1 request in the same write: the backend's 200 must come
+            back (the header consumed);
   fallback  in cases-fallback, a client that sends nothing: the SMTP greeting must arrive within
             the system's timer and FALLBACK_LATE_S.
 COVERS gives the classes each system's features cover (Appendix B; design/competitor-survey.md):
 those must pass; the rest are recorded. sslh-ev's fallback is recorded only: sslh-ev checks its
-probe timeout only on read activity (survey 2.8; M4a's probes). Exit 0 when every judged check
-passes.
+probe timeout only on read activity (survey 2.8; M4a's probes). HAProxy's routes at its defaults
+are recorded only: with no inspect delay it decides on the bytes at hand, which its documents call
+racy (JUDGE_ROUTES_AT_DEFAULT). Exit 0 when every judged check passes.
 
     cases_check.py --build DIR --out DIR [--systems nginx,...] [--timers matched,default]
 """
@@ -55,6 +57,10 @@ COVERS = {
 FALLBACK_TIMER_S = {"matched": {"haproxy": 3.0, "envoy": 3.0, "sslh-ev": 3.0}, "default": {"haproxy": 0.0, "envoy": 15.0, "sslh-ev": 5.0}}
 FALLBACK_LATE_S = 2.0
 JUDGE_FALLBACK = {"haproxy", "envoy"}
+# At its defaults HAProxy has no inspect delay and "will immediately apply a verdict based on the
+# available information ... might even be racy, so such setups are not recommended"
+# (configuration.txt v3.4.6, tcp-request inspect-delay): its routes are recorded there, not judged.
+JUDGE_ROUTES_AT_DEFAULT = {"nginx", "envoy", "caddy-l4", "sslh-ev"}
 REQUEST = b"GET / HTTP/1.1\r\nHost: oneport.test\r\nConnection: close\r\n\r\n"
 
 
@@ -123,11 +129,12 @@ def check(build: Path, system: str, kind: str, timers: str, raw: Path, blocks: w
                 r = window.probe(build, p, PORT, base, 16, GEN_CPUS)
                 ok = r["exit"] == 0
                 row["routes"][p] = {"ok": ok, "detail": r["detail"]}
-                if p in COVERS[system] and not ok:
+                judged = timers == "matched" or system in JUDGE_ROUTES_AT_DEFAULT
+                if p in COVERS[system] and not ok and judged:
                     problems.append(f"{p} not routed: {r['detail']}")
         finally:
             blocks.release(base)
-        for name, header in (("v1", proxy_v1()), ("v2", proxy_v2())):
+        for name, header in (("v1", proxy_v1()), ("v2", proxy_v2())) if system in comp.PROXY_SYSTEMS else ():
             try:
                 got = exchange(PORT + comp.PROXY_PORT_OFFSET, header + REQUEST)
             except OSError as e:

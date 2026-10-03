@@ -40,6 +40,10 @@ TIMER_S = {"m3": 3, "b3": 60, "cases": 3, "cases-fallback": 3}
 KINDS = ("m3", "b3", "cases", "cases-fallback")
 CASES_KINDS = ("cases", "cases-fallback")
 FALLBACK_SYSTEMS = ("haproxy", "envoy", "sslh-ev")
+# The systems whose cases configuration has the listener that requires the PROXY header: sslh
+# reads it only when built with libproxyprotocol, which the pinned build lacks (M4b-1), and
+# Appendix B names no PROXY for sslh.
+PROXY_SYSTEMS = ("nginx", "haproxy", "envoy", "caddy-l4")
 TIMERS = ("matched", "default")
 # A line of a cases file that begins with the field MATCHED is a comment at the system's defaults,
 # and one that begins with FALLBACK is a comment in the kind without a fallback.
