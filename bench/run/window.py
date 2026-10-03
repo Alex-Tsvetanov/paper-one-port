@@ -359,11 +359,14 @@ def parse_counters(lines: list[str]) -> dict:
     return out
 
 
-def start_server(build: Path, backend: str, port: int, log_dir: Path, tag: str) -> tuple[subprocess.Popen, "Lines", dict[str, int]]:
+def start_server(build: Path, backend: str, port: int, log_dir: Path, tag: str, no_aslr: bool = False) -> tuple[subprocess.Popen, "Lines", dict[str, int]]:
     cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "dedicated", "--detect", "replay", "--dispatch", "inproc",
            "--backend", backend, "--port", str(port)]
     guard_mode(cmd)
-    proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, SERVER_CPUS))] + cmd, stdout=subprocess.PIPE,
+    # no_aslr: the server process without address-space randomisation (util-linux setarch -R), so
+    # every start lays out its memory alike; a per-process setting, the host unchanged.
+    prefix = ["setarch", "x86_64", "-R"] if no_aslr else []
+    proc = subprocess.Popen(prefix + ["taskset", "-c", ",".join(map(str, SERVER_CPUS))] + cmd, stdout=subprocess.PIPE,
                             stderr=open(log_dir / f"{tag}.server.err", "wb"), start_new_session=True, cwd=log_dir)
     out = Lines(proc)
     if not out.until(lambda ln: ln.startswith("oneport: connection state"), 15.0):
@@ -464,7 +467,8 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: Sourc
     row["conntrack_wait_s"] = waited
     tw0 = time_wait_count()
     ns0 = nstat()
-    srv, srv_out, ports = start_server(build, backend, port, raw, tag)
+    srv, srv_out, ports = start_server(build, backend, port, raw, tag, bool(cfg.get("server_no_aslr")))
+    row["server_no_aslr"] = bool(cfg.get("server_no_aslr"))
     row["server_pid"] = srv.pid
     row["conn_state_bytes"] = next((int(ln.split()[-2]) for ln in srv_out.lines if ln.startswith("oneport: connection state")), None)
     target = ports.get(LISTENER[proto])

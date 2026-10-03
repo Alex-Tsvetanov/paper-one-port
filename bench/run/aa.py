@@ -171,6 +171,7 @@ def main(argv=None) -> int:
     ap.add_argument("--gen-threads", type=lambda s: [int(x) for x in s.split(",")],
                     help="the generator's CPUs (of section 4.1's 2 to 13) that carry one worker thread each; default all twelve")
     ap.add_argument("--spin-us", type=int, help="opgen --spin-us (open loop); default opgen's")
+    ap.add_argument("--server-no-aslr", action="store_true", help="start the server without address-space randomisation (setarch -R)")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     cells = parse_cells(a.cells)
@@ -188,7 +189,7 @@ def main(argv=None) -> int:
         rng.shuffle(order)
         for c, s in order:
             cfg = dict(c, build=a.build, k_src=a.k_src, ports={"A": a.port_a, "B": a.port_a + a.port_offset},
-                       gen_threads=a.gen_threads, spin_us=a.spin_us)
+                       gen_threads=a.gen_threads, spin_us=a.spin_us, server_no_aslr=a.server_no_aslr)
             if c["workload"] == "open":
                 cfg["rate"] = rates[(c["proto"], c["backend"])]
             fp = window.pin_fingerprint()
