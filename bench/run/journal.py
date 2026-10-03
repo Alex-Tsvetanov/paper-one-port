@@ -6,7 +6,10 @@ variant, summary, cells, note. Every window of the job is listed in `cells` with
 arm, position, metric and validity. `run` names the job as development data (hypotheses.md,
 section 8, step 2: cited only in the revision log and the journal, disclosed in the methods).
 
-    journal.py --job-dir DIR --run TEXT --variant TEXT [--note TEXT] [--commit SHA] [--milestone M3]
+    journal.py --job-dir DIR --run TEXT --variant TEXT [--note TEXT] [--commit SHA] [--milestone M3] [--kind aa|m3]
+
+--kind m3 names a job of handoff.py (M4a): the server's one-port relay against the proxies, whose
+summary holds each cell's session ratios (server / proxy) instead of an A/A spread.
 """
 from __future__ import annotations
 
@@ -17,22 +20,28 @@ import time
 from pathlib import Path
 
 
-def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str = "M3") -> dict:
+KINDS = {"aa": "A/A (dedicated against dedicated)", "m3": "M3 cells (the server's one-port relay against the proxies)"}
+
+
+def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str = "M3", kind: str = "aa") -> dict:
     rows = [json.loads(ln) for ln in (job_dir / "windows.jsonl").read_text().splitlines() if ln.strip()]
     summary = json.loads((job_dir / "summary.json").read_text()) if (job_dir / "summary.json").exists() else {}
     prov = next((r["provenance"] for r in rows if "provenance" in r), {})
     cells = [{
         "tag": r.get("tag"), "cell": r.get("cell"), "session": r.get("session"), "arm": r.get("arm"),
-        "position": r.get("position"), "metric": (r.get("metric") or {}).get("value"), "valid": r.get("valid"),
+        "position": r.get("position"), "system": r.get("system"), "metric": (r.get("metric") or {}).get("value"), "valid": r.get("valid"),
         "invalid_reasons": r.get("invalid_reasons"), "src_block": r.get("src_block"), "started": r.get("started"),
     } for r in rows]
-    spread = {c: {k: v for k, v in s["metric"].items() if k != "ratios"} for c, s in summary.get("cells", {}).items()}
+    if kind == "m3":
+        spread = {c: {k: s[k] for k in ("sessions", "ratios", "ratios_ignoring_mhz") if k in s} for c, s in summary.get("cells", {}).items()}
+    else:
+        spread = {c: {k: v for k, v in s["metric"].items() if k != "ratios"} for c, s in summary.get("cells", {}).items()}
     host = next((r["fingerprint"].get("host") for r in rows if r.get("fingerprint")), "alex-laptop")
     return {
         "date": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "paper": "P3",
         "host": host,
-        "run": f"development, {milestone} A/A (dedicated against dedicated): {run}",
+        "run": f"development, {milestone} {KINDS[kind]}: {run}",
         "code_commit": commit or prov.get("commit") or "",
         "variant": variant,
         "summary": {"windows": len(rows), "valid": sum(1 for r in rows if r.get("valid")), "spread": spread,
@@ -51,8 +60,9 @@ def main(argv=None) -> int:
     ap.add_argument("--note", default="")
     ap.add_argument("--commit")
     ap.add_argument("--milestone", default="M3", help="the milestone named in `run`")
+    ap.add_argument("--kind", default="aa", choices=sorted(KINDS), help="aa: aa.py's A/A job; m3: handoff.py's M3 job")
     a = ap.parse_args(argv)
-    print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit, a.milestone), ensure_ascii=False))
+    print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit, a.milestone, a.kind), ensure_ascii=False))
     return 0
 
 
