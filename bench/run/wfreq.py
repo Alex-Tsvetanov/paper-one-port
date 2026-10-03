@@ -24,7 +24,7 @@ inconclusive. Both leave section 9.1's fallback in place.
 The sampler runs on CPU 0 (this process's affinity), section 4's core 0. `% Processor Time` of CPU
 10 is sampled beside them, so each phase shows whether CPU 10 was idle or loaded.
 
-    wfreq.py --out DIR [--control cap|alex] [--seconds 10] [--lead 1.5]
+    wfreq.py --out DIR [--control cap|alex] [--seconds 10] [--lead 1.5] [--require-quiet]
 """
 from __future__ import annotations
 
@@ -129,6 +129,8 @@ def main(argv=None) -> int:
                     help="the control phase's plan: the cap plan (section 4 as revised) or Alex's plan (the first test)")
     ap.add_argument("--seconds", type=int, default=10)
     ap.add_argument("--lead", type=float, default=1.5, help="seconds between the spinner's start and the first sample")
+    ap.add_argument("--require-quiet", action="store_true",
+                    help="stop before any plan switch if the quiet check of section 5 fails (the record says so)")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%S")
@@ -151,6 +153,11 @@ def main(argv=None) -> int:
     rec["quiet"] = wsys.quiet_check()
     out_path = a.out / f"freq-{stamp}.json"
     plan_record = a.out / f"freq-{stamp}.plan.json"
+    if a.require_quiet and not rec["quiet"]["quiet"]:
+        rec["skipped"] = "W did not pass the quiet check; no plan was switched"
+        out_path.write_text(json.dumps(rec, indent=1))
+        print(json.dumps({"skipped": rec["skipped"], "reasons": rec["quiet"]["reasons"], "record": str(out_path)}, indent=1))
+        return 3
     phases = []
     try:
         with wpower.LabPlan(plan_record):
