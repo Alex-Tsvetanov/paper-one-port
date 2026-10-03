@@ -1,41 +1,96 @@
 {
- "about": "Two sections. 'targets' is what the records gate reads (bench/check_records.py): a target named there with not_covered_by may lack a record of those sanitizers, for the reason given; no other gap is allowed. It is empty in M0. The Go and Rust harnesses will be named there with MSan, and the Java harnesses with every sanitizer, when they become targets. 'declared_gaps' lists what the records cannot see although they exist (hypotheses.md, section 11; design/proposal.md, Z6). The gate reads nothing from it and it allows no missing record.",
- "targets": {},
+ "about": "Two sections. 'targets' is what the records gate reads (bench/check_records.py): a target named there with not_covered_by may lack a record of those sanitizers, for the reason given; no other gap is allowed. Since M4b-2 it names the in-process libraries' harnesses (bench/competitors/build_harnesses.sh): the Go and Rust harnesses with MSan, the Java harnesses with every sanitizer (hypotheses.md, section 11). The records driver of the code freeze names its harness targets as here. 'declared_gaps' lists what the records cannot see although they exist (hypotheses.md, section 11; design/proposal.md, Z6). The gate reads nothing from it and it allows no missing record.",
+ "targets": {
+  "harness_netty": {
+   "not_covered_by": [
+    "asan",
+    "tsan",
+    "msan"
+   ],
+   "reason": "No sanitizer applies to the Java harnesses (hypotheses.md, section 11: 'that gap is declared whole'): ASan, TSan and MSan instrument native code at compile time, and the harness is Java bytecode run by the JVM, which is pinned, not instrumented (the declared gap 'Competitor binaries and runtimes')."
+  },
+  "harness_jetty": {
+   "not_covered_by": [
+    "asan",
+    "tsan",
+    "msan"
+   ],
+   "reason": "No sanitizer applies to the Java harnesses (hypotheses.md, section 11: 'that gap is declared whole'): ASan, TSan and MSan instrument native code at compile time, and the harness is Java bytecode run by the JVM, which is pinned, not instrumented (the declared gap 'Competitor binaries and runtimes')."
+  },
+  "harness_cmux": {
+   "not_covered_by": [
+    "msan"
+   ],
+   "reason": "Section 11 declares the Go harness's MSan gap; its ASan record is built with go build -asan and its TSan record with go build -race (Go's race detector is ThreadSanitizer), as P2's records built its Go arms. go build -msan exists, but it only lets Go code interoperate with C code built with MemorySanitizer (go help build: 'enable interoperation with memory sanitizer'); the harness has no C code of its own, and Go gives every variable it allocates its zero value, so such a record would check nothing first-party."
+  },
+  "harness_hyper_util": {
+   "not_covered_by": [
+    "msan"
+   ],
+   "reason": "Section 11 declares the Rust harness's MSan gap, as P2's records left MSan out of its Rust arms. Its ASan and TSan records are built with rustc's -Zsanitizer=address and -Zsanitizer=thread on L's stable rustc 1.98.1 (RUSTC_BOOTSTRAP=1, as P2's records did) with the standard library rebuilt with the same sanitizer (-Zbuild-std, rust-src 1.98.1). rustc's -Zsanitizer=memory also exists, unstable, and needs every crate and the standard library built with it; it was not attempted, since the frozen text declares the gap."
+  }
+ },
  "declared_gaps": [
   {
    "gap": "OpenSSL's assembly",
-   "sanitizers": ["asan", "tsan", "msan"],
+   "sanitizers": [
+    "asan",
+    "tsan",
+    "msan"
+   ],
    "reason": "No sanitizer instruments assembly. OpenSSL's MSan build (enable-msan) turns assembly off, so MSan covers the C fallbacks, not the measured build's assembly paths; the ASan and TSan builds keep the assembly, which they do not instrument either."
   },
   {
    "gap": "UBSan's function check in OpenSSL",
-   "sanitizers": ["asan"],
+   "sanitizers": [
+    "asan"
+   ],
    "reason": "OpenSSL calls typed functions through generic function-pointer types by design, in macros of its public headers (DEFINE_STACK_OF in safestack.h, IMPLEMENT_PEM_read in pem.h, DEFINE_LHASH_OF), and clang 22's -fsanitize=function reports each such call. M2a's development checks on L met two, one per run: crypto/stack/stack.c line 440 (OPENSSL_sk_pop_free calling pd_free through OPENSSL_sk_freefunc, from crypto/property/property_parse.c line 400) and crypto/pem/pem_oth.c line 31 (PEM_ASN1_read_bio calling d2i_X509 through d2i_of_void, from PEM_read_bio_X509). OpenSSL's ASan+UBSan flavour is built with bench/third_party/openssl-ubsan.ignorelist, which leaves the function check out of all of OpenSSL; every other UBSan check stays on in all of OpenSSL, and oneport's own code and nghttp2 keep the function check."
   },
   {
    "gap": "OpenSSL under TSan",
-   "sanitizers": ["tsan"],
+   "sanitizers": [
+    "tsan"
+   ],
    "reason": "Declared unless engineering builds OpenSSL with TSan and the suite passes, which the revision log of hypotheses.md then records."
   },
   {
    "gap": "io_uring kernel writes are invisible to MSan",
-   "sanitizers": ["msan"],
+   "sanitizers": [
+    "msan"
+   ],
    "reason": "MemorySanitizer cannot see what the kernel writes through a raw system call or into the shared rings and provided buffers. P3's L records run io_uring (proposal Z6): the server's io_uring backend receives into provided buffers and into the room after a connection's bytes.",
    "mitigation": "Every structure a raw call fills is value-initialised and each completion entry is unpoisoned as it is read (bench/loop/src/uring.cpp, kernel_wrote of bench/loop/src/common.hpp). A receive's completion unpoisons exactly its res bytes at the buffer it names: the provided buffer its id selects, the room after the connection's bytes, or pass-through's ClientHello storage (bench/server/uring.cpp, take_recv and the route stage); bytes past res stay poisoned, so a read of them is reported. Checks are never disabled. The peeks of the peek path are synchronous recv calls, which MSan's interceptors see; splice moves no user memory. The tests check res against the bytes used: server.kernel_uring_recv_select compares the bytes in the buffer a completion names with those sent, and every hard case and handler test compares the transcripts on io_uring with the dedicated port's."
   },
   {
    "gap": "Competitor binaries and runtimes",
-   "sanitizers": ["asan", "tsan", "msan"],
+   "sanitizers": [
+    "asan",
+    "tsan",
+    "msan"
+   ],
    "reason": "nginx, HAProxy, Envoy, caddy-l4, sslh-ev, the JVM, the Go runtime, Rust's standard library and tokio are not first-party; they are pinned, not instrumented."
   },
   {
    "gap": "The harnesses",
-   "sanitizers": ["msan"],
-   "reason": "The Go and Rust harnesses get ASan with UBSan and TSan records; only their MSan gap is declared. No sanitizer applies to the Java harnesses; that gap is declared whole."
+   "sanitizers": [
+    "msan"
+   ],
+   "reason": "The Go and Rust harnesses get ASan and TSan records; only their MSan gap is declared ('targets': harness_cmux, harness_hyper_util). No sanitizer applies to the Java harnesses; that gap is declared whole ('targets': harness_netty, harness_jetty)."
+  },
+  {
+   "gap": "UBSan in the Go and Rust harnesses",
+   "sanitizers": [
+    "asan"
+   ],
+   "reason": "Section 11 names 'ASan with UBSan' for the Go and Rust harnesses; UndefinedBehaviorSanitizer has no Go or Rust form (go build has -asan, -msan and -race; rustc's -Zsanitizer has no undefined-behaviour checker), so their ASan records are ASan alone."
   },
   {
    "gap": "Windows",
-   "sanitizers": ["tsan", "msan"],
+   "sanitizers": [
+    "tsan",
+    "msan"
+   ],
    "reason": "On W only ASan is required (rule D5), built with MSVC; a third-party library that cannot be built with MSVC's AddressSanitizer is declared here before the code freeze."
   }
  ]
