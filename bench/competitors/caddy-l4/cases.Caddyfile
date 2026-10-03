@@ -1,0 +1,85 @@
+# caddy-l4 v0.1.2 on Caddy v2.11.4: the cases configuration (hypotheses.md section 10 and Appendix
+# B; design/proposal.md section 6, CP4), for the competitors' outcomes on the hard cases of
+# Appendix A that caddy-l4's features cover. Appendix B: the tls, http, ssh and regexp matchers and
+# the proxy handler; matching_timeout matched. Every route those features cover: TLS for
+# oneport.test whose ALPN offers h2 or http/1.1 (the tls matcher's sni and alpn), SSH, MQTT 3.1.1
+# and 5.0 by a regexp on the CONNECT's first 12 bytes, h2c with prior knowledge (the http matcher
+# parses it into an HTTP/2 request, modules/l4http/httpmatcher.go; Caddy's protocol matcher
+# http/2), and HTTP/1.1. Routes are tried in order, and the http matcher waits for a newline before
+# it decides (httpmatcher.go, isHttp), so SSH and MQTT come before it. caddy-l4 has no fallback for
+# a silent client (survey 2.7: closed at the timeout), so there is no cases-fallback configuration.
+# Two listeners: PORT without PROXY; PORT_PROXY takes only connections that start with a PROXY
+# header (the proxy_protocol matcher), whose handler consumes it, then the same routes in a
+# subroute. competitors.py renders a line beginning with the field MATCHED as a comment at
+# caddy-l4's defaults (matching_timeout 3s, the proxy_protocol handler's timeout zero). The backend
+# is the server in dedicated mode, PROXY off, its listeners from BACKEND_HTTP in the order of I20.
+{
+	# Plumbing: the admin endpoint on a loopback port of the run (as M3).
+	admin 127.0.0.1:@ADMIN_PORT@
+	# Logging: not set; INFO is above Debug (as M3).
+	layer4 {
+		127.0.0.1:@PORT@ {
+@MATCHED@			matching_timeout @TIMER_S@s
+			@tls tls {
+				sni oneport.test
+				alpn h2 http/1.1
+			}
+			route @tls {
+				proxy 127.0.0.1:@BACKEND_TLS@
+			}
+			@ssh ssh
+			route @ssh {
+				proxy 127.0.0.1:@BACKEND_SSH@
+			}
+			# MQTT CONNECT (section 1's matcher): 0x10, a Remaining Length of 1 to 4 bytes, then
+			# 00 04 "MQTT" and level 4 or 5; matched on the hexadecimal form of the first 12 bytes.
+			@mqtt regexp ^10(?:[89A-F][0-9A-F])?(?:[89A-F][0-9A-F])?(?:[89A-F][0-9A-F])?[0-7][0-9A-F]00044D515454(?:04|05) 12 hex
+			route @mqtt {
+				proxy 127.0.0.1:@BACKEND_MQTT@
+			}
+			@h2c http protocol http/2
+			route @h2c {
+				proxy 127.0.0.1:@BACKEND_H2C@
+			}
+			@http http
+			route @http {
+				proxy 127.0.0.1:@BACKEND_HTTP@
+			}
+		}
+		127.0.0.1:@PORT_PROXY@ {
+@MATCHED@			matching_timeout @TIMER_S@s
+			@pp proxy_protocol
+			route @pp {
+				proxy_protocol {
+@MATCHED@					timeout @TIMER_S@s
+				}
+				subroute {
+@MATCHED@					matching_timeout @TIMER_S@s
+					@tls tls {
+						sni oneport.test
+						alpn h2 http/1.1
+					}
+					route @tls {
+						proxy 127.0.0.1:@BACKEND_TLS@
+					}
+					@ssh ssh
+					route @ssh {
+						proxy 127.0.0.1:@BACKEND_SSH@
+					}
+					@mqtt regexp ^10(?:[89A-F][0-9A-F])?(?:[89A-F][0-9A-F])?(?:[89A-F][0-9A-F])?[0-7][0-9A-F]00044D515454(?:04|05) 12 hex
+					route @mqtt {
+						proxy 127.0.0.1:@BACKEND_MQTT@
+					}
+					@h2c http protocol http/2
+					route @h2c {
+						proxy 127.0.0.1:@BACKEND_H2C@
+					}
+					@http http
+					route @http {
+						proxy 127.0.0.1:@BACKEND_HTTP@
+					}
+				}
+			}
+		}
+	}
+}

@@ -26,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "run"))
 
+import cases_check  # noqa: E402
 import competitors as comp  # noqa: E402
 import handoff  # noqa: E402
 import probe  # noqa: E402
@@ -35,14 +36,23 @@ BUILD: Path | None = None
 RUN = Path("/tmp/oneport-run")  # only a string in the rendered text; nothing is written there
 
 
-def rendered(system: str, kind: str) -> str:
-    return comp.render(system, kind, 22100, 22110, 14, RUN)
+def rendered(system: str, kind: str, timers: str = "matched") -> str:
+    return comp.render(system, kind, 22100, 22110, 14, RUN, timers)
+
+
+def live(text: str) -> str:
+    """A rendered configuration without its comments (# to the end of a line)."""
+    return re.sub(r"#.*", "", text)
 
 
 class Configurations(unittest.TestCase):
     def test_every_configuration_renders(self):
         for s in comp.ORDER:
             for k in comp.KINDS:
+                if k == "cases-fallback" and s not in comp.FALLBACK_SYSTEMS:
+                    with self.assertRaises(ValueError):
+                        rendered(s, k)
+                    continue
                 text = rendered(s, k)
                 self.assertIsNone(comp.TOKEN.search(text), f"{s} {k}")
                 self.assertIn("22100", text, f"{s} {k}: the front port")
@@ -134,6 +144,87 @@ class Configurations(unittest.TestCase):
         self.assertTrue(comp.parse_listening(text, 0x55F0))
         self.assertFalse(comp.parse_listening(text, 0x55F1))  # established, not listening
         self.assertFalse(comp.parse_listening(text, 0x55F0, "127.0.0.2"))
+
+
+class Cases(unittest.TestCase):
+    """The cases configurations (Appendix B, section 10): every route each system's features
+    cover, the PROXY listener, the fallback only in cases-fallback, matched timers or the
+    system's defaults."""
+
+    TIMER_LINES = {"nginx": ("preread_timeout 3s;", "proxy_protocol_timeout 3s;"),
+                   "haproxy": ("tcp-request inspect-delay 3s", "timeout client-hs 3s"),
+                   "envoy": ("listener_filters_timeout: 3s",),
+                   "caddy-l4": ("matching_timeout 3s", "timeout 3s"),
+                   "sslh-ev": ("timeout: 3;",)}
+    # The backend's ports each system routes to (22110 + I20's offsets): HTTP/1.1 0, h2c 1, TLS 2,
+    # MQTT 3, SSH 4, SMTP 5 (the fallback only).
+    ROUTES = {"nginx": {0, 2}, "haproxy": {0, 1, 2, 3, 4}, "envoy": {0, 1, 2}, "caddy-l4": {0, 1, 2, 3, 4}, "sslh-ev": {0, 2, 3, 4}}
+
+    def test_timers_matched_and_default(self):
+        for s, lines in self.TIMER_LINES.items():
+            m, d = live(rendered(s, "cases")), live(rendered(s, "cases", "default"))
+            for line in lines:
+                self.assertIn(line, m, s)
+                self.assertNotIn(line, d, s)
+            self.assertIn(comp.COMMENT["MATCHED"], rendered(s, "cases", "default"), s)
+        with self.assertRaises(ValueError):
+            comp.fields("m3", 1, 2, 14, RUN, "default")  # M3 and B3 keep their own timers
+
+    def test_routes_and_proxy_listener(self):
+        for s, offs in self.ROUTES.items():
+            text = live(rendered(s, "cases"))
+            for off in range(6):
+                port = str(22110 + off)
+                if off in offs:
+                    self.assertIn(port, text, f"{s}: backend port +{off}")
+                elif not (off == 5 and s in comp.FALLBACK_SYSTEMS):
+                    self.assertNotIn(port, text, f"{s}: backend port +{off} has no route")
+            self.assertIn(str(22100 + comp.PROXY_PORT_OFFSET), text, f"{s}: the PROXY listener")
+        self.assertIn("proxy_protocol;", live(rendered("nginx", "cases")))
+        self.assertIn("accept-proxy", live(rendered("haproxy", "cases")))
+        self.assertIn("envoy.filters.listener.proxy_protocol", live(rendered("envoy", "cases")))
+        self.assertIn("proxy_protocol {", live(rendered("caddy-l4", "cases")))
+        self.assertIn("proxyprotocol: true;", live(rendered("sslh-ev", "cases")))
+
+    def test_alpn(self):
+        self.assertIn("$ssl_preread_alpn_protocols", live(rendered("nginx", "cases")))
+        self.assertIn("req.ssl_alpn -m str h2 http/1.1", live(rendered("haproxy", "cases")))
+        self.assertIn('application_protocols: [ "h2", "http/1.1" ]', live(rendered("envoy", "cases")))
+        self.assertIn('application_protocols: [ "h2c" ]', live(rendered("envoy", "cases")))
+        self.assertIn("alpn h2 http/1.1", live(rendered("caddy-l4", "cases")))
+        self.assertIn('alpn_protocols: [ "h2", "http/1.1" ]', live(rendered("sslh-ev", "cases")))
+        self.assertIn("envoy.filters.listener.http_inspector", live(rendered("envoy", "cases")))
+        self.assertNotIn("http_inspector", live(rendered("envoy", "m3")))  # M4a's reading 11: M3 and B3 hold none
+
+    def test_fallback_only_in_its_kind(self):
+        smtp = str(22110 + comp.STUB_OFFSET["smtp"])
+        for s in comp.FALLBACK_SYSTEMS:
+            self.assertNotIn(smtp, live(rendered(s, "cases")), s)
+            self.assertIn(smtp, live(rendered(s, "cases-fallback")), s)
+        self.assertIn("default_backend smtp_backend", live(rendered("haproxy", "cases-fallback")))
+        e = live(rendered("envoy", "cases-fallback"))
+        self.assertEqual(e.count("continue_on_listener_filters_timeout: true"), 2)
+        self.assertIn("default_filter_chain:", e)
+        self.assertNotIn("continue_on_listener_filters_timeout", live(rendered("envoy", "cases")))
+        self.assertIn('on-timeout: "timeout";', live(rendered("sslh-ev", "cases-fallback")))
+        self.assertNotIn("on-timeout", live(rendered("sslh-ev", "cases")))
+
+    def test_check_proxy_headers(self):
+        v1, v2 = cases_check.proxy_v1(), cases_check.proxy_v2()
+        self.assertTrue(v1.startswith(b"PROXY TCP4 ") and v1.endswith(b"\r\n") and len(v1) <= 107)
+        self.assertEqual(v2[:12], b"\r\n\r\n\x00\r\nQUIT\n")  # the v2 signature
+        self.assertEqual(v2[12:14], b"\x21\x11")  # version 2, PROXY; TCP over IPv4
+        self.assertEqual(int.from_bytes(v2[14:16], "big"), 12)
+        self.assertEqual(len(v2), 16 + 12)
+        self.assertEqual(set(cases_check.COVERS), set(comp.ORDER))
+
+    def test_sslh_list_stays_well_formed(self):
+        # The fallback entry carries its own leading comma, so the list has no trailing comma
+        # whether that line is live or a comment.
+        for kind in comp.CASES_KINDS:
+            body = live(rendered("sslh-ev", kind))
+            protocols = body[body.index("protocols:"):]
+            self.assertNotRegex(protocols, r",\s*\)")
 
 
 class Guard(unittest.TestCase):

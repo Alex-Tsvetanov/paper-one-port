@@ -31,8 +31,21 @@ OPT = Path(os.environ.get("ONEPORT_OPT", str(Path.home() / "opt")))
 N_PEND = 10_000
 # Section 1 (frozen): T_fb = T_dec = T_hdr = 3 s, and 60 s in B3 for every system with a
 # detection timer. Appendix B matches each proxy's timer to the server's.
-TIMER_S = {"m3": 3, "b3": 60}
-KINDS = ("m3", "b3")
+TIMER_S = {"m3": 3, "b3": 60, "cases": 3, "cases-fallback": 3}
+# Appendix B: each proxy has three configurations, cases, M3 and B3. The cases configuration has
+# two kinds here (M4b-1): "cases", no fallback, and "cases-fallback", the SMTP fallback, for the
+# systems that have one (HAProxy's default_backend, Envoy's default chain, sslh's on-timeout); both
+# render from one file. Section 10 runs the competitors' cases "at matched timers and at their
+# defaults": TIMERS.
+KINDS = ("m3", "b3", "cases", "cases-fallback")
+CASES_KINDS = ("cases", "cases-fallback")
+FALLBACK_SYSTEMS = ("haproxy", "envoy", "sslh-ev")
+TIMERS = ("matched", "default")
+# A line of a cases file that begins with the field MATCHED is a comment at the system's defaults,
+# and one that begins with FALLBACK is a comment in the kind without a fallback.
+COMMENT = {"MATCHED": "# at the system's default: ", "FALLBACK": "# not in this kind (no fallback): "}
+# The cases configurations' second listener, which requires the PROXY header, is the first port + 1.
+PROXY_PORT_OFFSET = 1
 # The stub's listeners follow its first port in the order of I20: HTTP/1.1, h2c, TLS, MQTT, SSH,
 # SMTP (bench/server/config.cpp, --relay-port).
 STUB_OFFSET = {"http1": 0, "h2c": 1, "tls": 2, "mqtt": 3, "ssh": 4, "smtp": 5}
@@ -58,7 +71,9 @@ class System:
         return OPT / self.binary.format(v=pin(self.version_pin))
 
     def template(self, kind: str) -> Path:
-        return HERE / self.name / self.files[kind]
+        if kind == "cases-fallback" and self.name not in FALLBACK_SYSTEMS:
+            raise ValueError(f"{self.name} has no fallback (Appendix B; design/competitor-survey.md), so no cases-fallback")
+        return HERE / self.name / self.files["cases" if kind in CASES_KINDS else kind]
 
     def command(self, config: Path, run_dir: Path) -> list[str]:
         b = str(self.binary_path())
@@ -78,11 +93,12 @@ class System:
 
 
 SYSTEMS: dict[str, System] = {s.name: s for s in (
-    System("nginx", "ONEPORT_NGINX_VERSION", {"m3": "m3.conf", "b3": "b3.conf"}, "nginx-{v}/sbin/nginx"),
-    System("haproxy", "ONEPORT_HAPROXY_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg"}, "haproxy-{v}/sbin/haproxy"),
-    System("envoy", "ONEPORT_ENVOY_VERSION", {"m3": "m3.yaml", "b3": "b3.yaml"}, "envoy-{v}/bin/envoy"),
-    System("caddy-l4", "ONEPORT_CADDY_L4_VERSION", {"m3": "m3.Caddyfile", "b3": "b3.Caddyfile"}, "caddy-l4-{v}/caddy"),
-    System("sslh-ev", "ONEPORT_SSLH_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg"}, "sslh-{v}/bin/sslh-ev"),
+    System("nginx", "ONEPORT_NGINX_VERSION", {"m3": "m3.conf", "b3": "b3.conf", "cases": "cases.conf"}, "nginx-{v}/sbin/nginx"),
+    System("haproxy", "ONEPORT_HAPROXY_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg", "cases": "cases.cfg"}, "haproxy-{v}/sbin/haproxy"),
+    System("envoy", "ONEPORT_ENVOY_VERSION", {"m3": "m3.yaml", "b3": "b3.yaml", "cases": "cases.yaml"}, "envoy-{v}/bin/envoy"),
+    System("caddy-l4", "ONEPORT_CADDY_L4_VERSION", {"m3": "m3.Caddyfile", "b3": "b3.Caddyfile", "cases": "cases.Caddyfile"},
+           "caddy-l4-{v}/caddy"),
+    System("sslh-ev", "ONEPORT_SSLH_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg", "cases": "cases.cfg"}, "sslh-{v}/bin/sslh-ev"),
 )}
 # Section 6.3's order (M3: nginx, HAProxy, Envoy, caddy-l4, sslh-ev).
 ORDER = ("nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev")
@@ -95,12 +111,15 @@ def cpu_mask(cpu: int, ncpus: int = 16) -> str:
     return "".join("1" if i == cpu else "0" for i in reversed(range(ncpus)))
 
 
-def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path) -> dict[str, str]:
+def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers: str = "matched") -> dict[str, str]:
     """The fields of a configuration, written between @ signs. The admin port (caddy-l4) is the front port + 50, a
-    design choice inside the run's port block."""
+    design choice inside the run's port block. `stub_port` is the backend's first port: the stub's in M3 and B3,
+    the server's in dedicated mode in the cases (its listeners in the order of I20, as the stub's)."""
     if kind not in KINDS:
         raise ValueError(f"kind {kind!r}, not one of {KINDS}")
-    return {
+    if timers not in TIMERS:
+        raise ValueError(f"timers {timers!r}, not one of {TIMERS}")
+    out = {
         "PORT": str(port),
         "STUB_HTTP": str(stub_port + STUB_OFFSET["http1"]),
         "STUB_TLS": str(stub_port + STUB_OFFSET["tls"]),
@@ -112,6 +131,15 @@ def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path) -> dic
         "N_PEND": str(N_PEND),
         "N_PEND_X2": str(2 * N_PEND),
     }
+    if kind in CASES_KINDS:
+        out["PORT_PROXY"] = str(port + PROXY_PORT_OFFSET)
+        for name, off in STUB_OFFSET.items():
+            out["BACKEND_" + ("HTTP" if name == "http1" else name.upper())] = str(stub_port + off)
+        out["MATCHED"] = "" if timers == "matched" else COMMENT["MATCHED"]
+        out["FALLBACK"] = "" if kind == "cases-fallback" else COMMENT["FALLBACK"]
+    elif timers != "matched":
+        raise ValueError("M3 and B3 have their own timers (section 1, Appendix B); the defaults setting is the cases'")
+    return out
 
 
 def render_text(text: str, values: dict[str, str]) -> str:
@@ -127,9 +155,9 @@ def render_text(text: str, values: dict[str, str]) -> str:
     return out
 
 
-def render(system: str, kind: str, port: int, stub_port: int, cpu: int, run_dir: Path) -> str:
+def render(system: str, kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers: str = "matched") -> str:
     s = SYSTEMS[system]
-    return render_text(s.template(kind).read_text(), fields(kind, port, stub_port, cpu, run_dir))
+    return render_text(s.template(kind).read_text(), fields(kind, port, stub_port, cpu, run_dir, timers))
 
 
 # ---------------------------------------------------------------- processes (Linux)
@@ -176,12 +204,12 @@ class Running:
     command: list[str] = field(default_factory=list)
 
 
-def start(system: str, kind: str, port: int, stub_port: int, cpus: list[int], run_dir: Path) -> Running:
+def start(system: str, kind: str, port: int, stub_port: int, cpus: list[int], run_dir: Path, timers: str = "matched") -> Running:
     """Starts a system fresh on `cpus` (the front core) and waits for its port."""
     s = SYSTEMS[system]
     run_dir.mkdir(parents=True, exist_ok=True)
-    config = run_dir / f"{kind}.{s.files[kind].split('.', 1)[1]}"
-    config.write_text(render(system, kind, port, stub_port, cpus[0], run_dir))
+    config = run_dir / f"{kind}.{s.template(kind).name.split('.', 1)[1]}"
+    config.write_text(render(system, kind, port, stub_port, cpus[0], run_dir, timers))
     cmd = ["taskset", "-c", ",".join(map(str, cpus))] + s.command(config, run_dir)
     env = dict(os.environ)
     if system == "caddy-l4":
