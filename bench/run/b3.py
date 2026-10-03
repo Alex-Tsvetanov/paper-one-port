@@ -86,6 +86,84 @@ HEAP_TIMEOUT_S = 30.0
 # for TW_STEADY_S, at most TW_STEADY_MAX_S.
 TW_STEADY_S = 2.0
 TW_STEADY_MAX_S = 10.0
+# A design choice of M4b-2: the memory sampler's period, M4b-1's diagnostic's.
+SAMPLER_S = 1.0
+
+
+def group_memory_kb(pids: list[int]) -> dict[str, int]:
+    """The summed VmRSS (/proc/<pid>/status) and AnonHugePages (/proc/<pid>/smaps_rollup) of a
+    system's processes, in kB; a process that is gone is skipped."""
+    rss = huge = 0
+    for pid in pids:
+        try:
+            rss += fp.parse_kb_field(Path(f"/proc/{pid}/status").read_text(), "VmRSS")
+            huge += fp.parse_kb_field(Path(f"/proc/{pid}/smaps_rollup").read_text(), "AnonHugePages")
+        except (OSError, KeyError, ValueError):
+            continue
+    return {"rss_kb": rss, "anon_huge_kb": huge}
+
+
+def thp_counters(text: str | None = None) -> dict[str, int]:
+    """The host's huge page counters of /proc/vmstat that move when a huge page is made: at a page
+    fault (thp_fault_alloc) and by khugepaged's collapse (thp_collapse_alloc)."""
+    text = Path("/proc/vmstat").read_text() if text is None else text
+    out = {}
+    for line in text.splitlines():
+        p = line.split()
+        if len(p) == 2 and p[0] in ("thp_fault_alloc", "thp_collapse_alloc"):
+            out[p[0]] = int(p[1])
+    return out
+
+
+class MemorySampler:
+    """Every SAMPLER_S seconds, the system's summed VmRSS and AnonHugePages and the host's THP
+    counters, from start() to stop(): recorded beside the window, deciding nothing (M4b-2: the
+    check that transparent huge pages at madvise leave an idle front's memory flat, after M4b-1's
+    diagnostic b3sample.py)."""
+
+    def __init__(self, pids, t0: float):
+        import threading
+        self.pids = pids  # a callable: the system's processes now
+        self.t0 = t0
+        self.rows: list[dict] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            row = {"t": round(time.monotonic() - self.t0, 2)}
+            try:
+                row.update(group_memory_kb(self.pids()))
+                row.update(thp_counters())
+            except OSError as e:
+                row["error"] = repr(e)
+            self.rows.append(row)
+            self._stop.wait(SAMPLER_S)
+
+    def start(self) -> "MemorySampler":
+        self._thread.start()
+        return self
+
+    def stop(self) -> list[dict]:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        return self.rows
+
+
+def sampler_summary(rows: list[dict]) -> dict:
+    """The sampler's rows in brief: VmRSS and AnonHugePages at the first and last row, their
+    largest one-step rise, and the host's collapses over the rows."""
+    if not rows or "rss_kb" not in rows[0]:
+        return {}
+    ok = [r for r in rows if "rss_kb" in r]
+    steps = [b["rss_kb"] - a["rss_kb"] for a, b in zip(ok, ok[1:])]
+    out = {"rows": len(ok), "rss_kb_first": ok[0]["rss_kb"], "rss_kb_last": ok[-1]["rss_kb"],
+           "anon_huge_kb_first": ok[0]["anon_huge_kb"], "anon_huge_kb_last": ok[-1]["anon_huge_kb"],
+           "anon_huge_kb_max": max(r["anon_huge_kb"] for r in ok), "largest_rss_step_kb": max(steps) if steps else 0}
+    if "thp_collapse_alloc" in ok[0] and "thp_collapse_alloc" in ok[-1]:
+        out["thp_collapse_alloc_delta"] = ok[-1]["thp_collapse_alloc"] - ok[0]["thp_collapse_alloc"]
+        out["thp_fault_alloc_delta"] = ok[-1]["thp_fault_alloc"] - ok[0]["thp_fault_alloc"]
+    return out
 
 
 def wait_time_wait_zero(max_wait: float = TW_WAIT_MAX_S) -> tuple[float, int]:
@@ -277,6 +355,7 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
     reasons: list[str] = []
     collector: list[dict | None] = []
     lead = COLLECT_LEAD_S if relay and system == "caddy-l4" else 0.0
+    sampler: MemorySampler | None = None
     try:
         row["probe"] = sysm.probe(build)
         row["probe_exit"] = 0 if row["probe"]["ok"] else 1
@@ -287,6 +366,8 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
         collector.append(sysm.before_reading())
         if lead:
             time.sleep(lead)
+        sampler = MemorySampler(sysm.pids, time.monotonic()).start()
+        thp = {"baseline": thp_counters()}
         base = fp.read(sysm.pids(), port)
         opener = subprocess.Popen(["taskset", "-c", ",".join(map(str, OPCASE_CPUS)), str(build / "bench" / "cases" / "opcase"), "open",
                                    "--port", str(port), "--case", case, "--n", str(n), "--close-at-ms", str(int(T_CLOSE * 1000))],
@@ -295,6 +376,7 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
         if not op_out.until(lambda ln: ln.startswith("T0 "), 10.0):
             raise window.WindowError("opcase printed no T0")
         t0_ns = int(op_out.lines[-1].split()[1])  # CLOCK_MONOTONIC, the clock of time.monotonic_ns()
+        row["sampler_open_at_s"] = round(t0_ns / 1e9 - sampler.t0, 2)  # opcase's t = 0 on the sampler's clock
 
         def at(t: float) -> None:
             left = t0_ns / 1e9 + t - time.monotonic_ns() / 1e9
@@ -306,11 +388,16 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
             collector.append(sysm.before_reading())
         at(T_SAMPLE1)
         s1 = fp.read(sysm.pids(), port)
+        thp["sample1"] = thp_counters()
         if lead:
             at(T_SAMPLE2 - lead)
             collector.append(sysm.before_reading())
         at(T_SAMPLE2)
         s2 = fp.read(sysm.pids(), port)
+        thp["sample2"] = thp_counters()
+        row["memory_sampler"] = sampler.stop()
+        row["memory_sampler_summary"] = sampler_summary(row["memory_sampler"])
+        row["thp_counters"] = thp
         row["alive_after_samples"] = sysm.alive()
         op_lines = op_out.rest(T_CLOSE + 30)
         opener.wait(timeout=30)
@@ -319,6 +406,8 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
         if opener.returncode != 0:
             reasons.append(f"opcase exit {opener.returncode}")
     finally:
+        if sampler is not None and "memory_sampler" not in row:
+            row["memory_sampler"] = sampler.stop()
         stopped = sysm.stop()
     if relay:
         row["collector"] = collector if system == "caddy-l4" else None

@@ -313,6 +313,56 @@ def clock_floor_state() -> dict:
     return fp
 
 
+THP_ROOT = Path("/sys/kernel/mm/transparent_hugepage")
+THP_WANTED = "madvise"  # Alex's decision of 2026-10-03 (bench/run/thp.sh)
+
+
+def thp_selected(text: str) -> str | None:
+    """The selected word of a THP sysfs file ("always [madvise] never"), or the bare word a file
+    holds (a test's copy of the tree after a write)."""
+    text = text.strip()
+    if not text:
+        return None
+    if "[" in text and "]" in text:
+        return text[text.index("[") + 1:text.index("]")]
+    return text
+
+
+def read_thp(root: Path = THP_ROOT) -> dict[str, str | None]:
+    """The THP settings now: the selected word of enabled and defrag, and khugepaged/defrag."""
+    def rd(p: Path) -> str | None:
+        try:
+            return p.read_text()
+        except OSError:
+            return None
+    en, df, kd = rd(root / "enabled"), rd(root / "defrag"), rd(root / "khugepaged" / "defrag")
+    return {"enabled": thp_selected(en) if en is not None else None, "defrag": thp_selected(df) if df is not None else None,
+            "khugepaged_defrag": kd.strip() if kd is not None else None}
+
+
+def thp_fingerprint(now: dict[str, str | None], record: dict | None) -> dict:
+    """The session's record of transparent huge pages (bench/run/thp.sh, Alex's decision of
+    2026-10-03): the settings now, whether enabled is madvise, and the settings before the job, from
+    the job's record (None when the job has none)."""
+    rec = record or {}
+    before = rec.get("before") or {}
+    return {"set_by_job": bool(rec.get("thp")), "set_at": rec.get("set_at"), "held": now.get("enabled") == THP_WANTED,
+            "before": {k: before.get(k) for k in ("enabled", "defrag", "khugepaged_defrag")} if before else None, "now": now}
+
+
+def thp_state() -> dict:
+    path = os.environ.get("ONEPORT_THP_RECORD")
+    record = None
+    if path:
+        try:
+            record = json.loads(Path(path).read_text())
+        except (OSError, json.JSONDecodeError):
+            record = None
+    fp = thp_fingerprint(read_thp(), record)
+    fp["record"] = path
+    return fp
+
+
 def pin_fingerprint() -> dict:
     p = subprocess.run(["bash", str(LAB_BIN / "pin.sh")], capture_output=True, text=True)
     try:
@@ -322,6 +372,7 @@ def pin_fingerprint() -> dict:
     fp["pin_exit"] = p.returncode
     fp["notrack"] = notrack_state()
     fp["clock_floor"] = clock_floor_state()
+    fp["thp"] = thp_state()
     return fp
 
 

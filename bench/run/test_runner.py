@@ -639,6 +639,138 @@ class ClockFloor(unittest.TestCase):
             self.assertEqual((r["clock_floor"], r["reason"], r["job_exit"]), (False, "ONEPORT_CLOCK_FLOOR=off", 3))
 
 
+THP = HERE / "thp.sh"
+
+
+def thp_tree(root: Path) -> None:
+    """A copy of the THP files thp.sh reads and writes, as L shows them on 2026-10-03."""
+    (root / "khugepaged").mkdir(parents=True)
+    (root / "enabled").write_text("[always] madvise never\n")
+    (root / "defrag").write_text("always defer defer+madvise [madvise] never\n")
+    for name, v in (("defrag", 1), ("pages_collapsed", 66908), ("full_scans", 903)):
+        (root / "khugepaged" / name).write_text(f"{v}\n")
+
+
+def thp_word(root: Path, name: str) -> str | None:
+    return window.thp_selected((root / name).read_text())
+
+
+class Thp(unittest.TestCase):
+    """thp.sh on a copy of the THP sysfs tree (THP_ROOT), writing directly, the session
+    fingerprint's thp (window.thp_fingerprint), and b3.py's memory sampler's pure parts."""
+
+    def test_selected(self):
+        self.assertEqual(window.thp_selected("[always] madvise never\n"), "always")
+        self.assertEqual(window.thp_selected("always defer defer+madvise [madvise] never"), "madvise")
+        self.assertEqual(window.thp_selected("madvise\n"), "madvise")
+        self.assertIsNone(window.thp_selected("\n"))
+
+    def test_fingerprint(self):
+        record = {"thp": True, "set_at": "2026-10-03T18:00:00+03:00",
+                  "before": {"enabled": "always", "defrag": "madvise", "khugepaged_defrag": 1, "anon_huge_pages_kb": 45056}}
+        now = {"enabled": "madvise", "defrag": "madvise", "khugepaged_defrag": "1"}
+        fpr = window.thp_fingerprint(now, record)
+        self.assertEqual((fpr["set_by_job"], fpr["held"]), (True, True))
+        self.assertEqual(fpr["before"], {"enabled": "always", "defrag": "madvise", "khugepaged_defrag": 1})
+        self.assertFalse(window.thp_fingerprint(dict(now, enabled="always"), record)["held"])
+        bare = window.thp_fingerprint({"enabled": "always"}, None)
+        self.assertEqual((bare["set_by_job"], bare["held"], bare["before"]), (False, False, None))
+        with tempfile.TemporaryDirectory() as d:
+            thp_tree(Path(d))
+            self.assertEqual(window.read_thp(Path(d)), {"enabled": "always", "defrag": "madvise", "khugepaged_defrag": "1"})
+
+    def test_sampler_summary(self):
+        rows = [{"t": 0.0, "rss_kb": 62000, "anon_huge_kb": 10240, "thp_fault_alloc": 5, "thp_collapse_alloc": 100},
+                {"t": 1.0, "rss_kb": 74000, "anon_huge_kb": 26624, "thp_fault_alloc": 5, "thp_collapse_alloc": 108},
+                {"t": 2.0, "rss_kb": 74100, "anon_huge_kb": 26624, "thp_fault_alloc": 6, "thp_collapse_alloc": 108}]
+        s = b3.sampler_summary(rows)
+        self.assertEqual((s["rows"], s["largest_rss_step_kb"], s["anon_huge_kb_max"]), (3, 12000, 26624))
+        self.assertEqual((s["thp_collapse_alloc_delta"], s["thp_fault_alloc_delta"]), (8, 1))
+        self.assertEqual(b3.sampler_summary([]), {})
+        self.assertEqual(b3.thp_counters("nr_free_pages 1\nthp_fault_alloc 55626\nthp_collapse_alloc 1465\n"
+                                         "thp_collapse_alloc_failed 0\n"),
+                         {"thp_fault_alloc": 55626, "thp_collapse_alloc": 1465})
+
+    def run_thp(self, root: Path, record: Path, cmd: list[str], **env) -> subprocess.CompletedProcess:
+        e = dict(os.environ, THP_ROOT=str(root), THP_SUDO="", **env)
+        return subprocess.run(["bash", str(THP), str(record)] + cmd, capture_output=True, text=True, env=e, timeout=60)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash")
+    def test_madvise_held_and_restored(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec, seen = Path(d) / "thp", Path(d) / "job.thp.json", Path(d) / "seen"
+            thp_tree(root)
+            p = self.run_thp(root, rec, ["bash", "-c", f'cat {root}/enabled {root}/defrag > {seen}; '
+                                                        f'echo "$ONEPORT_THP_RECORD" >> {seen}; exit 7'])
+            self.assertEqual(p.returncode, 7, p.stderr)
+            got = seen.read_text().split("\n")
+            self.assertEqual((window.thp_selected(got[0]), window.thp_selected(got[1]), got[2]), ("madvise", "madvise", str(rec)))
+            self.assertEqual((thp_word(root, "enabled"), thp_word(root, "defrag")), ("always", "madvise"))
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["thp"], r["held"], r["restored"], r["job_exit"]), (True, True, True, 7))
+            self.assertEqual((r["before"]["enabled"], r["set"]["enabled"], r["after"]["enabled"]), ("always", "madvise", "always"))
+            self.assertEqual(r["wanted"], {"enabled": "madvise", "defrag": None})
+            self.assertEqual(r["before"]["khugepaged_pages_collapsed"], 66908)
+            self.assertIsNotNone(r["set_at"])
+            self.assertIsNotNone(r["restored_at"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash")
+    def test_defrag_when_asked(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec, seen = Path(d) / "thp", Path(d) / "job.thp.json", Path(d) / "seen"
+            thp_tree(root)
+            p = self.run_thp(root, rec, ["bash", "-c", f"cat {root}/defrag > {seen}"], ONEPORT_THP_DEFRAG="never")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual(window.thp_selected(seen.read_text()), "never")
+            self.assertEqual(thp_word(root, "defrag"), "madvise")
+            self.assertEqual(json.loads(rec.read_text())["wanted"], {"enabled": "madvise", "defrag": "never"})
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash and signals")
+    def test_signal_restores(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec = Path(d) / "thp", Path(d) / "job.thp.json"
+            thp_tree(root)
+            e = dict(os.environ, THP_ROOT=str(root), THP_SUDO="")
+            p = subprocess.Popen(["bash", str(THP), str(rec), "sleep", "30"], env=e, start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not (rec.exists() and '"set_at": "' in rec.read_text()):
+                time.sleep(0.05)
+            self.assertEqual(thp_word(root, "enabled"), "madvise")
+            os.killpg(p.pid, signal.SIGTERM)  # as a job is stopped: TERM to its process group
+            self.assertEqual(p.wait(timeout=20), 143)
+            self.assertEqual(thp_word(root, "enabled"), "always")
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["restored"], r["job_exit"]), (True, 143))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash and file modes")
+    def test_refusal_when_a_setting_cannot_be_made(self):
+        if os.geteuid() == 0:
+            self.skipTest("root writes a read-only file")
+        with tempfile.TemporaryDirectory() as d:
+            root, rec, ran = Path(d) / "thp", Path(d) / "job.thp.json", Path(d) / "ran"
+            thp_tree(root)
+            (root / "enabled").chmod(0o444)
+            p = self.run_thp(root, rec, ["touch", str(ran)])
+            self.assertEqual(p.returncode, 97, p.stderr)
+            self.assertFalse(ran.exists())
+            self.assertEqual(thp_word(root, "enabled"), "always")
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["held"], r["restored"]), (False, True))
+            self.assertIn("does not run", r["reason"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash")
+    def test_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec = Path(d) / "thp", Path(d) / "job.thp.json"
+            thp_tree(root)
+            p = self.run_thp(root, rec, ["bash", "-c", "exit 3"], ONEPORT_THP="off")
+            self.assertEqual(p.returncode, 3)
+            self.assertEqual(thp_word(root, "enabled"), "always")
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["thp"], r["reason"], r["job_exit"]), (False, "ONEPORT_THP=off", 3))
+
+
 if __name__ == "__main__":
     out = unittest.main(exit=False, verbosity=0).result
     print(f"{out.testsRun} checks, {len(out.failures)} failures, {len(out.errors)} errors")
