@@ -474,23 +474,27 @@ class HandoffRow(unittest.TestCase):
         self.assertIsNone(handoff.session_ratio(rows))
 
 
-# The integration tests' ports: probe.PORTS (23000, 23100, 23200) and the hand-off window's 23500,
-# each with its stub's six listeners 10 to 15 above it, so the block is 23000 to 23515.
+# The integration tests' ports. The runners' own ports are probe.PORTS (23000, 23100, 23200) and,
+# in the hand-off test, 23500, each with its stub's six listeners 10 to 15 above it: the block 23000
+# to 23515. The tests move that block to TEST_PORT_BASE plus a shift, below 10000, because the
+# suite's in-process servers take random runs of free ports from 10000 up to the ephemeral range
+# (bench/server/server.cpp, bind_all, "a test convenience"): two dry runs of the records drivers
+# (dryrun1, dryrun3) had a stub that could not bind its fixed port inside that range while the C++
+# tests of two suites ran beside it. A shift is a multiple of PORT_STRIDE, more than the block's
+# 516 ports, so the blocks of two shifts never overlap (dryrun1: at a stride of 400, TSan's probe
+# front took ASan's hand-off port).
 PORT_BLOCK = (23000, 23515)
-# A shift is a multiple of PORT_STRIDE, more than the block's 516 ports, so the blocks of two
-# different shifts never overlap. 400, the stride until the code freeze's preparation, was less:
-# the dry run of the records drivers (job dryrun1) ran ASan's suite at shift 3200 and TSan's at
-# 3600, and TSan's probe front (23100 + 3600) took the port of ASan's hand-off window (23500 +
-# 3200), whose stub then did not start.
+TEST_PORT_BASE = 4000
+SERVER_RANDOM_FIRST_PORT = 10000  # bench/server/server.cpp, bind_all: first_port
 PORT_STRIDE = 600
-PORT_SHIFTS = 16
+PORT_SHIFTS = 8
 
 
 def port_shift(build: Path, env: dict | None = None) -> int:
-    """A port offset per build tree, so two suites run at once (M5's checks and the records driver
+    """A port shift per build tree, so two suites run at once (M5's checks and the records driver
     run two sanitizer builds together) do not bind each other's ports: ONEPORT_TEST_PORT_SHIFT
     when set (bench/sanitize_oneport.sh gives each sanitizer its own), else PORT_STRIDE times the
-    tree's CRC-32 modulo PORT_SHIFTS. Every port stays below L's ephemeral range (32768)."""
+    tree's CRC-32 modulo PORT_SHIFTS."""
     env = os.environ if env is None else env
     if env.get("ONEPORT_TEST_PORT_SHIFT"):
         shift = int(env["ONEPORT_TEST_PORT_SHIFT"])
@@ -500,18 +504,25 @@ def port_shift(build: Path, env: dict | None = None) -> int:
     return PORT_STRIDE * (zlib.crc32(str(build.resolve()).encode()) % PORT_SHIFTS)
 
 
+def moved_port(port: int, shift: int) -> int:
+    """Where an integration test binds a runner's port: moved below the in-process servers' range."""
+    return port - PORT_BLOCK[0] + TEST_PORT_BASE + shift
+
+
 class PortShifts(unittest.TestCase):
-    """The integration tests' port blocks of two suites at once never overlap (pure)."""
+    """The integration tests' port blocks: apart from each other and from the suite's random ports (pure)."""
 
     def test_block_and_stride(self):
         self.assertEqual(PORT_BLOCK[0], min(probe.PORTS.values()))
         self.assertEqual(PORT_BLOCK[1], HANDOFF_TEST_PORT + max(comp.STUB_OFFSET.values()) + 10)
         self.assertGreater(PORT_STRIDE, PORT_BLOCK[1] - PORT_BLOCK[0])
-        self.assertLess(PORT_BLOCK[1] + PORT_STRIDE * (PORT_SHIFTS - 1), 32768)  # L's ephemeral range starts there
+        highest = moved_port(PORT_BLOCK[1], PORT_STRIDE * (PORT_SHIFTS - 1))
+        self.assertLess(highest, SERVER_RANDOM_FIRST_PORT)
+        self.assertGreater(moved_port(PORT_BLOCK[0], 0), 1024)  # no privileged port
 
     def test_environment_override(self):
         self.assertEqual(port_shift(Path("."), {"ONEPORT_TEST_PORT_SHIFT": "1800"}), 1800)
-        for bad in ("400", "9600", "-600"):
+        for bad in ("400", "4800", "-600"):
             with self.assertRaises(ValueError):
                 port_shift(Path("."), {"ONEPORT_TEST_PORT_SHIFT": bad})
         self.assertEqual(port_shift(Path("."), {}) % PORT_STRIDE, 0)
@@ -531,7 +542,7 @@ class Integration(unittest.TestCase):
 
     def test_probe_of_the_servers_relay(self):
         saved = dict(probe.PORTS)
-        probe.PORTS.update({k: v + self.shift for k, v in saved.items()})
+        probe.PORTS.update({k: moved_port(v, self.shift) for k, v in saved.items()})
         try:
             with tempfile.TemporaryDirectory() as d:
                 res = probe.run(probe.SERVER, "m3", BUILD, Path(d))
@@ -552,7 +563,7 @@ class Integration(unittest.TestCase):
                 blocks = window.SourceBlocks(Path(d) / "blocks.json")
                 for proto in handoff.M3_PROTOS:
                     cfg = {"build": BUILD, "proto": proto, "k_src": 4, "cell": f"m3.{proto}.test", "arms": {"A": handoff.SERVER},
-                           "ports": {"A": HANDOFF_TEST_PORT + self.shift}}
+                           "ports": {"A": moved_port(HANDOFF_TEST_PORT, self.shift)}}
                     session = {"job": "test", "id": f"test-{proto}", "mhz": 1.0}
                     row = handoff.run_window(cfg, session, "A", 0, blocks, Path(d) / "raw")
                     reasons = row.get("invalid_reasons", [])
