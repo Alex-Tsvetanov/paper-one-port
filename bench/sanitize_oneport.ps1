@@ -60,7 +60,7 @@ if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
 New-Item -ItemType Directory -Force $workDir | Out-Null
 $build = Join-Path $workDir "build"
 $asanOptions = "detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1"
-$cmakeArgs = "-G Ninja -DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address"
+$cmakeArgs = "-G Ninja -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address"
 $buildLog = Join-Path $workDir "build.log"
 $ctestLog = Join-Path $workDir "ctest.log"
 $bat = Join-Path $workDir "sanitize.cmd"
