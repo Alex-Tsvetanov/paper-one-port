@@ -3371,6 +3371,382 @@ members; made under the lab lock); build trees, source clones and extracted sour
 b3dev2's files: `~/lab/runs-archive/p3-m4b1-b3dev2-20261003T142217.tar.gz` (sha256
 5b439cfe4c40d1fddf630a9f019aef4d78bef75d951ee02f1a9a9de982d73289, 27 members).
 
+## M4b-2, 2026-10-03
+
+M4b-2: step 0 (transparent huge pages at `madvise` for every lab job, Alex's decision; section 10's
+check read against `perf stat`, the coordinator's decision; both logged), step 1 (the toolchains of
+the in-process libraries), step 2 (the libraries' harnesses, configurations, probes, runner
+integration, cases configurations and B3 functional windows), step 3 (the checks). Nothing in this
+section is a result: every window and check is development data, journaled where a window ran.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 373695e | feat: thp.sh (THP at madvise for a lab job, set back at its end); lab_job.sh runs it; the fingerprint's thp; b3.py's memory sampler; tests |
+| a67e1de | docs: revision log, section 10's check against perf stat (the coordinator's decision); systrace.py names it and reports perf trace's shortfall; tests |
+| 9bd2bec | docs: revision log, transparent huge pages before the code freeze (cause, change, check) |
+| 7e1c4e6 | fix: opgen accepts HPACK dynamic table size updates before :status 200 (RFC 7541 s4.2, s6.3); hpack.hpp; test gen.h2_status |
+| 985f708 | feat: the four libraries' harnesses, their cases and B3 configurations, jvm.args, the jar locks, go.sum, Cargo.lock; the pins; install.sh (jdk, netty, jetty); build_harnesses.sh |
+| b61b71b | feat: the runner takes the libraries (competitors.py, probe.py, cases_check.py, b3.py's in-process systems and collector steps); tests |
+| c61a8e8 | feat: coverage.json names the harnesses as targets, with their gaps; UBSan's gap in Go and Rust |
+| 8288b70 | fix: build_harnesses.sh sets the Rust target before the flags that name it |
+| a83263d | feat: the hyper-util harness's TSan suppression (one entry in tokio's I/O driver) |
+| 85e9dd0 | fix: b3.py's TLS probe closes by reset through the TLS socket; test against a local TLS stand-in |
+| 595eded | fix: test_runner.py's TLS probe test (two byte strings broken across lines in 85e9dd0) |
+
+Papers (local, not pushed): 5341785 and 5846aaf, the lab journal (below). Every one-port commit is on
+the `lab` remote; nothing is pushed to origin.
+
+### Step 0: transparent huge pages (Alex's decision)
+
+**The change: a second wrapper, `bench/run/thp.sh` (373695e), beside `clockfloor.sh`, which is
+unchanged.** `lab_job.sh` now runs lablock, then `clockfloor.sh`, then `thp.sh`, then `notrack.sh`,
+then the job. `thp.sh` writes `madvise` to `/sys/kernel/mm/transparent_hugepage/enabled` for the
+job's length and writes the value it read back at the end, also on INT, TERM and HUP (an EXIT trap,
+as `clockfloor.sh`). It parses the bracketed word of the sysfs file, and a bare word in the tests'
+copy of the tree. `defrag` is written only when a job names a value in `ONEPORT_THP_DEFRAG`; none
+does, since the check found no collapse under `madvise` (`defrag` reads `madvise` on L anyway and
+governs the page-fault path, not khugepaged; Documentation/admin-guide/mm/transhuge.rst at v7.2.6,
+sha256 2c76af67...1d13, fetched from the stable tree into `~/lab/p3/m4b2/thp/`). Exit 97: a setting
+cannot be made, the job does not run, every value written is set back; exit 98: a setting did not
+come back. `ONEPORT_THP=off` runs a job without it, said in the record. Its record
+`<job>.thp.json` holds `enabled`, `defrag`, `khugepaged/defrag`, AnonHugePages, the host's
+`thp_fault_alloc` and `thp_collapse_alloc`, and khugepaged's `pages_collapsed` and `full_scans`,
+before, while and after. `lab_job.sh`'s signal path waits for the record's `restored_at`, as it does
+for the other two. `window.pin_fingerprint()` adds `thp` (the settings now, `held` when `enabled`
+reads `madvise`, the settings before the job from the record through `ONEPORT_THP_RECORD`). `b3.py`
+records every second the system's summed VmRSS and AnonHugePages (`smaps_rollup`) and the host's two
+THP counters (`memory_sampler`, with a summary), and the counters at the baseline and each sample
+(`thp_counters`); they decide nothing.
+
+**The check.**
+
+| Check | Result |
+|---|---|
+| Job b3thp1 (373695e, Release; lock, floor, NOTRACK, THP at madvise): nginx and HAProxy in their B3 configurations, both cases, 2 windows each | 8 of 8 valid by section 7; W moved between the samples by 2.1 to 83.1 bytes per pending connection |
+| The fronts' memory from t = 11 s to sample 2, 1 s samples | VmRSS the same to the kB in every window; AnonHugePages 0 throughout |
+| The host's counters over the whole job | `thp_collapse_alloc` 1,465 before and after; `pages_collapsed` 68,807 before and after, while khugepaged's `full_scans` went 927 to 974 |
+| U at sample 2, the two windows of each | nginx 4,939.0 and 4,939.0 (silent), 5,307.6 and 5,307.6 (partial); HAProxy 3,087.6 and 3,087.6, 7,306.0 and 7,306.0 bytes per pending connection (b3dev1 under `always`: 8,232.1, 8,377.5, 3,133.8, 9,445.0) |
+| After the job | `enabled` reads `always`; the record's `restored` true |
+| Job t1, SIGTERM to its process group 6 s after its start | done file exit 143, signal TERM; THP record `restored` true, `enabled` back at `always`; the floors and the NOTRACK rules set back too |
+| Job b3lib2 (below), the in-process systems | no system held AnonHugePages, the JVMs and Go included; the host's `thp_collapse_alloc` 1,563 before and after the job |
+
+b3thp1's windows, development data:
+
+| System | Case | W at sample 1 and 2 | U, Kq, Ks at sample 2 |
+|---|---|---|---|
+| nginx | silent | 12,109.4; 12,117.2 / 11,968.9; 11,971.0 | 4,939.0; 0.0; 7,178.2 / 4,939.0; 0.0; 7,032.0 |
+| nginx | partial | 13,494.9; 13,503.0 / 13,367.1; 13,378.5 | 5,307.6; 1,068.0; 7,127.4 / 5,307.6; 1,068.0; 7,002.9 |
+| HAProxy | silent | 10,154.0; 10,160.9 / 10,060.6; 10,069.2 | 3,087.6; 0.0; 7,073.4 / 3,087.6; 0.0; 6,981.6 |
+| HAProxy | partial | 14,340.5; 14,352.8 / 14,236.1; 14,319.2 | 7,306.0; 0.0; 7,046.8 / 7,306.0; 0.0; 7,013.2 |
+
+Record sha256 (`~/lab/p3/m4b2/`): b3thp1.thp.json
+d827f7e615ce7903603e59fa81d08050f13477f32b2b5b0ffed1ea4b82645556, b3thp1.clock.json
+dc553b4ad6340afea7cb1f77dbc10e615d1ee6de96e7ea4568dd4148449d0e7c, b3thp1.notrack.json
+d8d8626c818a910a8a59d12352dba69a8dd3c519da8a9b3a99fa54c54170b74a, b3thp1.done
+344af53895ea262f0515888733f61cf43e2b66cacc0c9424844fde1dcc392081, b3/b3thp1/windows.jsonl
+5bb87ea7fd17ff3cbbaad4de0ba5ce8e1a61813cecb82445e912155090ebd853; thpjobs/t1.thp.json
+f815dc13fd9ab8955410f1262b9d324ff9cbc02703f158b04b9e7ad3b7dbd373, thpjobs/t1.done
+b753ce1b0ba2c1e5f68c88156e637dd8d5ce109b16b99d1f77aa696fc510dcba.
+
+### Step 0: the revision log (a67e1de, 9bd2bec)
+
+- "Section 10's check of the server's system-call counters": the coordinator's decision, logged as a
+  reading. The check compares the counters with `perf stat`'s count of the same calls' entry
+  tracepoints; `perf trace -s` is the cross-check, its shortfall reported per row. Evidence: 264 of
+  264 checks agree with `perf stat` (tracedev2 178, tracedev3 86); `perf trace -s` agreed in 146 of
+  178 and 57 of 86, short by at most 0.31% and 0.42%, no lost event reported. The proxies' system
+  calls per connection stay `perf trace -s`'s (section 10 names it for them), with `perf stat`'s
+  count of the checked calls beside it. `systrace.py`: `agrees_with_perf_stat` is section 10's
+  check, `agrees` the cross-check, and `trace_shortfall_max_share` the largest shortfall per row.
+  Rows keep both fields.
+- "Transparent huge pages before the code freeze": the cause (M4b-1's b3dev1 and b3diag3), the
+  change and the check above.
+
+### Step 1: the toolchains
+
+| Tool | Vendor and version | Source | sha256 and its check |
+|---|---|---|---|
+| JDK | Eclipse Temurin 25.0.4.1+1 (25 is the latest LTS: Adoptium's API, `most_recent_lts` 25; 25.0.4.1+1 its latest GA build, published 2026-08-21; 25.0.5 is due later in October, so the freeze reads it again) | https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz | dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e, equal to the asset's `.sha256.txt` and the API's checksum; PGP signature good (Adoptium key 3B04 D753 C905 0D9A 5D34 3F39 843C 48A5 65F8 F04B, keyserver.ubuntu.com, no trust path). In `~/opt/jdk-25.0.4.1+1` (install.sh jdk) |
+| Netty | 4.2.18.Final, 13 jars (the native epoll transport's linux-x86_64 jar among them) | Maven Central, `bench/competitors/netty/maven.lock` | every jar's sha256 in the lock, equal to Central's `.sha1`, `.sha256` and `.sha512`; in `~/opt/netty-4.2.18.Final/lib` |
+| Jetty | 12.1.13, 8 jars (slf4j-api 2.0.17 among them) | Maven Central, `bench/competitors/jetty/maven.lock` | the same; slf4j-api has only `.sha1` published; in `~/opt/jetty-12.1.13/lib` |
+| Maven, Gradle | not used | | the closures are small and read from the POMs (profiles and test scopes left out); `javac` and `java` confirm them |
+| Rust | Arch's rust 1:1.98.1-1 (rustc 1.98.1, 48a229cea 2026-09-01, LLVM 22.1.8), installed before; hyper-util 0.1.21's `rust-version` is 1.85 | L's package | package sha256 a0e72c52cf8b8cbc9a16a82fca439e6fe502c6dc4a27b7c1d805f0399ad709ba |
+| rust-src | 1:1.98.1-1, for `-Zbuild-std` in the sanitizer builds | `sudo pacman -S --needed rust-src` (no `-y`), 2026-10-03 | package sha256 68f5e4b1592418cf68e816a71f4490bd26963394055485e369e90072f691641c |
+| Go | go1.27.1 (Arch's go 2:1.27.1-1), `GOTOOLCHAIN=local` | L | cmux v0.1.5, x/net c7110b5ffcbb (cmux's own pin) and x/text v0.3.3 by `bench/competitors/cmux/go.sum` |
+| Rust crates | 38 packages, among them hyper 1.11.1, h2 0.4.19, tokio 1.53.2, http-body-util 0.1.5, bytes 1.12.1 | crates.io | `bench/competitors/hyper-util/Cargo.lock`; every build `--locked` |
+
+A nightly Rust is not needed: P2's records built their Rust arms with `-Zsanitizer=address` on the
+stable rustc with `RUSTC_BOOTSTRAP=1`, and the same rustc with rust-src at its own version rebuilds
+the standard library for ThreadSanitizer, so the measured and the sanitizer builds share one
+compiler (the gate matches the compiler).
+
+### Step 2: the harnesses
+
+Each in `bench/competitors/<name>/`: the program, `cases.args` and `b3.args` (Appendix B: cases and
+B3; one argument and its value per line, each with its reason, rendered by `competitors.py` with
+MATCHED and FALLBACK lines as the proxies' cases files), `probe.sh`. First-party, so built per
+checkout into `<build>/harness` by `build_harnesses.sh` (release; asan and tsan for cmux and
+hyper-util), with `build.json` (sources' and outputs' sha256, commands, tools). Every reply is the
+server's: 200, `Content-Length: 13`, `Hello, World!`. The test certificate and key of
+`tests/fixtures/tls`, TLS 1.3 only.
+
+| Library | What it serves | Configuration highlights (source) | B3 |
+|---|---|---|---|
+| Netty 4.2.18.Final (`NettyHarness.java`) | TLS by SniHandler, then the decrypted bytes detected again; h2c (prior knowledge or Upgrade) and HTTP/1.1 by CleartextHttp2ServerUpgradeHandler and the HTTP codec; a second listener with HAProxyMessageDecoder first (PROXY required) | after the PortUnificationServerHandler example (5 bytes read without consuming; "PR" added for the h2c preface); the native epoll transport, `MultiThreadIoEventLoopGroup(1, EpollIoHandler)` with `Epoll.ensureAvailability()` (Appendix B; the Netty wiki); ReadTimeoutHandler and SniHandler's handshake timeout at the matched 3 s (SniHandler sets its SslHandler's to the same, SniHandler.newSslHandler at the tag); at the defaults ReadTimeoutHandler is left out and SniHandler keeps 10 s; the JDK's TLS provider, TLS_AES_128_GCM_SHA256, ALPN h2 and http/1.1 | timers 60 s; `SO_BACKLOG` 10000; no PROXY listener |
+| Jetty 12.1.13 (`JettyHarness.java`) | one ServerConnector: DetectorConnectionFactory over SslConnectionFactory and ProxyConnectionFactory, then HTTP/1.1 with HTTP2CServerConnectionFactory; the PROXY cases' listener has the same factories | the programming guide's "Choosing ConnectionFactory via Bytes Detection"; idle timeout matched 3 s (default 30 s); the KeyStore built in memory from the PEM fixtures; TLS 1.3, TLS_AES_128_GCM_SHA256; no ALPN module (the frozen line has TLS then HTTP/1.1); no SLF4J provider, so no logging | idle timeout 60 s; `acceptQueueSize` 10000 |
+| cmux v0.1.5 with Go net/http (`main.go`) | HTTP2(), HTTP1Fast(), TLS() (crypto/tls, then HTTP/1.1 or h2 by ALPN), PrefixMatcher("SSH-") to the server's SSH handler; Any() last to the server's SMTP handler in the fallback kind | `SetReadTimeout` matched 3 s (none at the defaults); `http.Server.Protocols` with UnencryptedHTTP2; TLS 1.3, X25519, no session tickets (crypto/tls fixes the TLS 1.3 suites); `ErrorLog` discarded (no per-connection logging); GOMAXPROCS 1 from the affinity mask; Go's collector defaults; on SIGUSR1 `debug.FreeOSMemory` and one line with HeapInuse | timer 60 s; Any() kept; backlog from `net.core.somaxconn` |
+| hyper-util 0.1.21 (`main.rs`) | `server::conn::auto`: HTTP/1.1 and h2c | a tokio runtime with one worker thread (`new_multi_thread().worker_threads(1)`), the accept loop in `block_on` as hyper-util's examples; no detection timer and none added; cargo's default release profile | `TcpSocket::listen` with backlog 10000 |
+
+The JVM's flags, `bench/competitors/jvm.args`, each with its reason: `-XX:+UseG1GC` (under taskset on
+one CPU the pinned JDK chose Serial); `-Xms253755392 -Xmx4037017600`, the guide's 1/64 and 1/4 of
+physical memory as the pinned JDK computes and aligns them on L (`-XX:+PrintFlagsFinal`, MemTotal
+15,766,196 kB); `-Djava.net.preferIPv4Stack=true` (found on L: both harnesses listened in
+`/proc/net/tcp6`, IPv6 sockets taking IPv4-mapped connections, while every other system opens IPv4
+ones, so B3's Ks would compare different socket objects); `--enable-native-access=ALL-UNNAMED`
+(JDK 25's JEP 472 warning at Netty's JNI load); the JSSE properties for X25519,
+ecdsa_secp256r1_sha256 and no stateless session tickets.
+
+Netty's allocators, read on L from the first accepted connection of the pinned version (the
+proposal's CP6 row: "Which allocator the native epoll transport uses is read at the code freeze"):
+`io.netty.buffer.AdaptiveByteBufAllocator` and `io.netty.channel.AdaptiveRecvByteBufAllocator`.
+
+opgen (7e1c4e6): Jetty's first h2 header block starts with an HPACK dynamic table size update
+(`3f e1 1f`, 4096) before `:status 200`; RFC 7541 puts such updates at the start of a block
+(s4.2, s6.3), and opgen required 0x88 at the first byte, so it failed Jetty's h2c exchange as a
+protocol error. opgen now skips size updates first (`bench/gen/hpack.hpp`, header-only, test
+`gen.h2_status`, a pure test on every platform). No other server's first byte changes.
+
+**Runner integration (b61b71b, 85e9dd0).**
+- `competitors.py`: the four libraries in `SYSTEMS` (`library`, kinds cases, cases-fallback for cmux,
+  b3; no m3), `LIBRARIES`, `JVM_SYSTEMS`; `start(..., harness=)` with `harness_dir(build)`; the
+  command: the pinned JDK's `java`, `jvm.args`, `-cp <harness.jar>:~/opt/<lib>-<v>/lib/*` and the
+  class, or the Go or Rust binary, then the rendered arguments; started directly under `taskset`,
+  so the pid file names the JVM or the binary (never a shell); new fields `REPO` and `TIMER_MS`.
+  `PROXY_SYSTEMS` adds Netty and Jetty, `FALLBACK_SYSTEMS` cmux.
+- `probe.py --system <library> --kind cases|cases-fallback|b3`: the harness alone on CPU 14;
+  `routes` by `opgen --probe` for each protocol it serves (LIB_PROTOS); the silent and
+  partial-ClientHello watches judged against `EXPECT_LIB` ("close", "hold", "greet" for cmux's
+  fallback, "reject"), from the survey and Appendix B.
+- `cases_check.py`: the libraries with COVERS (Netty and Jetty: HTTP/1.1, h2c, TLS; cmux: those and
+  SSH; hyper-util: HTTP/1.1 and h2c), no backend, the PROXY listener for Netty and Jetty, cmux's
+  fallback judged at matched timers only (at its defaults no read timeout, so Any() is never
+  reached: recorded).
+- `b3.py --system netty|jetty|cmux|hyper-util|one-port-inproc [--backend epoll|io_uring]`: an
+  in-process system on CPU 14, no stub (section 5.2), U over its process group, Kq and the
+  established count on its port. The server's arm: one-port mode, in-process dispatch, replay, every
+  timer 60 s, on either backend (`--backend` also reaches the relay arm). The probe: HTTP/1.1 with
+  keep-alive, and a TLS 1.3 handshake (SNI oneport.test, the certificate verified, ALPN http/1.1,
+  X25519) then HTTP/1.1 where the system terminates TLS (not hyper-util); each client closes by
+  reset. WL7's collector steps, the baseline included: `jcmd <pid> GC.run` then `GC.heap_info` with
+  the pinned JDK's jcmd on CPUs 0 and 1, 3 s before each reading (the attach socket is a Unix one, no
+  TCP); SIGUSR1 to the cmux harness 1 s before, its HeapInuse line read from its stdout; caddy-l4's
+  step unchanged. A failed step invalidates the window.
+
+**Probes and route checks** (job libsetup3, 8288b70, Release; untimed):
+
+| Library | cases (matched timers) | cases-fallback | B3 (watch 32 s) |
+|---|---|---|---|
+| Netty | routes HTTP/1.1, h2c, TLS pass; silent closed at 3.04 s; partial closed at 3.21 s | | routes pass; both held |
+| Jetty | routes pass; silent closed at 3.36 s; partial closed at 3.46 s | | routes pass; both held |
+| cmux | routes HTTP/1.1, h2c, TLS, SSH pass; silent closed at 3.00 s; partial held (TLS() matches the record header and clears the deadline) | routes pass; the SMTP greeting at 3.00 s; partial held | routes pass; both held |
+| hyper-util | routes HTTP/1.1, h2c pass; silent held; partial closed at once | | routes pass; silent held past 32 s; partial closed at once |
+
+Every probe judged its expectation and passed. `cases_check.py`, matched and default timers: every
+judged route passes (TLS with SNI oneport.test and ALPN http/1.1), PROXY v1 and v2 on Netty's and
+Jetty's PROXY listener pass at both settings, cmux's fallback greets at 3.00 s at matched timers and
+not at its defaults (recorded). MQTT is covered by none of the four.
+
+**Sanitizer development checks of the Go and Rust harnesses** (not records; libsetup3, then
+tsancheck1 at a83263d): the ASan and TSan builds of `build_harnesses.sh`, each harness's probe in its
+cases kinds and its route checks at both timer settings, every harness log searched with the lab's
+report pattern plus Go's race report:
+- ASan (cmux `go build -asan`; hyper-util `-Zsanitizer=address -Zbuild-std`): 0 report lines in 15
+  harness logs, every probe and route check passing.
+- TSan, cmux (`go build -race`): 0.
+- TSan, hyper-util (`-Zsanitizer=thread -Zbuild-std`): 10 reports, 2 per process in each of 5,
+  every one with tokio's `RegistrationSet::allocate` as the earlier access: the main thread
+  initialises the listener's `ScheduledIo` and adds it to epoll, and the worker thread reads and locks
+  it after `epoll_wait` returns its token. The order is the kernel's, which ThreadSanitizer does not
+  see. `bench/competitors/hyper-util/tsan.supp` holds one entry for that frame, with its reason; with
+  it (tsancheck1) 0 reports in 5 logs, every check passing. For the coordinator: whether the Rust
+  harness's TSan record may run with this suppression (open, below).
+- The harnesses end by SIGTERM in these checks, so LeakSanitizer's exit check did not run.
+
+**B3 functional windows of the in-process systems** (job b3lib2, 595eded, Release, the harnesses
+built at the same commit; lock, floor, NOTRACK, THP at madvise; development data):
+
+| System | Case | Backend | Valid | W at sample 1 and 2 | U, Kq, Ks at sample 2 | Collector |
+|---|---|---|---|---|---|---|
+| Netty | silent | | yes | 8,876.9; 8,885.5 | 1,712.5; 0.0; 7,172.9 | jcmd 0.42, 0.35, 0.32 s |
+| Netty | partial | | yes | 9,470.4; 9,476.5 | 2,331.4; 0.0; 7,145.1 | 0.41, 0.36, 0.33 s |
+| Jetty | silent | | yes | 12,825.8; 12,832.4 | 5,732.4; 0.0; 7,100.0 | 0.40, 0.35, 0.31 s |
+| Jetty | partial | | yes | 38,805.1; 38,896.4 | 32,122.1; 0.0; 6,774.4 | 0.42, 0.38, 0.40 s |
+| cmux | silent | | yes | 10,482.1; 10,489.9 | 3,718.8; 0.0; 6,771.1 | SIGUSR1 0.02 to 0.04 s |
+| cmux | partial | | yes | 19,420.4; 19,427.7 | 12,528.8; 0.0; 6,898.9 | 0.02 to 0.06 s |
+| hyper-util | silent | | yes | 9,334.4; 9,340.9 | 2,432.2; 0.0; 6,908.7 | none |
+| hyper-util | partial | | no | 2,786.5; 2,789.4 | 7.4; 0.0; 2,782.0 | none |
+| server, in-process | silent | epoll | yes | 7,358.1; 7,361.7 | 402.2; 0.0; 6,959.5 | none |
+| server, in-process | partial | epoll | yes | 56,666.1; 56,668.2 | 49,746.3; 0.0; 6,921.8 | none |
+| server, in-process | silent | io_uring | yes | 8,002.8; 8,005.6 | 402.2; 0.0; 7,603.4 | none |
+| server, in-process | partial | io_uring | yes | 57,248.2; 57,254.7 | 49,742.6; 0.0; 7,512.1 | none |
+
+- hyper-util's partial-ClientHello window is invalid by the established count (0 of 10,000 at both
+  samples): hyper-util reads 0x16, which is not the h2 preface, hands the bytes to its HTTP/1 parser,
+  and closes the connection at once (its probe: "closed at once"). It is not a pending connection;
+  section 6.2 has no such cell ("hyper-util serves no TLS"). Not a runner failure.
+- Every probe passed (TLS 1.3, TLS_AES_128_GCM_SHA256; ALPN http/1.1 except Jetty, which has no ALPN
+  module and selected none), TIME-WAIT 0 at the baseline and both samples, no listen overflow.
+- No system held AnonHugePages at any 1 s sample, the JVMs and Go included, and the host's
+  `thp_collapse_alloc` did not move (1,563 before and after the job). From t = 11 s to sample 2
+  the JVMs' VmRSS moved by more than 100 kB in a 1 s sample only in the 2 s after the first
+  in-window `GC.run` (t about 17 s): up 14.8 and 20.2 MB (Netty, silent and partial), 16.7 and
+  1.3 MB (Jetty), and in Jetty's partial window 0.9 MB more after the second (t about 22 s); cmux's
+  fell 3.0 MB after one `FreeOSMemory` (t about 19 s) and otherwise moved by at most 60 kB;
+  hyper-util's and the server's did not move.
+- The JVMs' heap after each `GC.run`: about 7 MB used at the baseline, 22 to 27 MB (Netty) and 24 MB
+  (Jetty silent) to 274 MB (Jetty partial) at sample 2 (`GC.heap_info`, in the rows).
+- The server in-process with a partial ClientHello holds 49.7 kB of U per pending connection on
+  both backends: by design (section 2.1, "with replay, the handler's buffer from the first byte"),
+  the TLS handler takes the connection at byte 6, and its OpenSSL state for an unfinished handshake
+  is held from then on. Netty holds 2.3 kB (SniHandler buffers the ClientHello and makes no TLS
+  engine until it is complete), cmux 12.5 kB, Jetty 32.1 kB. These are B3's descriptive cells
+  (6.2), but under rule D2 this is engineering for M5 (below). In the silent case the server's W
+  (7,362 on epoll, 8,006 on io_uring) is below every library's.
+- Job b3lib1 (a83263d) ran no window: its TLS probe reset a socket that `wrap_socket` had already
+  taken over (Errno 9) before any opening; stopped by SIGTERM, every setting set back; fixed in
+  85e9dd0 with a test against a local TLS stand-in.
+
+Record sha256 (`~/lab/p3/m4b2/`): b3lib2.thp.json
+f377f7b03dc43095ef014e8ab9c6efe8524fdc2c9ee47bbf516a5474d96c4287, b3lib2.clock.json
+12b7a9a5c5dbd57443b1298cc50e9f52dad352a01361cb471601cab097edc019, b3lib2.notrack.json
+bcd00a05961c1beb2396940cad1da21cb5bcd049c67e0e9147293f2a5ed85568, b3lib2.done
+3e0a93e60d7968da58276adfb521415186f03de33316f994c654f492adada922, b3/b3lib2/windows.jsonl
+548737608ee12bf42678533953cb4f94966b214d4964d47b0e26c2f25818f1e8; libsetup3.log
+8172d1e705e8191f0c18f395e911a03df8af7271f3a4259e935b93656a8e2c72, lib/libsetup3/cases/cases_check.jsonl
+eafbd55fef326ae8be4ea826421b33a293f4763342646d0e202b2698cca8d5c0, tsancheck1.log
+f29b97d2b921fa0d065b38e7b6fb541b0b120dc68f03aeaf74f2fe99375cca0e.
+
+### Sanitizer coverage of the harnesses (c61a8e8, a83263d)
+
+`bench/coverage.json`'s `targets` now names the harnesses (the records driver of the code freeze
+must name them the same): `harness_cmux` and `harness_hyper_util` without MSan,
+`harness_netty` and `harness_jetty` without any sanitizer, each with its reason; a declared gap
+"UBSan in the Go and Rust harnesses" (section 11 says "ASan with UBSan"; UBSan has no Go or Rust
+form, so their ASan records are ASan alone). The decisions:
+- Go: ASan by `go build -asan`, TSan by `go build -race`, both with `CC=clang` (clang 22.1.8), as
+  P2's Go arms; MSan declared (`go build -msan` only lets Go code interoperate with C code built with
+  MSan; the harness has no C code of its own and Go zero-initialises what it allocates).
+- Rust: ASan and TSan by `-Zsanitizer=address|thread` on the stable rustc with `RUSTC_BOOTSTRAP=1`
+  (P2's precedent) and `-Zbuild-std` from rust-src 1.98.1, `--target` given so build scripts are not
+  instrumented; MSan declared (rustc's `-Zsanitizer=memory` exists, unstable, and was not attempted,
+  as the frozen text declares the gap). TSan with the one suppression above, pending the
+  coordinator.
+- JVM: no sanitizer applies (bytecode on a pinned, uninstrumented runtime); declared whole.
+`bench/test_gates.py` already checks a Go harness's declared MSan gap and passes with the new file.
+
+### Step 3: checks
+
+| Host | Build | Commit | Build | CTest | Report lines |
+|---|---|---|---|---|---|
+| L | Debug, clang 22.1.8 | 595eded | 0 warnings | 375 passed | 0 |
+| L | ASan+UBSan | 595eded | 0 warnings | 375 passed | 0 |
+| L | Python 3 (runner and competitor tests) | 595eded | | run.test_runner 54, run.test_competitors 31 (2 skipped) | |
+| W | Python 3 (pure parts) | 595eded's tree | | run.test_runner 54 (12 skipped, Linux), run.test_competitors 31 (2 skipped) | |
+
+- L: lab job checks595 (`~/lab/p3/sancheck.sh` from a fresh clone of the lab remote at 595eded,
+  Debug and ASan+UBSan at once, `ctest -V -j 8`; NOTRACK, the clock floor and THP at madvise on).
+  375 is M4b-1's 374 and `gen.h2_status`. The suite's integration part of run.test_competitors (the
+  probe of the server's relay and a short hand-off window per M3 protocol) ran in both;
+  run.test_runner's Linux tests (thp.sh on a copy of the sysfs tree, its signal and refusal paths;
+  the cmux collector's signal step and jcmd's step against stand-in processes; the TLS probe against
+  a local TLS stand-in) ran in both.
+- Log sha256 (L, `~/lab/p3/m4b2/check/595eded/`): debug-595eded.build.log
+  860a9a7830f10f01d335ee433d773e02b4584b739de1c1f2083822b17fec1c43, debug-595eded.ctest.log
+  a0268c59a8c8c7eaf0e08952649a8a0a3a78bbf6679bcb579e0b525402049c35, asan-595eded.build.log
+  9b33bf0098ba6c12fcda4e840f5f12b929fd78a9c78bc555e3b6b60e3a9a9e63, asan-595eded.ctest.log
+  48686343d2f0a1d2c75addec72b67d9fb28c122739246bfe4f59e5babc007b96.
+- Probes: every probe of the four libraries passes in every kind (step 2), and the B3 functional
+  windows pass section 7's settling rule with THP at madvise: 8 of 8 for nginx and HAProxy
+  (b3thp1), 11 of 11 for the in-process systems whose cases are B3 cells or their server arm
+  (b3lib2).
+
+### Readings of the frozen text in M4b-2 (for the coordinator)
+
+1. Jetty: Appendix B puts ProxyConnectionFactory inside the DetectorConnectionFactory of the one
+   connector, so the PROXY header is detected, not required (survey 2.16), and its next protocol is
+   HTTP/1.1. The PROXY cases run on a second listener with the same factories; there HC11 (no header)
+   is served as HTTP/1.1 and a PROXY header followed by a ClientHello (HC13) goes to HTTP/1.1.
+2. cmux: Appendix B lists Any() unconditionally, while HC6 needs a listener without a fallback. The
+   cases configuration has two kinds, as HAProxy's, Envoy's and sslh-ev's: "cases" without Any(),
+   "cases-fallback" with it. B3 starts from Appendix B's line, with Any() last; within a 30 s window
+   at a 60 s timer no silent connection reaches it.
+3. Netty's and Jetty's B3 configurations have no PROXY listener: B3's openings send no PROXY header
+   and a window reads one listener ("B3 starting from its case configuration").
+4. The JVM's `-Djava.net.preferIPv4Stack=true`: every system then opens IPv4 sockets for
+   127.0.0.1, as the server and the proxies do.
+5. Section 2.1's TLS settings ("the same settings in the server, the backend and the generator") are
+   applied to the libraries that terminate TLS as far as each allows: TLS 1.3 only everywhere;
+   TLS_AES_128_GCM_SHA256 where configurable (Netty, Jetty; crypto/tls fixes its TLS 1.3 suites);
+   X25519 and ecdsa_secp256r1_sha256 (the JSSE properties; Go by its curve list and the certificate);
+   no session tickets (JSSE's stateless ticket extension off; Go's `SessionTicketsDisabled`).
+6. Netty's ReadTimeoutHandler bounds silence for the connection's life (Netty's handler, as
+   documented), not detection alone; SniHandler's handshake timeout takes the same value. At the
+   defaults ReadTimeoutHandler is left out (it has no default).
+7. The in-process B3 probe checks one exchange of each protocol the system serves among B3's:
+   HTTP/1.1, and TLS with HTTP/1.1 where it terminates TLS (WL7's "probe"; section 4.1).
+8. WL7's collector steps run a fixed lead before each reading, the baseline included: 3 s for the
+   two jcmd calls, 1 s for cmux's signal, 1 s for caddy-l4 (M4b-1).
+9. hyper-util's partial-ClientHello window has no pending connection to measure (closed at once),
+   consistent with 6.2's "hyper-util serves no TLS".
+10. The server's B3 arm against the libraries is one-port mode, in-process dispatch, its default
+    detection mode (replay), every timer 60 s, on epoll and on io_uring (5.2, 6.2).
+11. Netty's receive allocator, which the proposal reads at the code freeze: on 4.2.18.Final with the
+    native epoll transport, AdaptiveRecvByteBufAllocator, with Netty 4.2's default
+    AdaptiveByteBufAllocator; Appendix B's Buffers row ("adaptive, 64 to 65536 bytes, starting at
+    2048") names the receive allocator, which is kept.
+
+### Open for the coordinator and Alex
+
+- **The Rust harness's TSan record:** with `bench/competitors/hyper-util/tsan.supp` (one entry,
+  tokio's registration through epoll, a false positive by the evidence above), or a declared TSan
+  gap instead. Decide before the records of the code freeze.
+- **The server's in-process footprint with a partial ClientHello** (49.7 kB of U per pending
+  connection, above Netty, cmux and Jetty in development windows): B3's descriptive cells only, but
+  rule D2 asks for engineering. A candidate for M5: create the TLS state only once the ClientHello is
+  complete (as Netty's SniHandler does), within section 2.1's bounds (the handler's buffer from the
+  first byte).
+- From before: sslh-ev's M3 cells (invalid by the error rule as configured); the per-connection
+  decision record WL8 needs against a server in its own process; the competitors' hard cases need an
+  `opcase` mode against a system by port (M4b-1); `RELAY_BUF`, `IORING_OP_SEND` and splice's worker
+  threads (M5); more than one worker on IOCP (M6b).
+
+### Design choices of M4b-2
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| THP wrapper exits | 97 (not set; the job does not run), 98 (not restored) | `thp.sh` | beside notrack.sh's 90 to 93 and clockfloor.sh's 95, 96 |
+| Wrapper order | lablock, clockfloor.sh, thp.sh, notrack.sh, the job | `lab_job.sh` | each host setting outside the next; the floor unchanged |
+| Memory sampler | 1 s | `b3.SAMPLER_S` | M4b-1's diagnostic's period |
+| Collector leads | JVM 3 s, cmux 1 s (caddy-l4 1 s) | `b3.COLLECT_LEAD_S` | two jcmd calls each start a JVM (0.3 to 0.4 s each on L) |
+| jcmd and Go collector timeouts | 60 s, 10 s | `b3.JCMD_TIMEOUT_S`, `GO_COLLECT_TIMEOUT_S` | a failed step invalidates the window rather than hanging it |
+| Harness location | `<build>/harness` | `competitors.harness_dir` | first-party code built per checkout, beside the C++ build |
+| HPACK integer bound | 5 bytes after the prefix | `opgen hpack.hpp` | a 32-bit value needs at most 5 (RFC 7541 s5.1) |
+| Library probe watch | 6 s in the cases kinds, 32 s in B3 | `probe.WATCH_S` | as the proxies' M3 and B3 watches |
+
+### Lab journal and raw data
+
+Two lines in the Papers repo's `lab/journal.jsonl` (Papers 5341785 and 5846aaf, local, not pushed),
+each marked development: b3thp1 and b3lib2. No line for the jobs that ran no window: t1 (the SIGTERM
+check), libsetup1 to libsetup3 (installs, builds, probes, route checks, sanitizer checks; libsetup1
+and libsetup2 stopped at a build error and a mistyped commit before any check), tsancheck1, b3lib1
+(no opening ran), checks595. Everything stays on L under `~/lab/p3/m4b2/`, archived in
+`~/lab/runs-archive/p3-m4b2-20261003T154225.tar.gz` (sha256
+fa1877066a006d8c29381aff88a54e84f760a034ca8b3bfee6bf2aa33885cb88, beside it in a `.sha256` file; 642
+members; made under the lab lock); build trees, source clones, the sanitizer harness builds, the
+discovery directory and the check builds are left out.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
@@ -3390,6 +3766,12 @@ b3dev2's files: `~/lab/runs-archive/p3-m4b1-b3dev2-20261003T142217.tar.gz` (sha2
   logged (b77dd44), with the host clock floor and the note on sslh-ev.
 - M4b-1's open items for the coordinator and Alex: section 10's check against perf trace -s; THP on L
   and B3's settling rule (M4b-1, "Open for the coordinator and Alex").
+- M4b-1's two open items are decided and logged (M4b-2, step 0): THP at madvise for every lab job
+  (Alex), section 10's check against perf stat (the coordinator).
+- M4b-2's lab journal: 2 lines in the Papers repo's `lab/journal.jsonl`, Papers commits 5341785 and
+  5846aaf (local, not pushed), each marked development.
+- M4b-2's readings of the frozen text and its open items (the Rust harness's TSan suppression; the
+  server's in-process footprint with a partial ClientHello) are for the coordinator (M4b-2).
 
 ## What M1 starts from
 
@@ -3592,3 +3974,27 @@ b3dev2's files: `~/lab/runs-archive/p3-m4b1-b3dev2-20261003T142217.tar.gz` (sha2
   (it will weigh most on the JVM and Go heaps, so it is worth deciding before their B3 windows);
   sslh-ev's M3 cells.
 - Nothing in M4b-1 blocks M4b-2's builds.
+
+## What M5 starts from
+
+- Every lab job runs with the clock floor, THP at `madvise` and NOTRACK (`lab_job.sh`), each set back
+  at the job's end; each session's fingerprint records all three. B3 windows of the proxies settle
+  (b3thp1).
+- The in-process libraries are pinned (Temurin 25.0.4.1+1, Netty 4.2.18.Final, Jetty 12.1.13, cmux
+  v0.1.5 on go1.27.1, hyper-util 0.1.21 on rustc 1.98.1), their third-party parts in `~/opt` on L
+  (`install.sh jdk netty jetty`), their harnesses built per checkout (`build_harnesses.sh <build>/harness
+  release`), each with a cases and a B3 configuration and a probe that passes. `b3.py` runs every B3
+  system of section 6.2, the server's relay and in-process arms on either backend, with WL7's
+  collector steps; `cases_check.py` checks the libraries' routes.
+- Development B3 data (b3lib2) puts the server's in-process footprint with a partial ClientHello at
+  49.7 kB of U per pending connection, above Netty (2.3 kB), cmux (12.5 kB) and Jetty (32.1 kB):
+  their cells are descriptive, but rule D2 makes it engineering for M5 (M4b-2, "Open"). In the
+  silent case the server's in-process W is below every library's (7,362 on epoll, 8,006 on io_uring).
+- Engineering options left for M5, as before: `RELAY_BUF`, `IORING_OP_SEND`, splice's worker threads.
+- Open for the coordinator and Alex (M4b-2, "Open"): the Rust harness's TSan suppression; sslh-ev's M3
+  cells; the competitors' hard cases need an `opcase` mode against a system by port; the
+  per-connection decision record WL8 needs; more than one worker on IOCP (M6b).
+- The code freeze (M7) must: name the harness targets in its records driver as `coverage.json` does;
+  read the JDK's latest LTS build again (25.0.5 is due in October); write out the heap bounds again
+  from L's MemTotal with the pinned JDK; read caddy-l4's pin and Netty's allocators again.
+- Nothing in M4b-2 blocks M5.
