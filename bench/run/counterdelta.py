@@ -116,10 +116,10 @@ def relay_report(rows: list[dict]) -> dict:
     groups: dict[str, dict[str, list[dict]]] = {}
     for r in rows:
         if r.get("kind") == "proxy" and r.get("system") == "one-port-relay":
-            groups.setdefault(r["proto"], {}).setdefault(r.get("detect") or "replay", []).append(r)
-    return {f"relay.{proto}": {"proto": proto, "rows": {d: len(v) for d, v in arms.items()},
-                               "per_connection": compare(arms.get("replay", []), arms.get("peek", []))}
-            for proto, arms in sorted(groups.items()) if arms.get("replay") and arms.get("peek")}
+            groups.setdefault(f"{r['proto']}.{r.get('backend') or 'epoll'}", {}).setdefault(r.get("detect") or "replay", []).append(r)
+    return {f"relay.{key}": {"proto": key.split(".")[0], "backend": key.split(".")[1], "rows": {d: len(v) for d, v in arms.items()},
+                             "per_connection": compare(arms.get("replay", []), arms.get("peek", []))}
+            for key, arms in sorted(groups.items()) if arms.get("replay") and arms.get("peek")}
 
 
 def relay_alone(rows: list[dict]) -> dict:
@@ -129,7 +129,7 @@ def relay_alone(rows: list[dict]) -> dict:
         if r.get("kind") == "proxy" and r.get("system") == "one-port-relay":
             p = per_unit(r)
             if p:
-                out.setdefault(f"relay.{r['proto']}.{r.get('detect') or 'replay'}", []).append(p)
+                out.setdefault(f"relay.{r['proto']}.{r.get('backend') or 'epoll'}.{r.get('detect') or 'replay'}", []).append(p)
     return out
 
 

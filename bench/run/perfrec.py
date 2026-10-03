@@ -39,10 +39,10 @@ def report(data: Path, out: Path) -> None:
     """perf report's flat profile by symbol and by shared object, as text beside perf.data."""
     for name, sort in (("by_symbol", "sym"), ("by_dso", "dso"), ("by_dso_symbol", "dso,sym")):
         with open(out / f"{data.stem}.{name}.txt", "w") as f:
-            subprocess.run(PERF + ["report", "--stdio", "-i", str(data), "--no-children", "--percent-limit", "0.3",
+            subprocess.run(PERF + ["report", "-f", "--stdio", "-i", str(data), "--no-children", "--percent-limit", "0.3",
                                        "--sort", sort], stdout=f, stderr=subprocess.STDOUT, check=False)
     with open(out / f"{data.stem}.callers.txt", "w") as f:
-        subprocess.run(PERF + ["report", "--stdio", "-i", str(data), "--children", "--percent-limit", "2",
+        subprocess.run(PERF + ["report", "-f", "--stdio", "-i", str(data), "--children", "--percent-limit", "2",
                                    "--sort", "sym", "-G"], stdout=f, stderr=subprocess.STDOUT, check=False)
 
 

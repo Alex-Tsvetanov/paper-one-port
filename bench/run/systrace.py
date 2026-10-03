@@ -326,7 +326,7 @@ def cost_row(build: Path, cell: dict, mode: str, blocks: window.SourceBlocks, ra
     return finish_checks(row, g, [f"server exit {row['server_exit']}"] if row["server_exit"] != 0 else [])
 
 
-def relay_idle_pass(build: Path, port: int, raw: Path, tag: str, detect: str = "replay") -> dict:
+def relay_idle_pass(build: Path, port: int, raw: Path, tag: str, detect: str = "replay", backend: str = "epoll") -> dict:
     """The server's relay and its stub started, perf on the front for IDLE_S without load: the
     front's start-up offsets."""
     import handoff
@@ -334,7 +334,7 @@ def relay_idle_pass(build: Path, port: int, raw: Path, tag: str, detect: str = "
     front = perf = None
     lines: list[str] = []
     try:
-        front = handoff.Front(window.ONE_PORT_RELAY, build, port, port + 10, raw, tag, "m3", "epoll", detect)
+        front = handoff.Front(window.ONE_PORT_RELAY, build, port, port + 10, raw, tag, "m3", backend, detect)
         perf = Perf(comp.group_pids(front.pgid), raw / tag)
         time.sleep(IDLE_S)
     finally:
@@ -345,25 +345,27 @@ def relay_idle_pass(build: Path, port: int, raw: Path, tag: str, detect: str = "
         window.stop_process(stub, stub_out)
     calls, _, _ = perf.results()
     counters = window.parse_counters(lines)
-    return {"offsets": startup_offsets(counters, calls, "epoll"), "server_counters": counters, "perf_calls": calls}
+    return {"offsets": startup_offsets(counters, calls, backend), "server_counters": counters, "perf_calls": calls}
 
 
 def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks, raw: Path, job: str,
-              detect: str = "replay") -> dict:
+              detect: str = "replay", backend: str = "epoll") -> dict:
     import handoff
     relay = system == window.ONE_PORT_RELAY
-    tag = f"{job}-{system}-{proto}" + (f"-{detect}" if relay and detect != "replay" else "")
+    backend = backend if relay else "epoll"  # the server's relay on either backend (section 10); the proxies as they run
+    tag = f"{job}-{system}-{proto}" + (f"-{detect}" if relay and detect != "replay" else "") + (f"-{backend}" if relay and backend != "epoll" else "")
     port = PORTS["proxy"]
     row: dict = {"job": job, "kind": "proxy", "untimed": True, "development": True, "system": system, "proto": proto, "tag": tag,
-                 "detect": detect if relay else None, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+                 "detect": detect if relay else None, "backend": backend if relay else None,
+                 "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     row["conntrack_wait_s"], _ = window.wait_conntrack()
     if relay:
-        row["idle"] = relay_idle_pass(build, port, raw, tag + ".idle", detect)
+        row["idle"] = relay_idle_pass(build, port, raw, tag + ".idle", detect, backend)
     stub, stub_out = handoff.start_stub(build, port + 10, raw, tag)
     front = perf = g = None
     front_lines: list[str] = []
     try:
-        front = handoff.Front(system, build, port, port + 10, raw, tag, "m3", "epoll", detect)
+        front = handoff.Front(system, build, port, port + 10, raw, tag, "m3", backend, detect)
         row["command"] = front.command
         pids = comp.group_pids(front.pgid)
         row["front_pids"] = pids
@@ -386,7 +388,7 @@ def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks,
     if system == window.ONE_PORT_RELAY:
         counters = window.parse_counters(front_lines)
         row["server_counters"] = counters
-        row["checks"] = check_counters(counters, calls, "epoll", 1, row["idle"]["offsets"], stat)
+        row["checks"] = check_counters(counters, calls, backend, 1, row["idle"]["offsets"], stat)
     return finish_checks(row, g, [] if acc else ["the stub accepted no connection"])
 
 
@@ -402,6 +404,7 @@ def main(argv=None) -> int:
     ap.add_argument("--detects", default="replay", help="cost: the server's detection modes, replay and/or peek")
     ap.add_argument("--repeat", type=int, default=1, help="cost: each cell's modes this many times, interleaved")
     ap.add_argument("--detect", default="replay", choices=DETECTS, help="proxy: the server's relay's detection mode")
+    ap.add_argument("--backend", default="epoll", choices=("epoll", "io_uring"), help="proxy: the server's relay's backend")
     ap.add_argument("--systems", default=",".join(comp.ORDER + (window.ONE_PORT_RELAY,)))
     ap.add_argument("--protos", default=",".join(PROXY_PROTOS))
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
@@ -425,7 +428,7 @@ def main(argv=None) -> int:
     else:
         for system in [s for s in a.systems.split(",") if s]:
             for proto in [p for p in a.protos.split(",") if p]:
-                rows.append(proxy_row(a.build, system, proto, blocks, raw, a.job, a.detect))
+                rows.append(proxy_row(a.build, system, proto, blocks, raw, a.job, a.detect, a.backend))
     fp = window.pin_fingerprint()
     with open(a.out / "trace.jsonl", "a") as f:
         for r in rows:

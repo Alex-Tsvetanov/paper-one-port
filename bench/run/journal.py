@@ -12,6 +12,8 @@ section 8, step 2: cited only in the revision log and the journal, disclosed in 
 summary holds each cell's session ratios (server / proxy) instead of an A/A spread. --kind b3 names
 a job of b3.py windows (WL7's layout; M5): each window's system, case, backend and detection mode,
 its validity, W at both samples and U, Kq and Ks at sample 2, in the fields of M4b's B3 lines.
+--kind perf names a job of perfrec.py profiles (M5): each profile's front, protocol and detection
+mode, perf's exit and opgen's count under perf; it times no cell.
 """
 from __future__ import annotations
 
@@ -23,7 +25,19 @@ from pathlib import Path
 
 
 KINDS = {"aa": "A/A (dedicated against dedicated)", "m3": "M3 cells (the server's one-port relay against the proxies)",
-         "b3": "B3 windows (WL7's layout)"}
+         "b3": "B3 windows (WL7's layout)", "perf": "profiles of M3's fronts under load (perf record)"}
+
+
+def perf_entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str) -> dict:
+    """A job of perfrec.py profiles: one cell per profile; nothing is a rate of a cell."""
+    rows = [json.loads(ln) for ln in (job_dir / "perf.jsonl").read_text().splitlines() if ln.strip()]
+    cells = [{"tag": r["tag"], "system": r["system"], "proto": r["proto"], "detect": r.get("detect"), "perf_record_exit": r.get("perf_record_exit"),
+              "freq": r.get("freq"), "seconds": r.get("seconds"), "opgen": r.get("opgen"), "started": r.get("started")} for r in rows]
+    fp = [r.get("fingerprint") or {} for r in rows]
+    return {"date": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "paper": "P3", "host": next((f.get("host") for f in fp if f.get("host")), "alex-laptop"),
+            "run": f"development, {milestone} {KINDS['perf']}: {run}", "code_commit": commit or "", "variant": variant,
+            "summary": {"profiles": len(rows), "notrack": sum(1 for f in fp if (f.get("notrack") or {}).get("active"))},
+            "cells": cells, "note": note}
 
 
 def b3_entry(rows: list[dict], run: str, variant: str, note: str, commit: str | None, milestone: str) -> dict:
@@ -48,6 +62,8 @@ def b3_entry(rows: list[dict], run: str, variant: str, note: str, commit: str | 
 
 
 def entry(job_dir: Path, run: str, variant: str, note: str, commit: str | None, milestone: str = "M3", kind: str = "aa") -> dict:
+    if kind == "perf":
+        return perf_entry(job_dir, run, variant, note, commit, milestone)
     rows = [json.loads(ln) for ln in (job_dir / "windows.jsonl").read_text().splitlines() if ln.strip()]
     if kind == "b3":
         return b3_entry(rows, run, variant, note, commit, milestone)
@@ -86,7 +102,7 @@ def main(argv=None) -> int:
     ap.add_argument("--note", default="")
     ap.add_argument("--commit")
     ap.add_argument("--milestone", default="M3", help="the milestone named in `run`")
-    ap.add_argument("--kind", default="aa", choices=sorted(KINDS), help="aa: aa.py's A/A job; m3: handoff.py's M3 job; b3: b3.py's windows")
+    ap.add_argument("--kind", default="aa", choices=sorted(KINDS), help="aa: aa.py's A/A job; m3: handoff.py's M3 job; b3: b3.py's windows; perf: perfrec.py's profiles")
     a = ap.parse_args(argv)
     print(json.dumps(entry(a.job_dir, a.run, a.variant, a.note, a.commit, a.milestone, a.kind), ensure_ascii=False))
     return 0
