@@ -26,6 +26,7 @@ sys.path.insert(0, str(HERE))
 
 import aa  # noqa: E402
 import b3  # noqa: E402
+import systrace  # noqa: E402
 import footprint as fp  # noqa: E402
 import window  # noqa: E402
 
@@ -448,6 +449,61 @@ class B3Relay(unittest.TestCase):
         self.assertEqual(set(b3.SYSTEMS[2:]), {"nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev"})
         with self.assertRaises(ValueError):
             b3.run(Path("."), Path("."), "j", "silent", 1, Path("."), system="traefik")
+
+
+PERF_SUMMARY = """
+ Summary of events:
+
+ oneport (51234), 9 events, 30.0%
+
+   syscall            calls  errors  total       min       avg       max       stddev
+                                     (msec)    (msec)    (msec)    (msec)        (%)
+   --------------- --------  ------ -------- --------- --------- ---------     ------
+   epoll_pwait2         120      0   200.363     0.001     1.670    10.000      5.00%
+   accept4              100      2     0.081     0.005     0.010     0.016     15.43%
+   recvfrom             300      0     0.060     0.002     0.030     0.058     92.00%
+   sendto               100      0     0.022     0.006     0.007     0.009     14.43%
+
+ oneport (51235), 4 events, 10.0%
+
+   syscall            calls  errors  total       min       avg       max       stddev
+                                     (msec)    (msec)    (msec)    (msec)        (%)
+   --------------- --------  ------ -------- --------- --------- ---------     ------
+   recvfrom              20      1     0.012     0.005     0.006     0.007     10.65%
+LOST 3 events!
+"""
+
+
+class Trace(unittest.TestCase):
+    """systrace.py's parser of perf trace -s (the layout perf 7.2.6 printed on L) and its check of
+    the server's counters."""
+
+    def test_summary(self):
+        calls, lost = systrace.parse_summary(PERF_SUMMARY)
+        self.assertEqual(calls["recvfrom"], {"calls": 320, "errors": 1})
+        self.assertEqual(calls["accept4"], {"calls": 100, "errors": 2})
+        self.assertEqual(lost, 3)
+        self.assertNotIn("syscall", calls)
+
+    def test_checks(self):
+        calls, _ = systrace.parse_summary(PERF_SUMMARY)
+        counters = {"accept_calls": 100, "recv_calls": 300, "peek_calls": 15, "check_calls": 5, "send_calls": 100,
+                    "epoll_wait_calls": 119, "epoll_ctl_calls": 0, "setsockopt_calls": 0}
+        by = {c["check"]: c for c in systrace.check_counters(counters, calls, "epoll", 1)}
+        self.assertTrue(by["accept"]["agrees"])
+        self.assertTrue(by["recv"]["agrees"])  # 300 + 15 + 5 = 320 recvfrom
+        self.assertTrue(by["wait"]["agrees"])  # 120 against 119, within the slack
+        self.assertNotIn("io_uring_enter", by)
+        counters["send_calls"] = 99
+        self.assertFalse({c["check"]: c for c in systrace.check_counters(counters, calls, "epoll", 1)}["send"]["agrees"])
+        u = {c["check"] for c in systrace.check_counters(counters, calls, "io_uring", 1)}
+        self.assertIn("recv (peek and check)", u)
+        self.assertNotIn("accept", u)  # a ring operation on io_uring
+
+    def test_load_has_no_time(self):
+        g = {"ok": True, "warmup": {"completed": 10}, "measure": {"completed": 90, "errors": {"total": 0}}, "connect_failures": 0,
+             "ttfb_ns": {"median": 1}, "wall_s": 2.0}
+        self.assertEqual(set(systrace.counts_only(g)), {"ok", "warmup", "measure", "errors", "connect_failures"})
 
 
 CLOCKFLOOR = HERE / "clockfloor.sh"
