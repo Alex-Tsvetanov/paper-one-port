@@ -18,7 +18,9 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -371,6 +373,14 @@ namespace oneport::test
 					std::size_t got = 0;
 					if (!over_tls)
 					{
+						// Every request is built before the connect. Built after it, the 7.6 MB took
+						// the client about 150 ms of CPU in a Debug build before its first byte; under
+						// four suites at once that outran T_dec (300 ms here), and the server closed
+						// the connection as silent, as designed (design/status.md, M3, step 0, item 3).
+						Bytes all;
+						for (int i = 0; i < kRequests - 1; ++i) all.insert(all.end(), kGetKeepAlive.begin(), kGetKeepAlive.end());
+						const Bytes last = opcase::http_get();
+						all.insert(all.end(), last.begin(), last.end());
 						const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 						const int small = 4096;
 						::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &small, sizeof(small));
@@ -379,6 +389,7 @@ namespace oneport::test
 						addr.sin_port = htons(port_for(srv, a, detect::Proto::http1));
 						addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 						CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "connect");
+						const auto connected_at = std::chrono::steady_clock::now();
 						sockaddr_in local{};
 						socklen_t local_len = sizeof(local);
 						::getsockname(fd, reinterpret_cast<sockaddr*>(&local), &local_len);
@@ -388,11 +399,9 @@ namespace oneport::test
 						std::atomic<bool> written{false};
 						std::size_t sent = 0;
 						int send_errno = 0;
-						std::thread writer([fd, kRequests, &written, &sent, &send_errno] {
-							Bytes all;
-							for (int i = 0; i < kRequests - 1; ++i) all.insert(all.end(), kGetKeepAlive.begin(), kGetKeepAlive.end());
-							const Bytes last = opcase::http_get();
-							all.insert(all.end(), last.begin(), last.end());
+						std::chrono::steady_clock::time_point first_send{};
+						std::thread writer([fd, &all, &written, &sent, &send_errno, &first_send] {
+							first_send = std::chrono::steady_clock::now();
 							while (sent < all.size())
 							{
 								const ssize_t w = ::send(fd, all.data() + sent, all.size() - sent, MSG_NOSIGNAL);
@@ -442,13 +451,24 @@ namespace oneport::test
 							srv.server->stop();
 							const server::Counters c = srv.server->totals();
 							const auto err = srv.server->error();
-							CHECK(false, a.name << ": " << in.size() << " bytes for " << kRequests << " responses; client local port " << local_port
+							const auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
+							std::ostringstream ended;
+							if (!reps.empty())
+							{
+								// How detection ended: by a timer (T_dec closes a connection with no byte as
+								// silent) or by an event, after how many wake-ups, how long after accept.
+								const server::DetectionReport& r0 = reps[0];
+								ended << ", ended by " << (r0.timed ? std::string(server::name(r0.event.kind)) : std::string("an event")) << " after "
+								      << r0.wakeups << " wake-ups, " << ms(r0.end_time - r0.accept_time) << " ms after accept";
+							}
+							CHECK(false, a.name << ": " << in.size() << " bytes for " << kRequests << " responses; the client's first send "
+							                    << ms(first_send - connected_at) << " ms after its connect; client local port " << local_port
 							                    << " (at the end the descriptor names " << (st1.st_ino == st0.st_ino ? "the same socket" : "another socket")
 							                    << ", local port " << ntohs(now_local.sin_port) << ", server port " << port_for(srv, a, detect::Proto::http1) << ")"
 							                    << ", sent " << sent << " bytes (errno " << send_errno << "), receive end "
 							                    << (recv_eof ? "EOF" : "error") << " (errno " << recv_errno << "); server saw the port closed: " << seen
 							                    << ", detection reports " << reps.size()
-							                    << (reps.empty() ? std::string() : std::string(", outcome ") + std::string(server::name(reps[0].outcome)))
+							                    << (reps.empty() ? std::string() : std::string(", outcome ") + std::string(server::name(reps[0].outcome))) << ended.str()
 							                    << "; accepted " << c.accepted << ", closed " << c.closed << ", accept errors " << c.accept_errors
 							                    << ", classified " << c.outcomes[static_cast<std::size_t>(server::Outcome::classified)] << ", bytes received "
 							                    << c.bytes_received << ", sent " << c.bytes_sent << "; worker error: " << (err ? *err : std::string("none")));
