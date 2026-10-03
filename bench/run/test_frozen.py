@@ -222,6 +222,15 @@ class RowsAgainstAnalysis(unittest.TestCase):
         cells, skipped = s_run.s_cells(2, RULE_E, None)
         self.assertFalse([c for c in cells if c.id.startswith("S.mixed.")])
         self.assertTrue(any(k.startswith("S.mixed.") for k in skipped))
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(s_run.window, "stop_on_signals", lambda: None):
+            seeds, pilot, rule = Path(d) / "seeds.json", Path(d) / "pilot.json", Path(d) / "rule_e.json"
+            seeds.write_text(json.dumps(SEEDS))
+            pilot.write_text(json.dumps({"complete": True, "n_sim": 1000, "R_C": 11}))
+            rule.write_text(json.dumps(RULE_E))
+            with self.assertRaises(runlib.InputRefused) as cm:  # a frozen run without --silent-ports
+                s_run.main(["--build", d, "--out", d, "--job", "j", "--seeds", str(seeds), "--code-freeze", "0" * 40, "--gate",
+                            str(Path(d) / "gate.json"), "--pilot", str(pilot), "--rule-e", str(rule), "--m-rows", str(Path(d) / "m.jsonl")])
+            self.assertIn("--silent-ports", str(cm.exception))
 
     def test_rule_e_file_is_analysis_contract(self):
         self.assertEqual(AN.check_rule_e(json.loads(json.dumps(RULE_E))), RULE_E)
@@ -649,6 +658,31 @@ class Judge(unittest.TestCase):
         self.assertIsNone(HR.covered("nginx", "SMTP fallback"))
         self.assertEqual(HR.covered("haproxy", "PROXY, SMTP fallback"), "cases-fallback")
         self.assertIsNone(HR.covered("sslh-ev", "PROXY"))
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "the lab job wrapper and /proc are L's")
+class Priority(unittest.TestCase):
+    """M7c: a lab job runs at nice 0 (zsh's BG_NICE gives a background job nice 5)."""
+
+    def test_lab_job_refuses_a_niced_job(self):
+        script = HERE / "lab_job.sh"
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, ONEPORT_LABLOCK="/bin/true", ONEPORT_NOTRACK="off")
+            env.pop("ONEPORT_ALLOW_NICE", None)
+            p = subprocess.run(["nice", "-n", "5", "bash", str(script), d, "j1", "true"], env=env, capture_output=True, text=True)
+            self.assertEqual(p.returncode, 92)
+            done = json.loads((Path(d) / "j1.done").read_text())
+            self.assertEqual(done["exit"], 92)
+            self.assertGreater(done["nice"], 0)
+            self.assertIn("nice 0", (Path(d) / "j1.log").read_text())
+            env["ONEPORT_ALLOW_NICE"] = "1"  # past the guard, to the lock (here /bin/true, which runs nothing)
+            p = subprocess.run(["nice", "-n", "5", "bash", str(script), d, "j2", "true"], env=env, capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0)
+
+    def test_priority_state(self):
+        st = cellwin.window.priority_state()
+        self.assertEqual(st["nice"], os.nice(0))
+        self.assertIsInstance(st["timerslack_ns"], int)
 
 
 def main() -> int:

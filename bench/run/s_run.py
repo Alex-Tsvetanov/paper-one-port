@@ -171,7 +171,7 @@ def main(argv=None) -> int:
     rule_e = runlib.load_rule_e(a.rule_e, a.development)
     cells, skipped = s_cells(a.dev_r or R_S, rule_e, a.silent_ports)
     cells = runlib.only_cells(a, cells)
-    if not a.development and any(c.id.startswith("S.mixed.") for c in s_cells(R_S, rule_e, None)[0]) and a.silent_ports is None:
+    if not a.development and a.silent_ports is None:
         raise runlib.InputRefused("a frozen section 10 run holds the mixed cells: give --silent-ports")
     m_rows = [r for p in a.m_rows for r in SS.read_rows(p)]
     rates = {}
