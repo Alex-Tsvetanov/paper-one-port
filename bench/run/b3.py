@@ -24,10 +24,13 @@ A relay system (M4b-1). U sums VmRSS over the front's process group (nginx's mas
 the stub left out (WL7: it holds no pending connection); Kq and the established count read the
 front's accepted sockets on its port. The probe is one exchange of the TLS stub's through the
 front (the recorded ClientHello, then the stub's 13 bytes), the client closing by reset (WL7);
-the stub closes its own side first, so the probe can leave one TIME-WAIT socket on the stub's
-connection, which is in the baseline and lasts past sample 2 (60 s). caddy-l4 gets a heap
-profile request with gc=1 at its admin endpoint before each reading, the baseline included
-(WL7's runtimes with a collector; Appendix B). Functional windows only before the code freeze:
+the stub closes its own side first, so the probe can leave a TIME-WAIT socket on the stub's
+connection; the baseline waits until the host's TIME-WAIT count has held for 2 s, so that socket
+is in the baseline and lasts past sample 2 (60 s). caddy-l4 gets a heap profile request with
+gc=1 at its admin endpoint a second before each reading, the baseline included (WL7's runtimes
+with a collector; Appendix B), on a connection closed by reset. The TIME-WAIT rule of section 7
+counts the whole host's sockets, so nothing else may open TCP connections on L during a window
+(an ssh session to L included). Functional windows only before the code freeze:
 B3's timing runs later (section 8, step 7).
 
     b3.py --build DIR --out DIR --job NAME [--system ophold|one-port-relay|nginx|...]
@@ -36,6 +39,7 @@ B3's timing runs later (section 8, step 7).
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import signal
@@ -44,7 +48,6 @@ import struct
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -79,6 +82,10 @@ SYSTEMS = ("ophold", SERVER) + comp.ORDER
 STUB_BODY = b"Hello, World!"  # the TLS stub's reply (bench/server/apps.hpp, kStubBody)
 PROBE_TIMEOUT_S = 5.0
 HEAP_TIMEOUT_S = 30.0
+# Design choices of M4b-1: after the probe the baseline waits until the TIME-WAIT count has held
+# for TW_STEADY_S, at most TW_STEADY_MAX_S.
+TW_STEADY_S = 2.0
+TW_STEADY_MAX_S = 10.0
 
 
 def wait_time_wait_zero(max_wait: float = TW_WAIT_MAX_S) -> tuple[float, int]:
@@ -138,15 +145,41 @@ def exchange_probe(port: int, hello: bytes, timeout: float = PROBE_TIMEOUT_S) ->
 
 def heap_profile(admin_port: int) -> dict:
     """caddy-l4: a heap profile with gc=1 at the admin endpoint (WL7; Caddy's profiling docs), which
-    runs a collection first; the profile is discarded, its size kept."""
+    runs a collection first; the profile is discarded, its size kept. The request keeps its
+    connection open (HTTP/1.1) and the client closes it by reset once the whole response is read,
+    so neither end is left in TIME-WAIT, which section 7's rule would count (found in M4b-1: a
+    request that closed normally added one TIME-WAIT socket per sample)."""
     t0 = time.monotonic()
-    url = f"http://127.0.0.1:{admin_port}/debug/pprof/heap?gc=1"
+    conn = http.client.HTTPConnection("127.0.0.1", admin_port, timeout=HEAP_TIMEOUT_S)
     try:
-        with urllib.request.urlopen(url, timeout=HEAP_TIMEOUT_S) as r:
-            body = r.read()
-            return {"status": r.status, "bytes": len(body), "s": time.monotonic() - t0}
-    except OSError as e:
-        return {"status": None, "error": repr(e), "s": time.monotonic() - t0}
+        conn.request("GET", "/debug/pprof/heap?gc=1")
+        r = conn.getresponse()
+        body = r.read()
+        out = {"status": r.status, "bytes": len(body), "s": time.monotonic() - t0}
+    except (OSError, http.client.HTTPException) as e:
+        out = {"status": None, "error": repr(e), "s": time.monotonic() - t0}
+    if conn.sock is not None:
+        reset_close(conn.sock)
+        conn.sock = None
+    conn.close()
+    return out
+
+
+def wait_time_wait_steady(steady_s: float = TW_STEADY_S, max_wait: float = TW_STEADY_MAX_S) -> tuple[float, int]:
+    """After the probe: waits until the host's TIME-WAIT count has not changed for steady_s, at most
+    max_wait, so that a connection of the probe that a system closes late (found in M4b-1: one of
+    HAProxy's, after the baseline) is counted in the baseline, not at a sample."""
+    t0 = time.monotonic()
+    last = window.time_wait_count()
+    since = time.monotonic()
+    while time.monotonic() - t0 < max_wait:
+        time.sleep(0.25)
+        n = window.time_wait_count()
+        if n != last:
+            last, since = n, time.monotonic()
+        elif time.monotonic() - since >= steady_s:
+            break
+    return time.monotonic() - t0, last
 
 
 class Holder:
@@ -250,6 +283,7 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
         if not row["probe"]["ok"]:
             reasons.append(f"probe failed: {row['probe'].get('detail')}")
         time.sleep(0.5)  # the probe's reset reaches the system before the baseline
+        row["time_wait_steady_wait_s"], row["time_wait_after_probe"] = wait_time_wait_steady()
         collector.append(sysm.before_reading())
         if lead:
             time.sleep(lead)
