@@ -23,16 +23,17 @@ meant to cover. Both take them from here:
 - BINARIES: the measured executables per host, whose sha256 the gate records so that a row of a
   window can be bound to a gated build (bench/check_rows.py).
 
-inputs_hash.py is the Papers repo's lab/bin/inputs_hash.py: --inputs-hash, else lab/bin beside a
-Papers checkout around this repository, else L's ~/lab/Papers/lab/bin. Its output gets two fields
-under builds.oneport: "compiler", CMake's identification of the build's compiler (the text a
-record's "compiler" holds), and "host". Exits 0 with the inputs file written, 2 if the targets
-differ from the list, 3 if inputs_hash.py fails.
+inputs_hash.py is the Papers repo's lab/bin/inputs_hash.py: --inputs-hash, else as
+default_inputs_hash() finds it. Its output gets three fields under builds.oneport: "compiler",
+CMake's identification of the build's compiler (the text a record's "compiler" holds), "host", and
+"inputs_hash_tool" (the path and sha256 of the inputs_hash.py used). Exits 0 with the inputs file
+written, 2 if the targets differ from the list, 3 if inputs_hash.py fails.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -66,11 +67,17 @@ OBJECT = re.compile(r"\.(o|obj)$")
 
 
 def default_inputs_hash() -> Path:
+    """The Papers repo's lab/bin/inputs_hash.py: beside a Papers checkout around this repository;
+    on L, P3's copy in ~/lab/p3/tools (the copy aa.py's provenance uses; equal to the Papers
+    repo's file at 2435e56 on 2026-10-03), else ~/lab/Papers/lab/bin. Its sha256 goes into the
+    inputs file, so a copy that differs shows."""
     for cand in (REPO.parent.parent / "lab" / "bin" / "inputs_hash.py",
+                 Path.home() / "lab" / "p3" / "tools" / "inputs_hash.py",
                  Path.home() / "lab" / "Papers" / "lab" / "bin" / "inputs_hash.py"):
         if cand.is_file():
             return cand
-    raise FileNotFoundError("no lab/bin/inputs_hash.py beside a Papers checkout or in ~/lab/Papers; give --inputs-hash")
+    raise FileNotFoundError("no lab/bin/inputs_hash.py beside a Papers checkout, in ~/lab/p3/tools or in ~/lab/Papers; "
+                            "give --inputs-hash")
 
 
 def compiled_targets(compdb: list[dict]) -> set[str]:
@@ -141,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     data = json.loads(a.out.read_text(encoding="utf-8"))
     data["builds"][BUILD]["compiler"] = compiler_identification(a.build)
     data["builds"][BUILD]["host"] = a.host
+    data["builds"][BUILD]["inputs_hash_tool"] = {"path": str(tool), "sha256": hashlib.sha256(tool.read_bytes()).hexdigest()}
     a.out.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     print(f"build_inputs: {a.out} ({len(TARGETS[a.host])} targets, config keys {', '.join(CONFIG_KEYS)}, "
           f"compiler {data['builds'][BUILD]['compiler'] or 'not found'})", file=sys.stderr)

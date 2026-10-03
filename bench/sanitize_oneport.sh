@@ -26,9 +26,9 @@
 # Environment: WORK (default ~/lab/p3/records-work; the build tree is WORK/<san>[-dryrun], made
 # afresh), JOBS (ninja -j, default 5: two suites run at once at most), CTEST_JOBS (default 8),
 # MSAN_LIBCXX (default ~/opt/libcxx-msan-gcc), RECORDS_LOGS (default ~/lab/records-logs, under
-# DRY_RUN WORK/records-logs), REPO_URL (recorded; default the checkout's origin), LAB_BIN (the
-# Papers repo's lab/bin, for inputs_hash.py; default beside a Papers checkout, else
-# ~/lab/Papers/lab/bin). Exits 0 when the record is green.
+# DRY_RUN WORK/records-logs), REPO_URL (recorded; default the checkout's origin), LAB_BIN (a
+# directory holding the Papers repo's inputs_hash.py; default as bench/build_inputs.py finds it,
+# on L ~/lab/p3/tools). Exits 0 when the record is green.
 set -euo pipefail
 
 san=${1:?usage: sanitize_oneport.sh asan|tsan|msan RECORDS_DIR}
@@ -71,12 +71,8 @@ set +e
 build_rc=$?
 ctest_rc=1
 if [ "$build_rc" -eq 0 ]; then
-    lab_bin=${LAB_BIN:-}
-    if [ -z "$lab_bin" ]; then
-        if [ -f "$repo/../../lab/bin/inputs_hash.py" ]; then lab_bin=$repo/../../lab/bin; else lab_bin=$HOME/lab/Papers/lab/bin; fi
-    fi
     python3 "$here/build_inputs.py" --build "$work/build" --host L --out "$work/build.inputs.json" \
-        --inputs-hash "$lab_bin/inputs_hash.py" >> "$work/build.log" 2>&1
+        ${LAB_BIN:+--inputs-hash "$LAB_BIN/inputs_hash.py"} >> "$work/build.log" 2>&1
     (cd "$work/build" && env "${sanenv[@]}" ctest -V -j "${CTEST_JOBS:-8}" --timeout 900) > "$work/ctest.log" 2>&1
     ctest_rc=$?
 fi
