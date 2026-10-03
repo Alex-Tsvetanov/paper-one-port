@@ -12,8 +12,12 @@ Two kinds:
          stub accepted (every connection the front passed on), with the front's counters checked
          too when the front is the server.
   cost   the server alone in a cost cell's arm (one-port or dedicated mode, in-process dispatch,
-         replay, the cell's backend), in section 4.1's in-process placement; perf trace -s on its
-         process; each counter of I29 that names a system call is compared with perf trace's count.
+         the cell's backend, replay unless --detects names peek too), in section 4.1's in-process
+         placement; perf trace -s on its process; each counter of I29 that names a system call is
+         compared with perf trace's count. With --repeat N each cell runs its modes N times,
+         interleaved, so the run-to-run spread of the counters that depend on timing (the waits, an
+         accept or a read that finds nothing) is seen beside one-port's difference from dedicated
+         (bench/run/counterdelta.py, M5's criterion 1).
 
 perf trace attaches after the system listens and before the probe, and stops before the system
 does, so both count the same connections, except the calls the server makes while it starts (its
@@ -31,8 +35,14 @@ TRACE_RATE exchanges per second for TRACE_MS after a TRACE_WARM_MS warm-up, open
 keep-alive with TRACE_KA_CONNS connections for TRACE_KA_MS. perf trace's "LOST" lines are
 recorded, and a lost event fails the check.
 
+The server's detection mode (dedicated mode ignores it): replay, the proposed default until rule E
+(section 2.1), or peek; --detects for the cost rows, --detect for the server's relay in the proxy
+rows.
+
     systrace.py --build DIR --out DIR --job NAME --kind proxy --systems nginx,...,one-port-relay [--protos tls-stub,http1]
+                [--detect replay|peek]
     systrace.py --build DIR --out DIR --job NAME --kind cost --cells churn:http1:epoll,... [--modes dedicated,one-port]
+                [--detects replay,peek] [--repeat N]
 """
 from __future__ import annotations
 
@@ -65,13 +75,14 @@ PERF = ["sudo", "-n", "taskset", "-c", "0,1", "perf"]
 # for a run.
 TRACE_MMAP_PAGES = int(os.environ.get("SYSTRACE_MMAP_PAGES", "0"))
 MODES = ("dedicated", "one-port")
+DETECTS = ("replay", "peek")
 PROXY_PROTOS = ("tls-stub", "http1")
 PORTS = {"cost": 24000, "proxy": 24100}  # design choices of M4b-1, off the ephemeral range; the stub 10 above
 
 # I29's counters that name system calls, and those calls (bench/server, bench/loop): the label,
 # the counters summed, the calls summed, whether the loop's wait slack applies, and the backends
 # on which the counters are system calls. On io_uring the receives and accepts are ring operations
-# (IORING_OP_RECV with provided buffers, the multishot accept), so only the synchronous peek and
+# (IORING_OP_READ since M5, with provided buffers; the multishot accept), so only the synchronous peek and
 # check of 1(b) are recvfrom calls there; the send is synchronous on both (design/status.md, M3).
 CHECKS = (
     ("accept", ("accept_calls",), ("accept4", "accept"), False, ("epoll",)),
@@ -82,7 +93,9 @@ CHECKS = (
     ("epoll_ctl", ("epoll_ctl_calls",), ("epoll_ctl",), False, ("epoll",)),
     ("wait", ("epoll_wait_calls",), ("epoll_pwait2", "epoll_pwait", "epoll_wait"), True, ("epoll",)),
     ("io_uring_enter", ("io_uring_enter_calls",), ("io_uring_enter",), True, ("io_uring",)),
-    ("connect", ("connect_calls",), ("connect",), False, ("epoll", "io_uring")),
+    # The relay's connect on io_uring is a ring operation (IORING_OP_CONNECT), no system call (found
+    # in M5, when systrace.py first ran the relay on io_uring).
+    ("connect", ("connect_calls",), ("connect",), False, ("epoll",)),
     ("shutdown", ("shutdown_calls",), ("shutdown",), False, ("epoll", "io_uring")),
     ("splice", ("splice_calls",), ("splice",), False, ("epoll", "io_uring")),
 )
@@ -215,11 +228,11 @@ def run_load(build: Path, proto: str, port: int, blocks: window.SourceBlocks, wo
         blocks.release(base)
 
 
-def start_server(build: Path, mode: str, backend: str, port: int, raw: Path, tag: str):
+def start_server(build: Path, mode: str, backend: str, port: int, raw: Path, tag: str, detect: str = "replay"):
     """The server alone in a cost cell's arm, on the in-process placement's core."""
-    if mode not in MODES:
-        raise ValueError(mode)
-    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", mode, "--detect", "replay", "--dispatch", "inproc", "--backend", backend,
+    if mode not in MODES or detect not in DETECTS:
+        raise ValueError(f"{mode} {detect}")
+    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", mode, "--detect", detect, "--dispatch", "inproc", "--backend", backend,
            "--port", str(port)]
     proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, window.SERVER_CPUS))] + cmd, stdout=subprocess.PIPE,
                             stderr=open(raw / f"{tag}.server.err", "wb"), start_new_session=True, cwd=raw)
@@ -235,10 +248,10 @@ def start_server(build: Path, mode: str, backend: str, port: int, raw: Path, tag
     return proc, out, ports, cmd
 
 
-def idle_pass(build: Path, mode: str, backend: str, raw: Path, tag: str) -> dict:
+def idle_pass(build: Path, mode: str, backend: str, raw: Path, tag: str, detect: str = "replay") -> dict:
     """The arm started, perf attached, IDLE_S without load, perf stopped, the arm stopped: the
     start-up offset of each check."""
-    proc, out, _, _ = start_server(build, mode, backend, PORTS["cost"], raw, tag)
+    proc, out, _, _ = start_server(build, mode, backend, PORTS["cost"], raw, tag, detect)
     perf = None
     try:
         perf = Perf([proc.pid], raw / tag)
@@ -279,13 +292,14 @@ def finish_checks(row: dict, g: dict | None, extra: list[str]) -> dict:
     return row
 
 
-def cost_row(build: Path, cell: dict, mode: str, blocks: window.SourceBlocks, raw: Path, job: str) -> dict:
-    tag = f"{job}-{cell['workload']}.{cell['proto']}.{cell['backend']}-{mode}"
+def cost_row(build: Path, cell: dict, mode: str, blocks: window.SourceBlocks, raw: Path, job: str, detect: str = "replay",
+             repeat: int = 0) -> dict:
+    tag = f"{job}-{cell['workload']}.{cell['proto']}.{cell['backend']}-{detect}-{mode}" + (f"-r{repeat}" if repeat else "")
     row: dict = {"job": job, "kind": "cost", "untimed": True, "development": True, "cell": f"{cell['workload']}.{cell['proto']}.{cell['backend']}",
-                 "mode": mode, "tag": tag, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+                 "mode": mode, "detect": detect, "repeat": repeat, "tag": tag, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     row["conntrack_wait_s"], _ = window.wait_conntrack()
-    row["idle"] = idle_pass(build, mode, cell["backend"], raw, tag + ".idle")
-    proc, out, ports, cmd = start_server(build, mode, cell["backend"], PORTS["cost"], raw, tag)
+    row["idle"] = idle_pass(build, mode, cell["backend"], raw, tag + ".idle", detect)
+    proc, out, ports, cmd = start_server(build, mode, cell["backend"], PORTS["cost"], raw, tag, detect)
     row["command"] = cmd
     target = PORTS["cost"] if mode == "one-port" else ports.get(window.LISTENER[cell["proto"]])
     perf = None
@@ -314,7 +328,7 @@ def cost_row(build: Path, cell: dict, mode: str, blocks: window.SourceBlocks, ra
     return finish_checks(row, g, [f"server exit {row['server_exit']}"] if row["server_exit"] != 0 else [])
 
 
-def relay_idle_pass(build: Path, port: int, raw: Path, tag: str) -> dict:
+def relay_idle_pass(build: Path, port: int, raw: Path, tag: str, detect: str = "replay", backend: str = "epoll") -> dict:
     """The server's relay and its stub started, perf on the front for IDLE_S without load: the
     front's start-up offsets."""
     import handoff
@@ -322,7 +336,7 @@ def relay_idle_pass(build: Path, port: int, raw: Path, tag: str) -> dict:
     front = perf = None
     lines: list[str] = []
     try:
-        front = handoff.Front(window.ONE_PORT_RELAY, build, port, port + 10, raw, tag, "m3")
+        front = handoff.Front(window.ONE_PORT_RELAY, build, port, port + 10, raw, tag, "m3", backend, detect)
         perf = Perf(comp.group_pids(front.pgid), raw / tag)
         time.sleep(IDLE_S)
     finally:
@@ -333,23 +347,27 @@ def relay_idle_pass(build: Path, port: int, raw: Path, tag: str) -> dict:
         window.stop_process(stub, stub_out)
     calls, _, _ = perf.results()
     counters = window.parse_counters(lines)
-    return {"offsets": startup_offsets(counters, calls, "epoll"), "server_counters": counters, "perf_calls": calls}
+    return {"offsets": startup_offsets(counters, calls, backend), "server_counters": counters, "perf_calls": calls}
 
 
-def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks, raw: Path, job: str) -> dict:
+def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks, raw: Path, job: str,
+              detect: str = "replay", backend: str = "epoll") -> dict:
     import handoff
-    tag = f"{job}-{system}-{proto}"
+    relay = system == window.ONE_PORT_RELAY
+    backend = backend if relay else "epoll"  # the server's relay on either backend (section 10); the proxies as they run
+    tag = f"{job}-{system}-{proto}" + (f"-{detect}" if relay and detect != "replay" else "") + (f"-{backend}" if relay and backend != "epoll" else "")
     port = PORTS["proxy"]
     row: dict = {"job": job, "kind": "proxy", "untimed": True, "development": True, "system": system, "proto": proto, "tag": tag,
+                 "detect": detect if relay else None, "backend": backend if relay else None,
                  "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     row["conntrack_wait_s"], _ = window.wait_conntrack()
-    if system == window.ONE_PORT_RELAY:
-        row["idle"] = relay_idle_pass(build, port, raw, tag + ".idle")
+    if relay:
+        row["idle"] = relay_idle_pass(build, port, raw, tag + ".idle", detect, backend)
     stub, stub_out = handoff.start_stub(build, port + 10, raw, tag)
     front = perf = g = None
     front_lines: list[str] = []
     try:
-        front = handoff.Front(system, build, port, port + 10, raw, tag, "m3")
+        front = handoff.Front(system, build, port, port + 10, raw, tag, "m3", backend, detect)
         row["command"] = front.command
         pids = comp.group_pids(front.pgid)
         row["front_pids"] = pids
@@ -372,7 +390,7 @@ def proxy_row(build: Path, system: str, proto: str, blocks: window.SourceBlocks,
     if system == window.ONE_PORT_RELAY:
         counters = window.parse_counters(front_lines)
         row["server_counters"] = counters
-        row["checks"] = check_counters(counters, calls, "epoll", 1, row["idle"]["offsets"], stat)
+        row["checks"] = check_counters(counters, calls, backend, 1, row["idle"]["offsets"], stat)
     return finish_checks(row, g, [] if acc else ["the stub accepted no connection"])
 
 
@@ -385,6 +403,10 @@ def main(argv=None) -> int:
     ap.add_argument("--kind", required=True, choices=("cost", "proxy"))
     ap.add_argument("--cells", default="", help="cost: workload:proto:backend,...")
     ap.add_argument("--modes", default=",".join(MODES))
+    ap.add_argument("--detects", default="replay", help="cost: the server's detection modes, replay and/or peek")
+    ap.add_argument("--repeat", type=int, default=1, help="cost: each cell's modes this many times, interleaved")
+    ap.add_argument("--detect", default="replay", choices=DETECTS, help="proxy: the server's relay's detection mode")
+    ap.add_argument("--backend", default="epoll", choices=("epoll", "io_uring"), help="proxy: the server's relay's backend")
     ap.add_argument("--systems", default=",".join(comp.ORDER + (window.ONE_PORT_RELAY,)))
     ap.add_argument("--protos", default=",".join(PROXY_PROTOS))
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
@@ -395,14 +417,20 @@ def main(argv=None) -> int:
     rows: list[dict] = []
     if a.kind == "cost":
         modes = [m for m in a.modes.split(",") if m]
+        detects = [d for d in a.detects.split(",") if d]
+        if not detects or not set(detects) <= set(DETECTS):
+            raise SystemExit(f"--detects {a.detects!r}: replay and/or peek")
         for spec in [c for c in a.cells.split(",") if c]:
             workload, proto, backend = spec.split(":")
-            for mode in modes:
-                rows.append(cost_row(a.build, {"workload": workload, "proto": proto, "backend": backend}, mode, blocks, raw, a.job))
+            for detect in detects:
+                for rep in range(1, a.repeat + 1):
+                    for mode in modes:
+                        rows.append(cost_row(a.build, {"workload": workload, "proto": proto, "backend": backend}, mode, blocks, raw,
+                                             a.job, detect, rep if a.repeat > 1 else 0))
     else:
         for system in [s for s in a.systems.split(",") if s]:
             for proto in [p for p in a.protos.split(",") if p]:
-                rows.append(proxy_row(a.build, system, proto, blocks, raw, a.job))
+                rows.append(proxy_row(a.build, system, proto, blocks, raw, a.job, a.detect, a.backend))
     fp = window.pin_fingerprint()
     with open(a.out / "trace.jsonl", "a") as f:
         for r in rows:
@@ -411,7 +439,7 @@ def main(argv=None) -> int:
     for r in rows:
         name = r.get("cell", r.get("system"))
         lost = {c["check"]: c["stat_minus_trace"] for c in r.get("checks", []) if c.get("stat_minus_trace")}
-        print(f"{r['kind']} {name} {r.get('mode', r.get('proto'))}: agrees={r['agrees']} "
+        print(f"{r['kind']} {name} {r.get('mode', r.get('proto'))} {r.get('detect') or ''}: agrees={r['agrees']} "
               f"agrees_with_perf_stat={r['agrees_with_perf_stat']} {'; '.join(r['problems'])}"
               + (f" [perf stat minus perf trace: {lost}]" if lost else ""))
     return 0

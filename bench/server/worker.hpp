@@ -350,16 +350,33 @@ namespace oneport::server::detail
 		bool splice = false;
 		bool reset = false;      // a side reset: the other is closed by reset too
 		bool down_own = false;   // io_uring: the backend's posted receive writes into down.buf
+		// Epoll: whether a side may hold bytes the relay has not read when the copy starts (M5): the
+		// client's, after a read that filled its room, an end seen, a peek (the bytes are still
+		// queued) or a readiness event while the connect was pending; the backend's, when the
+		// connect's end came with EPOLLIN or connect() returned at once. A side that may not is not
+		// read at the start (its next bytes raise an edge-triggered event).
+		bool up_ready = false;
+		bool down_ready = false;
+		// Epoll: whether a side's half-close was reported (EPOLLRDHUP without EPOLLERR) by any
+		// event so far. A short read then has reached the end, and no later event will report it
+		// again, so the copy takes the end there rather than wait for an edge that has passed.
+		bool up_rdhup = false;
+		bool down_rdhup = false;
 		Route route = Route::by_class;
 		Dir up;
 		Dir down;
-		// Pass-through (replay): a ClientHello whose records outgrow the receive buffer moves here.
+		// Pass-through (replay): a ClientHello still incomplete after a read moves here, and the
+		// receive buffer goes back to the pool, so a pending connection holds the records it has
+		// in storage sized to what the reassembly needs next (M5).
 		std::vector<std::byte> hello;  // storage; its bytes are hello[hello_beg, hello_len)
 		std::uint32_t hello_len = 0;
 		std::uint32_t hello_beg = 0;
+		std::uint32_t hello_need = 0;     // the record bytes, headers included, the reassembly needs next
+		std::uint32_t hello_room_max = 0; // the storage's largest size while the ClientHello was incomplete
 		std::uint32_t hello_msg = 0;      // the reassembled message's length, its header included
 		std::uint32_t hello_records = 0;  // the records that carried it
 		std::uint32_t held_max = 0;       // the most payload bytes held while the ClientHello was incomplete
+		bool buffer_waiting = false;      // a receive buffer was held while the ClientHello was incomplete
 	};
 
 	struct Conn
@@ -687,8 +704,13 @@ namespace oneport::server::detail
 
 		/// One step of a TLS connection: the received bytes into OpenSSL, the handshake, the
 		/// decrypted bytes through the application handler, its output through OpenSSL. The
-		/// bytes to send are left in wire_.
+		/// bytes to send are left in wire_. OpenSSL's state is made only once the ClientHello is
+		/// complete in the handler's buffer, or cannot be completed there (M5).
 		apps::Next tls_step(Conn* c);
+
+		/// Makes the connection's OpenSSL state: SSL_new on the server's context and the worker's
+		/// BIO, in accept state. False if OpenSSL could not.
+		bool tls_new(Conn* c);
 
 		/// After the handshake: decrypt, run the application handler, encrypt.
 		apps::Next tls_app(Conn* c);
@@ -830,6 +852,16 @@ namespace oneport::server::detail
 		/// Pass-through found no route: closed, counted, reported.
 		void route_reject(Conn* c);
 
+		/// Replay: sizes the ClientHello's storage to `need` record bytes (never below what it
+		/// holds, never above kHelloWireMax), allocating exactly that (M7: `need` is at most B_CH
+		/// and 5 bytes per record, clienthello::reassemble); a growth that moves its bytes is
+		/// counted (I29).
+		void hello_room(Conn* c, std::uint32_t need);
+
+		/// Replay on epoll, after a read filled the storage: whether the reassembly needs more
+		/// (and how much, in hello_need), so the read goes on.
+		bool hello_needs_more(Conn* c);
+
 		/// Opens the backend connection for the route and starts its connect.
 		void relay_connect(Conn* c, Route route);
 
@@ -843,8 +875,10 @@ namespace oneport::server::detail
 
 		/// Epoll: moves what it can in one direction, by the user-space copy or splice, then
 		/// passes on the half-close once the source has ended. False once the connection is closed.
-		bool relay_pump(Conn* c, bool up);
-		bool pump_user(Conn* c, bool up);
+		/// `src_rdhup`: the event that called it reported the source's half-close (EPOLLRDHUP), so a
+		/// read that returns less than its room has reached the end (M5).
+		bool relay_pump(Conn* c, bool up, bool src_rdhup = false);
+		bool pump_user(Conn* c, bool up, bool src_rdhup);
 		bool pump_splice(Conn* c, bool up);
 
 		/// Whether a direction holds bytes in user space not yet sent (replayed, the ClientHello's,

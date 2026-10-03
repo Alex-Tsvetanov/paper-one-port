@@ -7,6 +7,8 @@
 //   - relay.pass_through.<mode>: TLS routed by the ClientHello's SNI and ALPN to a stub backend,
 //     ClientHellos larger than the receive buffer and than B_CH, and the ones with no route;
 //   - relay.pass_through_tdec.<mode>: T_dec bounds the wait for the whole ClientHello;
+//   - relay.pass_through_storage.<mode>: the ClientHello's storage stays within B_CH and 5 bytes
+//     per record, and a record header that would pass B_CH is refused at once (M7);
 //   - relay.stub: stub mode's ports, the TLS port reading one record;
 //   - relay.matrix: the front's flag combinations;
 //   - relay.binary: the binary as a backend process and a front process.
@@ -333,7 +335,9 @@ namespace oneport::test
 				CHECK(c.splice_calls == 0 && c.bytes_spliced == 0, "the user-space relay spliced");
 				CHECK(c.bytes_received > 2097152 + want && c.bytes_sent > 2097152 + want, "the boundary counters miss the relayed bytes");
 			}
-			CHECK(c.shutdown_calls >= 2 * (relayed - 1), c.shutdown_calls << " half-closes passed on");
+			// One half-close by shutdown() per connection that ended in order; the direction that ends
+			// last is closed by close(), whose FIN passes its end on (M5).
+			CHECK(c.shutdown_calls >= relayed - 1, c.shutdown_calls << " half-closes passed on");
 			return std::nullopt;
 		}
 
@@ -382,6 +386,11 @@ namespace oneport::test
 				CHECK(relays[0].hello_len == msg && relays[0].hello_records == records,
 				      what << ": reassembled " << relays[0].hello_len << " bytes in " << relays[0].hello_records << " records");
 				CHECK(relays[0].held_max <= replay_room * (msg + 5 * records), what << ": held " << relays[0].held_max << " bytes (B2 d)");
+				// M5: an incomplete ClientHello waits in storage sized to the records it needs, and
+				// no receive buffer is held meanwhile; peek holds neither.
+				CHECK(!relays[0].buffer_waiting, what << ": a receive buffer was held while the ClientHello was incomplete");
+				CHECK(relays[0].hello_room_max <= replay_room * (msg + 5 * records),
+				      what << ": its storage reached " << relays[0].hello_room_max << " bytes while it was incomplete");
 				CHECK(t.received == body && t.eof, what << ": the stub's 13 bytes and its close did not come back (" << t.received.size() << " bytes)");
 				return std::nullopt;
 			};
@@ -446,6 +455,11 @@ namespace oneport::test
 			      "the partial ClientHello was not classified TLS at byte 6");
 			if (auto bad = one_route(relays, server::Route::timed_out, 0, "half a ClientHello")) return bad;
 			CHECK(relays[0].held_max <= (detect == Detect::replay ? half.size() : 0), "held " << relays[0].held_max << " bytes (B2 d)");
+			// M5: the half ClientHello waits in storage sized to its record (5 + ell bytes), with no
+			// receive buffer held; in peek it stays in the socket.
+			CHECK(!relays[0].buffer_waiting, "a receive buffer was held while the ClientHello was incomplete");
+			CHECK(relays[0].hello_room_max == (detect == Detect::replay ? rec.size() : 0),
+			      "the ClientHello's storage reached " << relays[0].hello_room_max << " bytes, its record is " << rec.size());
 			CHECK(t.received.empty() && (t.eof || t.reset) && t.end, "a reply, or no close");
 			CHECK(*t.end - t.before_connect >= r.front.args.t_dec, "closed " << std::chrono::duration_cast<std::chrono::milliseconds>(*t.end - t.before_connect).count()
 			                                                              << " ms after connect, before T_dec");
@@ -464,6 +478,66 @@ namespace oneport::test
 				if (ev.kind == server::TimerKind::t_dec && ev.result == server::TimerResult::closed) ++dec;
 			}
 			CHECK(dec == 1 && c.timed.size() == 1, c.timed.size() << " timed events, " << dec << " T_dec closes");
+			return std::nullopt;
+		}
+
+		// ---- relay.pass_through_storage ----
+
+		/// M7: the ClientHello's storage holds at most B_CH and 5 bytes per record, since
+		/// clienthello::reassemble refuses at a record header that would take the handshake bytes
+		/// past B_CH; helloroom1's three framings (design/status.md, M7 preparation):
+		///   A: the first 9 bytes of a 512-byte ClientHello in one record wait in storage of that
+		///      record, 517 bytes, until T_dec closes them;
+		///   B: a 104-byte ClientHello's first 9 bytes, in a record whose header announces 16,384,
+		///      wait in 16,389 bytes, B_CH and one record's 5, until T_dec;
+		///   C: record 1 whole with 16,000 bytes of a 16,384-byte ClientHello, then record 2's
+		///      header announcing 16,384 and 384 bytes of it: refused at record 2's header, closed
+		///      and counted route_rejected as a ClientHello longer than B_CH is, its storage at most
+		///      B_CH and two records' 5 bytes (before M7 it was sized to 32,394).
+		/// Peek holds no storage; its SO_RCVLOWAT follows the same need.
+		Result pass_through_storage(Detect detect)
+		{
+			ServerArgs f;
+			f.detect = detect;
+			Relayed r(Mode::stub, f);
+			const std::uint32_t replay = detect == Detect::replay ? 1 : 0;
+			auto push = [](Bytes& w, std::size_t v) { w.push_back(static_cast<std::byte>(v & 0xFF)); };
+			auto record_header = [&push](Bytes& w, std::size_t len) {
+				for (const std::size_t v : {std::size_t{0x16}, std::size_t{0x03}, std::size_t{0x01}, len >> 8, len}) push(w, v);
+			};
+			auto hello_header = [&push](Bytes& w, std::size_t msg) {
+				for (const std::size_t v : {std::size_t{0x01}, (msg - 4) >> 16, (msg - 4) >> 8, msg - 4}) push(w, v);
+			};
+			Bytes a;
+			record_header(a, 512);
+			hello_header(a, 512);
+			Bytes b;
+			record_header(b, 16384);
+			hello_header(b, 104);
+			Bytes c;
+			record_header(c, 16000);
+			hello_header(c, 16384);
+			c.insert(c.end(), 16000 - 4, std::byte{0});
+			record_header(c, 16384);
+			c.insert(c.end(), 384, std::byte{0});
+			auto held = [&](const std::string& what, const Bytes& bytes, server::Route route, std::uint32_t room, bool exact) -> Result {
+				std::vector<server::RelayReport> relays;
+				const opcase::Transcript t = r.run(Script{}.write(bytes).await_close(), relays);
+				if (auto bad = one_route(relays, route, 0, what)) return bad;
+				CHECK(!relays[0].buffer_waiting, what << ": a receive buffer was held while the ClientHello was incomplete");
+				const std::uint32_t got = relays[0].hello_room_max;
+				CHECK(exact ? got == replay * room : got <= replay * room, what << ": the storage reached " << got << " bytes, the bound " << room);
+				CHECK(relays[0].held_max <= replay * room, what << ": held " << relays[0].held_max << " bytes");
+				CHECK(t.received.empty() && (t.eof || t.reset), what << ": a reply, or no close");
+				return std::nullopt;
+			};
+			if (auto bad = held("A", a, server::Route::timed_out, 517, true)) return bad;
+			if (auto bad = held("B", b, server::Route::timed_out, detect::kBCh + 5, true)) return bad;
+			if (auto bad = held("C", c, server::Route::rejected, detect::kBCh + 10, false)) return bad;
+			if (auto bad = r.stop()) return bad;
+			const server::Counters k = r.front.server->totals();
+			CHECK(k.route_timeouts == 2 && k.route_rejected == 1 && k.routed_by_sni == 0 && k.relayed == 0,
+			      "timed out " << k.route_timeouts << ", rejected " << k.route_rejected << ", routed " << k.routed_by_sni);
 			return std::nullopt;
 		}
 
@@ -661,6 +735,8 @@ namespace oneport::test
 			r["relay.pass_through.peek" + s] = on([] { return pass_through(Detect::peek); });
 			r["relay.pass_through_tdec.replay" + s] = on([] { return pass_through_tdec(Detect::replay); });
 			r["relay.pass_through_tdec.peek" + s] = on([] { return pass_through_tdec(Detect::peek); });
+			r["relay.pass_through_storage.replay" + s] = on([] { return pass_through_storage(Detect::replay); });
+			r["relay.pass_through_storage.peek" + s] = on([] { return pass_through_storage(Detect::peek); });
 			r["relay.stub" + s] = on(stub);
 			r["relay.matrix" + s] = on(matrix);
 			r["relay.binary" + s] = on(binary);

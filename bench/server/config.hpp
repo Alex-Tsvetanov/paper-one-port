@@ -136,6 +136,9 @@ namespace oneport
 		std::int64_t t_fb_ms = kDesignTimerMs;
 		std::int64_t t_dec_ms = kDesignTimerMs;
 		std::int64_t t_hdr_ms = kDesignTimerMs;
+		/// The per-connection decision record of WL8 (bench/server/record.hpp): a file the server
+		/// writes one JSON line per detection, route and close to. Unset: no record, no hook.
+		std::optional<std::string> record;
 	};
 
 	struct Command

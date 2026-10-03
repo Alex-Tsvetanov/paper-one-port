@@ -16,21 +16,26 @@ the readings and the row). No competitor binary is needed: those probes run as l
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "run"))
+sys.path.insert(0, str(HERE.parent))
 
 import cases_check  # noqa: E402
 import competitors as comp  # noqa: E402
+import harness_inputs  # noqa: E402
 import handoff  # noqa: E402
 import probe  # noqa: E402
 import window  # noqa: E402
+from oneport_record import REPORT  # noqa: E402  (bench/: the lab's shared report pattern)
 
 BUILD: Path | None = None
 RUN = Path("/tmp/oneport-run")  # only a string in the rendered text; nothing is written there
@@ -199,6 +204,27 @@ class Cases(unittest.TestCase):
         self.assertIn("envoy.filters.listener.http_inspector", live(rendered("envoy", "cases")))
         self.assertNotIn("http_inspector", live(rendered("envoy", "m3")))  # M4a's reading 11: M3 and B3 hold none
 
+    def test_no_alpn_route(self):
+        # The server's route for a ClientHello without ALPN (bench/server/relay.cpp), in every
+        # proxy's cases configuration (Appendix B: "every route its features cover").
+        self.assertIn('"oneport.test "             tls_backend;', live(rendered("nginx", "cases")))
+        h = live(rendered("haproxy", "cases"))
+        self.assertIn("acl tls_has_alpn req.ssl_alpn -m found", h)
+        self.assertIn("use_backend tls_backend if { req.ssl_sni -m str oneport.test } !tls_has_alpn", h)
+        e = live(rendered("envoy", "cases"))
+        chains = e.split("filter_chain_match:")
+        self.assertTrue(any('server_names: [ "oneport.test" ]' in c and "application_protocols" not in c.split("filters:")[0]
+                            for c in chains[1:]), "a TLS chain by SNI alone")
+        c = live(rendered("caddy-l4", "cases"))
+        self.assertEqual(c.count("@tls_no_alpn tls {"), 2)  # the plain listener and the PROXY listener's subroute
+        self.assertEqual(c.count("route @tls_no_alpn {"), 2)
+        self.assertLess(c.index("route @tls {"), c.index("route @tls_no_alpn {"))  # after the ALPN route
+        s = live(rendered("sslh-ev", "cases"))
+        self.assertIn('{ name: "tls"; host: "127.0.0.1"; port: "22112"; sni_hostnames: [ "oneport.test" ]; log_level: 0; }', s)
+        self.assertLess(s.index("alpn_protocols"), s.index('sni_hostnames: [ "oneport.test" ]; log_level: 0;'))
+        self.assertEqual(set(cases_check.NOALPN_SYSTEMS), set(comp.ORDER))
+        self.assertLessEqual(set(cases_check.NOALPN_EXACT), set(cases_check.NOALPN_SYSTEMS))
+
     def test_fallback_only_in_its_kind(self):
         smtp = str(22110 + comp.STUB_OFFSET["smtp"])
         for s in (x for x in comp.FALLBACK_SYSTEMS if x in comp.ORDER):
@@ -327,6 +353,46 @@ class Libraries(unittest.TestCase):
         self.assertEqual(probe.judge_lib(None, quiet, 3.0), (None, "observed only"))
 
 
+class HarnessInputs(unittest.TestCase):
+    """The harnesses' named inputs and their inputs hash (harness_inputs.py; M5, step 0): the
+    hyper-util harness's TSan suppression file is one of its inputs, so editing it changes the hash
+    the records gate matches."""
+
+    def test_every_input_exists(self):
+        self.assertEqual(set(comp.LIBRARIES), set(harness_inputs.INPUTS))
+        for name in harness_inputs.INPUTS:
+            lines = harness_inputs.input_lines(name)
+            self.assertEqual(len(lines), len(harness_inputs.INPUTS[name]), name)
+            self.assertTrue(all(ln.startswith(f"bench/competitors/{name}/") for ln in lines), name)
+            self.assertRegex(harness_inputs.inputs_hash(name), r"^[0-9a-f]{64}$")
+
+    def test_suppression_is_an_input(self):
+        self.assertIn("tsan.supp", harness_inputs.INPUTS["hyper-util"])
+        self.assertEqual(harness_inputs.run_env("hyper-util", "release"), {})
+        env = harness_inputs.run_env("hyper-util", "tsan")
+        self.assertTrue(env["TSAN_OPTIONS"].endswith("bench/competitors/hyper-util/tsan.supp"))
+        entries = [ln for ln in (HERE / "hyper-util" / "tsan.supp").read_text().splitlines() if ln and not ln.startswith("#")]
+        self.assertEqual(entries, ["race:tokio::runtime::io::registration_set::RegistrationSet>::allocate"])  # one entry, in tokio
+
+    def test_editing_an_input_changes_the_hash(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for rel in harness_inputs.INPUTS["hyper-util"]:
+                p = root / "bench" / "competitors" / "hyper-util" / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes((HERE / "hyper-util" / rel).read_bytes())
+            same = harness_inputs.inputs_hash("hyper-util", root)
+            self.assertEqual(same, harness_inputs.inputs_hash("hyper-util"))
+            supp = root / "bench" / "competitors" / "hyper-util" / "tsan.supp"
+            supp.write_bytes(supp.read_bytes().replace(b"\n", b"\r\n"))  # CRLF is read as LF
+            self.assertEqual(harness_inputs.inputs_hash("hyper-util", root), same)
+            supp.write_text(supp.read_text() + "race:tokio::runtime::task\n")
+            self.assertNotEqual(harness_inputs.inputs_hash("hyper-util", root), same)
+            supp.unlink()
+            with self.assertRaises(FileNotFoundError):
+                harness_inputs.inputs_hash("hyper-util", root)
+
+
 class Guard(unittest.TestCase):
     def test_pairs(self):
         c = comp.ORDER
@@ -410,17 +476,117 @@ class HandoffRow(unittest.TestCase):
         self.assertIsNone(handoff.session_ratio(rows))
 
 
-@unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")
+# The integration tests' ports. The runners' own ports are probe.PORTS (23000, 23100, 23200) and,
+# in the hand-off test, 23500, each with its stub's six listeners 10 to 15 above it: the block 23000
+# to 23515. The tests move that block to TEST_PORT_BASE plus a shift, below 10000, because the
+# suite's in-process servers take random runs of free ports from 10000 up to the ephemeral range
+# (bench/server/server.cpp, bind_all, "a test convenience"): in the records drivers' dry run
+# dryrun3 a stub exited at start on its fixed port inside that range while the C++ tests of two
+# suites ran beside it (its standard error was gone with the test's temporary directory, so the
+# held port is the likely cause, not a proven one). A shift is a multiple of PORT_STRIDE, more
+# than the block's 516 ports, so the blocks of two shifts never overlap (dryrun1: at a stride of
+# 400, TSan's probe front took ASan's hand-off port).
+PORT_BLOCK = (23000, 23515)
+TEST_PORT_BASE = 4000
+SERVER_RANDOM_FIRST_PORT = 10000  # bench/server/server.cpp, bind_all: first_port
+PORT_STRIDE = 600
+PORT_SHIFTS = 8
+
+
+def port_shift(build: Path, env: dict | None = None) -> int:
+    """A port shift per build tree, so two suites run at once (M5's checks and the records driver
+    run two sanitizer builds together) do not bind each other's ports: ONEPORT_TEST_PORT_SHIFT
+    when set (bench/sanitize_oneport.sh gives each sanitizer its own), else PORT_STRIDE times the
+    tree's CRC-32 modulo PORT_SHIFTS."""
+    env = os.environ if env is None else env
+    if env.get("ONEPORT_TEST_PORT_SHIFT"):
+        shift = int(env["ONEPORT_TEST_PORT_SHIFT"])
+        if shift % PORT_STRIDE or not 0 <= shift < PORT_STRIDE * PORT_SHIFTS:
+            raise ValueError(f"ONEPORT_TEST_PORT_SHIFT={shift}: a multiple of {PORT_STRIDE} below {PORT_STRIDE * PORT_SHIFTS}")
+        return shift
+    return PORT_STRIDE * (zlib.crc32(str(build.resolve()).encode()) % PORT_SHIFTS)
+
+
+def moved_port(port: int, shift: int) -> int:
+    """Where an integration test binds a runner's port: moved below the in-process servers' range."""
+    return port - PORT_BLOCK[0] + TEST_PORT_BASE + shift
+
+
+class PortShifts(unittest.TestCase):
+    """The integration tests' port blocks: apart from each other and from the suite's random ports (pure)."""
+
+    def test_block_and_stride(self):
+        self.assertEqual(PORT_BLOCK[0], min(probe.PORTS.values()))
+        self.assertEqual(PORT_BLOCK[1], HANDOFF_TEST_PORT + max(comp.STUB_OFFSET.values()) + 10)
+        self.assertGreater(PORT_STRIDE, PORT_BLOCK[1] - PORT_BLOCK[0])
+        highest = moved_port(PORT_BLOCK[1], PORT_STRIDE * (PORT_SHIFTS - 1))
+        self.assertLess(highest, SERVER_RANDOM_FIRST_PORT)
+        self.assertGreater(moved_port(PORT_BLOCK[0], 0), 1024)  # no privileged port
+
+    def test_environment_override(self):
+        self.assertEqual(port_shift(Path("."), {"ONEPORT_TEST_PORT_SHIFT": "1800"}), 1800)
+        for bad in ("400", "4800", "-600"):
+            with self.assertRaises(ValueError):
+                port_shift(Path("."), {"ONEPORT_TEST_PORT_SHIFT": bad})
+        self.assertEqual(port_shift(Path("."), {}) % PORT_STRIDE, 0)
+
+
+HANDOFF_TEST_PORT = 23500  # the hand-off window's front in test_one_handoff_window_each_protocol
+
+
+def child_reports(d: Path) -> list[str]:
+    """The sanitizer reports in the files the started processes wrote under d (each stub's and
+    front's standard error and output, opgen's), with the lab's shared pattern
+    (bench/oneport_record.py's REPORT). Those files live in a temporary directory that is gone when
+    the test ends, so a sanitizer build's record (bench/sanitize_oneport.sh) would not see a report
+    in them; the test prints each one and fails on it, so the CTest log carries it."""
+    found = []
+    for f in sorted(p for p in d.rglob("*") if p.is_file()):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if REPORT.search(line):
+                found.append(f"{f.relative_to(d)}: {line}")
+    for line in found:
+        print(line)
+    return found
+
+
+class ChildReports(unittest.TestCase):
+    """child_reports finds a report in a started process's file (pure). Its printed lines are
+    captured here: a line of the report pattern in the CTest log would turn a record red."""
+
+    def test_found_and_clean(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "raw").mkdir()
+            (Path(d) / "raw" / "x.stub.err").write_text("==1==ERROR: Address" + "Sanitizer: heap-use-after-free\n")
+            (Path(d) / "raw" / "x.front.err").write_text("oneport: listening\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                found = child_reports(Path(d))
+            self.assertEqual(len(found), 1)
+            self.assertTrue(found[0].startswith("raw/x.stub.err: ") or found[0].startswith("raw\\x.stub.err: "))
+            (Path(d) / "raw" / "x.stub.err").write_text("oneport: counters\n")
+            self.assertEqual(child_reports(Path(d)), [])
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")  # it decorated port_shift until e68087f
 class Integration(unittest.TestCase):
     """Real processes on this host: the server's relay as the front, the stub behind it."""
 
     def setUp(self):
         if BUILD is None:
             self.skipTest("no --build")
+        self.shift = port_shift(BUILD)
 
     def test_probe_of_the_servers_relay(self):
-        with tempfile.TemporaryDirectory() as d:
-            res = probe.run(probe.SERVER, "m3", BUILD, Path(d))
+        saved = dict(probe.PORTS)
+        probe.PORTS.update({k: moved_port(v, self.shift) for k, v in saved.items()})
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                res = probe.run(probe.SERVER, "m3", BUILD, Path(d))
+                self.assertEqual(child_reports(Path(d)), [])
+        finally:
+            probe.PORTS.update(saved)
         self.assertTrue(res["checks"]["routes"]["ok"], res["checks"]["routes"])
         self.assertEqual(res["checks"]["routes"]["front_counters"].get("routed_by_sni"), 1)
         for case in ("silent", "partial"):
@@ -436,7 +602,7 @@ class Integration(unittest.TestCase):
                 blocks = window.SourceBlocks(Path(d) / "blocks.json")
                 for proto in handoff.M3_PROTOS:
                     cfg = {"build": BUILD, "proto": proto, "k_src": 4, "cell": f"m3.{proto}.test", "arms": {"A": handoff.SERVER},
-                           "ports": {"A": 23500}}
+                           "ports": {"A": moved_port(HANDOFF_TEST_PORT, self.shift)}}
                     session = {"job": "test", "id": f"test-{proto}", "mhz": 1.0}
                     row = handoff.run_window(cfg, session, "A", 0, blocks, Path(d) / "raw")
                     reasons = row.get("invalid_reasons", [])
@@ -446,6 +612,7 @@ class Integration(unittest.TestCase):
                     self.assertEqual(row["server_counters"]["relayed"], row["backend_counters"]["accepted"], proto)
                     self.assertIn("wl6_cpu_us_per_exchange", row, proto)
                     self.assertEqual(set(row["backend_core_busy"]), {"10", "12"})
+                self.assertEqual(child_reports(Path(d)), [])
         finally:
             window.WARMUP_MS, window.DURATION_MS, window.wait_conntrack = saved
 

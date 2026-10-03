@@ -16,7 +16,7 @@ else()
 endif()
 configure_file(clienthello_hex.cpp.in "${CMAKE_CURRENT_BINARY_DIR}/generated/clienthello_hex.cpp" @ONLY)
 
-add_library(opcase STATIC cases.cpp cases.hpp fixtures.cpp fixtures.hpp script.cpp script.hpp
+add_library(opcase STATIC cases.cpp cases.hpp fixtures.cpp fixtures.hpp script.cpp script.hpp run_cases.cpp run_cases.hpp
             "${CMAKE_CURRENT_BINARY_DIR}/generated/clienthello_hex.cpp")
 target_include_directories(opcase PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(opcase PUBLIC oneport_server)

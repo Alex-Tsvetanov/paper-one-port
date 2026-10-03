@@ -1,0 +1,3 @@
+# The analysis's pinned versions (hypotheses.md 4.6 step 3; analysis/versions.py).
+# Python 3.14.5 (the CLIs require 3.14), as design/proposal.md, Appendix A, ran.
+numpy==2.5.0

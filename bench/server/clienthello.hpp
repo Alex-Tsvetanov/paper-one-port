@@ -32,12 +32,20 @@ namespace oneport::clienthello
 		Verdict verdict = Verdict::more;
 		std::uint32_t msg_len = 0;  // the handshake message's bytes, its 4-byte header included
 		std::uint32_t wire_len = 0; // the record bytes, headers included, up to the record that completed it
-		std::uint32_t records = 0;  // the records that carried it
+		std::uint32_t records = 0;  // the records that carried it (more: the records whole so far)
 		std::uint32_t need = 0;     // more: the fewest record bytes in all, headers included, with which it can go on
 	};
 
 	/// Copies the handshake fragments of the records at the start of `wire` into `out` (at least
 	/// B_CH bytes) until a whole ClientHello is there. A record must be whole before it counts.
+	///
+	/// The bound on what it asks for (M7): a record whose header announces a length that would take
+	/// the handshake bytes past B_CH is refused at its header ("no"), the verdict it would get once
+	/// whole, only before its bytes arrive. So when the verdict is "more", `need` is at most B_CH
+	/// and 5 bytes for each record that carries the bytes so far, the incomplete one included:
+	/// need <= B_CH + 5 * (records + 1). The relay sizes the ClientHello's storage to `need`
+	/// (bench/server/relay.cpp), and in peek mode SO_RCVLOWAT; before M7 a second record's header
+	/// could ask for about twice B_CH (design/status.md, M7 preparation, job helloroom1).
 	constexpr Reassembled reassemble(std::span<const std::byte> wire, std::span<std::byte> out) noexcept
 	{
 		Reassembled r;
@@ -61,13 +69,54 @@ namespace oneport::clienthello
 			if (u8(wire[pos]) != 0x16 || u8(wire[pos + 1]) != 0x03) return {Verdict::no, 0, 0, r.records};
 			const std::size_t len = (std::size_t{u8(wire[pos + 3])} << 8) | u8(wire[pos + 4]);
 			if (len == 0 || len > 16384) return {Verdict::no, 0, 0, r.records};  // RFC 8446 s5.1
+			if (got + len > cap) return {Verdict::no, 0, 0, r.records};  // past B_CH: refused at its header
 			if (wire.size() - pos - 5 < len)
 			{
 				r.need = static_cast<std::uint32_t>(pos + 5 + len);
 				return r;
 			}
-			if (got + len > cap) return {Verdict::no, 0, 0, r.records};
 			for (std::size_t i = 0; i < len; ++i) out[got + i] = wire[pos + 5 + i];
+			got += len;
+			pos += 5 + len;
+			++r.records;
+		}
+	}
+
+	/// What reassemble() decides on `wire`, without copying the fragments: a whole ClientHello
+	/// (yes, with msg_len, wire_len and records), none possible (no), or more record bytes needed
+	/// (more, with need). The in-process TLS handler asks it whether the ClientHello is complete
+	/// before it makes OpenSSL's state (M5). Only the handshake header's 4 bytes are kept, across
+	/// records if they span two. It refuses at a record's header as reassemble() does (M7).
+	constexpr Reassembled scan(std::span<const std::byte> wire) noexcept
+	{
+		Reassembled r;
+		std::size_t pos = 0;
+		std::size_t got = 0;
+		std::array<std::uint8_t, 4> head{};
+		for (;;)
+		{
+			if (got >= 4)
+			{
+				if (head[0] != 0x01) return {Verdict::no, 0, 0, r.records};
+				const std::size_t need = 4 + ((std::size_t{head[1]} << 16) | (std::size_t{head[2]} << 8) | head[3]);
+				if (need > detect::kBCh) return {Verdict::no, 0, 0, r.records};
+				if (got >= need) return {Verdict::yes, static_cast<std::uint32_t>(need), static_cast<std::uint32_t>(pos), r.records};
+			}
+			if (wire.size() - pos < 5)
+			{
+				r.need = static_cast<std::uint32_t>(pos + 5);
+				return r;
+			}
+			if (u8(wire[pos]) != 0x16 || u8(wire[pos + 1]) != 0x03) return {Verdict::no, 0, 0, r.records};
+			const std::size_t len = (std::size_t{u8(wire[pos + 3])} << 8) | u8(wire[pos + 4]);
+			if (len == 0 || len > 16384) return {Verdict::no, 0, 0, r.records};  // RFC 8446 s5.1
+			if (got + len > detect::kBCh) return {Verdict::no, 0, 0, r.records};  // past B_CH: refused at its header
+			if (wire.size() - pos - 5 < len)
+			{
+				r.need = static_cast<std::uint32_t>(pos + 5 + len);
+				return r;
+			}
+			for (std::size_t i = 0; i < len && got + i < head.size(); ++i) head[got + i] = u8(wire[pos + 5 + i]);
 			got += len;
 			pos += 5 + len;
 			++r.records;

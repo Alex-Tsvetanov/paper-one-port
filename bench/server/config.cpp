@@ -48,9 +48,10 @@ namespace oneport
 		constexpr std::array<std::string_view, 4> kRequired{"--mode", "--detect", "--dispatch", "--backend"};
 
 		/// Every flag that takes a value.
-		constexpr std::array<std::string_view, 16> kValueFlags{
+		constexpr std::array<std::string_view, 17> kValueFlags{
 			"--mode",     "--detect",   "--dispatch", "--backend", "--iocp-receive", "--iocp-accept", "--relay-copy", "--proxy",
-			"--fallback", "--listener", "--workers",  "--port",    "--relay-port",   "--t-fb-ms",     "--t-dec-ms",   "--t-hdr-ms",
+			"--fallback", "--listener", "--workers",  "--port",    "--relay-port",   "--record",      "--t-fb-ms",    "--t-dec-ms",
+			"--t-hdr-ms",
 		};
 
 		template <class E, std::size_t N>
@@ -133,6 +134,11 @@ namespace oneport
 				const auto v = whole<std::uint32_t>(value, 1, 65535);
 				if (!v) return std::string(flag) + ": '" + std::string(value) + "' is not a port from 1 to 65535";
 				(flag == "--port" ? c.port : c.relay_port) = static_cast<std::uint16_t>(*v);
+				return std::nullopt;
+			}
+			if (flag == "--record")
+			{
+				c.record = std::string(value);
 				return std::nullopt;
 			}
 			if (flag == "--t-fb-ms") return set_timer(c.t_fb_ms, flag, value);
@@ -250,6 +256,7 @@ namespace oneport
 		line("t-fb-ms", std::to_string(c.t_fb_ms));
 		line("t-dec-ms", std::to_string(c.t_dec_ms));
 		line("t-hdr-ms", std::to_string(c.t_hdr_ms));
+		line("record", c.record ? *c.record : std::string("unset"));
 		return s;
 	}
 
@@ -274,6 +281,8 @@ namespace oneport
 		       "  --relay-port    1 to 65535, the backend's first port; required by one-port mode with\n"
 		       "                  --dispatch relay (its six listeners follow in the order HTTP/1.1, h2c,\n"
 		       "                  TLS, MQTT, SSH, SMTP)\n"
+		       "  --record        a file for the per-connection decision record of hard-case runs\n"
+		       "                  (one JSON line per detection, route and close; unset by default)\n"
 		       "  --t-fb-ms, --t-dec-ms, --t-hdr-ms\n"
 		       "                  T_fb, T_dec, T_hdr in whole milliseconds >= 1, default " + std::to_string(kDesignTimerMs) + "\n"
 		       "  --print-config  print the parsed configuration and exit\n"

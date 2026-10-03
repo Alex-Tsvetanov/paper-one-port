@@ -135,7 +135,8 @@ namespace oneport::loop
 		/// A multishot accept (I4): one completion per connection, res the new descriptor
 		/// (non-blocking, close-on-exec), flagged IORING_CQE_F_MORE while it stays armed.
 		void accept_multishot(int fd, std::uint64_t user_data);
-		/// A receive of at most `len` bytes into `buf`.
+		/// A receive of at most `len` bytes into `buf`: an IORING_OP_READ on the socket (M5; why in
+		/// src/uring.cpp).
 		void recv(int fd, void* buf, std::uint32_t len, std::uint64_t user_data);
 		/// A receive into a buffer the kernel takes from provided-buffer group `group` when data
 		/// arrives (IOSQE_BUFFER_SELECT), so the pending receive holds no buffer (I11, I15). The

@@ -4,7 +4,13 @@
 # PROXY cases; filter chains by server_names, transport_protocol and application_protocols;
 # tcp_proxy; listener_filters_timeout matched; continue_on_listener_filters_timeout true only in
 # the fallback cases. Every route those features cover: TLS for oneport.test whose ALPN offers h2
-# or http/1.1 (the protocols the backend's TLS port serves) to the backend's TLS port; plaintext
+# or http/1.1 (the protocols the backend's TLS port serves) to the backend's TLS port, and TLS for
+# oneport.test with no ALPN to the same port (a second chain, added before the code freeze; M4b-1's
+# reading 4 had left it out). FilterChainMatch has no form for "no application protocol": a chain
+# without application_protocols matches any, and the more specific chain takes h2 and http/1.1
+# first (FilterChainMatch, application protocols the fifth criterion), so the second chain also
+# takes a ClientHello for oneport.test whose ALPN offers neither, which the server's route table
+# (bench/server/relay.cpp) closes and no hard case sends; plaintext
 # that http_inspector reports as h2c to its h2c port, as http/1.1 or http/1.0 to its HTTP/1.1
 # port (survey 2.5); SSH and MQTT have no inspector, so no chain takes them. Two listeners: PORT
 # without PROXY, PORT_PROXY with the proxy_protocol filter first (the header required, Envoy's
@@ -39,6 +45,15 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
           stat_prefix: tls_backend
+          cluster: tls_backend
+    - filter_chain_match:               # TLS for oneport.test with no ALPN (and, by Envoy's matching, any other list)
+        server_names: [ "oneport.test" ]
+        transport_protocol: tls
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tls_backend_no_alpn
           cluster: tls_backend
     - filter_chain_match:
         transport_protocol: raw_buffer

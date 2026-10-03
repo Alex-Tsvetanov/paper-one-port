@@ -16,6 +16,11 @@ Records are matched by what they compiled, not by commit (the Papers repo's rule
   both fetched, the same URL and hash as used (third_party.fetched of lab/bin/inputs_hash.py). A
   build whose pins differ from its records' is therefore refused; the error names the records
   left out for that.
+- A dry-run record (a test of the records drivers, "dry_run": true) never gates a build: one found
+  among the records stops the gate, since records match by inputs hash and not by commit, so a
+  record made before the code freeze would otherwise cover the freeze's build wherever a target's
+  inputs did not change. accept_dry_run lets the drivers' dry run exercise the matching; its
+  result is then marked and is never citable (bench/check_records.py, bench/check_rows.py).
 Every failure raises GateError with the reason.
 """
 
@@ -82,7 +87,7 @@ def host_records(records: Path, pattern: str, host: str) -> list[Path]:
 
 def target_coverage(records: Path, pattern: str, hashes: dict, config, compiler: str,
                     declared: dict | None = None, *, host: str, pins: str,
-                    fetched: dict) -> tuple[dict, dict, list[str]]:
+                    fetched: dict, accept_dry_run: bool = False) -> tuple[dict, dict, list[str]]:
     sanitizers = sanitizers_for(host)
     declared = declared or {}
     coverage: dict = {t: {} for t in hashes}
@@ -90,6 +95,9 @@ def target_coverage(records: Path, pattern: str, hashes: dict, config, compiler:
     other_pins: list[str] = []
     for f in host_records(records, pattern, host):
         r = load(f)
+        if r.get("dry_run") and not accept_dry_run:
+            raise GateError(f"{f.name} is a dry run of the records driver: it never gates a build and never belongs "
+                            f"among the records ({records})")
         san = r.get("sanitizer")
         if san not in sanitizers:
             continue

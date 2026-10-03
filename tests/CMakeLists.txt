@@ -30,7 +30,8 @@ set(ONEPORT_PURE_TESTS
     detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets
     http.valid http.grammar http.bad_request http.incomplete http.responses
     apps.smtp_lines apps.smtp_partial_and_limits apps.mqtt_connect_ping_disconnect apps.mqtt_streams_payload
-    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments
+    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments clienthello.scan
+    clienthello.helloroom1 clienthello.refusal clienthello.need_bound
     gen.options gen.quantiles gen.h2_status)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
@@ -50,16 +51,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         server.dedicated_ports server.dedicated_proxy server.peek_lowat.peek server.peek_lowat.replay
         server.check_byte_wins.replay server.check_byte_wins.peek
         server.two_workers.shared_replay server.two_workers.shared_peek server.two_workers.reuseport_replay
-        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending)
+        server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending server.cases_by_port)
     # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
     set(ONEPORT_HANDLER_TESTS
-        handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
+        handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.tls_deferred handlers.h2c_streams
         handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
     # Relay dispatch, pass-through and stub mode (proposal I17, I18).
     set(ONEPORT_RELAY_TESTS
         relay.exchanges.user_space.replay relay.exchanges.user_space.peek relay.exchanges.splice.replay
         relay.exchanges.splice.peek relay.refused relay.pass_through.replay relay.pass_through.peek
-        relay.pass_through_tdec.replay relay.pass_through_tdec.peek relay.stub relay.matrix)
+        relay.pass_through_tdec.replay relay.pass_through_tdec.peek relay.pass_through_storage.replay
+        relay.pass_through_storage.peek relay.stub relay.matrix)
     foreach(_backend IN LISTS ONEPORT_BACKENDS)
         foreach(_test IN LISTS ONEPORT_SERVER_TESTS)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
@@ -67,6 +69,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         endforeach()
         add_test(NAME server.binary_smoke.${_backend} COMMAND oneport_tests test server.binary_smoke.${_backend} $<TARGET_FILE:oneport>)
         set_tests_properties(server.binary_smoke.${_backend} PROPERTIES TIMEOUT 120 LABELS "server;${_backend}")
+        add_test(NAME server.binary_record.${_backend} COMMAND oneport_tests test server.binary_record.${_backend} $<TARGET_FILE:oneport>)
+        set_tests_properties(server.binary_record.${_backend} PROPERTIES TIMEOUT 120 LABELS "server;${_backend}")
         foreach(_test IN LISTS ONEPORT_HANDLER_TESTS)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
             set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "handlers;${_backend}")
@@ -93,7 +97,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
              $<TARGET_FILE:opcase_bin> $<TARGET_FILE:ophold>)
     set_tests_properties(gen.binaries PROPERTIES TIMEOUT 300 LABELS gen)
     # Once: the kernel behaviour the peek paths rest on, the TLS context, and what is not served.
-    foreach(_test server.kernel_rcvlowat_et server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.not_served)
+    foreach(_test server.kernel_rcvlowat_et server.kernel_nodelay_inherited server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.not_served)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
         set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS server)
     endforeach()

@@ -6,6 +6,12 @@
 // the socket after peek), and nothing after it. TLS reads the received bytes through the worker's
 // BIO from the connection's buffer, the one the handler would read into, and decrypts into a
 // second buffer (`plain`), from which the HTTP/1.1 or h2 handler reads as from the socket's bytes.
+// TLS makes OpenSSL's state (SSL_new) only once the ClientHello is complete in that buffer, or
+// cannot complete there (malformed, not a ClientHello, larger than the buffer's room, or the peer
+// ended): until then a pending TLS connection holds its bytes and no OpenSSL state, as Netty's
+// SniHandler waits for the whole ClientHello before it makes its engine (M5). OpenSSL then reads
+// the same bytes it would have read piecemeal, with the same settings, so its replies and alerts
+// are the same; a change of the handler, so of both modes alike.
 //
 // Input: epoll reads synchronously on readiness (handler_readable); io_uring receives into the
 // buffer and runs the handler on the completion (uring.cpp, handler_run, want_read).
@@ -18,6 +24,8 @@
 
 #include <algorithm>
 #include <cstring>
+
+#include "clienthello.hpp"
 
 #include <openssl/err.h>
 #if defined(__linux__)
@@ -63,17 +71,7 @@ namespace oneport::server::detail
 					return true;
 				}
 				c->app = App::none;  // HTTP/1.1 or h2, by ALPN, once the handshake completes
-				c->ssl = SSL_new(shared_.ssl_ctx);
-				BIO* b = c->ssl != nullptr ? tls::new_bio(&bio_) : nullptr;
-				if (b == nullptr)
-				{
-					ERR_clear_error();
-					close_conn(c);
-					return false;
-				}
-				SSL_set_bio(c->ssl, b, b);
-				SSL_set_accept_state(c->ssl);
-				return true;
+				return true;         // OpenSSL's state comes with the whole ClientHello (tls_step)
 			}
 			case Proto::mqtt:
 				c->app = App::mqtt;
@@ -148,6 +146,10 @@ namespace oneport::server::detail
 					r.error = true;
 					r.reset = e == WSAECONNRESET;
 				}
+				else
+				{
+					++c_.recv_again;
+				}
 				break;
 			}
 #else
@@ -165,6 +167,7 @@ namespace oneport::server::detail
 			}
 			if (n == 0)
 			{
+				++c_.recv_eof;
 				r.eof = true;
 				c->eof_seen = true;
 				c->observe_pass = pass_;
@@ -172,6 +175,7 @@ namespace oneport::server::detail
 			}
 			if (errno == EINTR) continue;
 			if (errno != EAGAIN && errno != EWOULDBLOCK) r.error = true;
+			else ++c_.recv_again;
 			break;
 		}
 		if (r.bytes > 0) c->last_read_pass = pass_;
@@ -299,9 +303,34 @@ namespace oneport::server::detail
 
 	// ---- TLS (I22 to I24) ----
 
+	bool Worker::tls_new(Conn* c)
+	{
+		c->ssl = SSL_new(shared_.ssl_ctx);
+		BIO* b = c->ssl != nullptr ? tls::new_bio(&bio_) : nullptr;
+		if (b == nullptr)
+		{
+			ERR_clear_error();
+			return false;
+		}
+		SSL_set_bio(c->ssl, b, b);
+		SSL_set_accept_state(c->ssl);
+		++c_.tls_states;
+		return true;
+	}
+
 	Next Worker::tls_step(Conn* c)
 	{
 		wire_.clear();
+		if (c->ssl == nullptr)
+		{
+			// The ClientHello first, whole, in the handler's buffer: until then no OpenSSL state.
+			const std::span<const std::byte> held =
+				c->buf != nullptr ? std::span<const std::byte>(c->buf->data.data() + c->beg, c->len - c->beg) : std::span<const std::byte>();
+			const clienthello::Reassembled a = clienthello::scan(held);
+			const bool fits = a.need <= kRecvBuf - (c->buf != nullptr ? c->beg : 0u);
+			if (a.verdict == clienthello::Verdict::more && fits && !c->eof_seen) return Next::more;
+			if (!tls_new(c)) return Next::close_now;
+		}
 		bio_.in = c->buf != nullptr ? c->buf->data.data() + c->beg : nullptr;
 		bio_.in_len = c->buf != nullptr ? c->len - c->beg : 0;
 		bio_.used = 0;

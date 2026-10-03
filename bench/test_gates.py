@@ -15,11 +15,21 @@ there. The pin rule: a build whose bench/cmake/pins.cmake differs from the file 
 made with is refused; so is a build whose records fetched an archive with another hash, or do not
 record their pins.
 
+Added for the code freeze's records drivers: a dry-run record among the records stops the gate,
+and --accept-dry-run lets it count but marks the output, never citable; the harnesses' gate
+(build_harnesses.sh's build.json: a Go harness covered by ASan and TSan with its declared MSan gap,
+a Java harness declared whole, a missing TSan record, another toolchain, a sanitizer flavour as the
+measured build); the gate's output holds the build's binaries; bench/check_rows.py passes a row
+whose binaries a passing gate holds, and refuses a row whose binary has no matching green record
+(another sha256), a row that names no binary, and a row whose only gate is a dry run; and
+bench/build_inputs.py's check of the compiled targets against its list.
+
     python3 bench/test_gates.py      (exit 0 when every check passes)
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -28,6 +38,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import build_inputs  # noqa: E402
+from build_inputs import BINARIES  # noqa: E402
 from gate_lib import file_sha256  # noqa: E402
 
 PINS = HERE / "cmake" / "pins.cmake"
@@ -35,6 +47,7 @@ PINS_SHA = file_sha256(PINS)
 FETCHED = {"openssl": {"url": "https://example.invalid/openssl.tar.gz", "url_hash": "SHA256=aa"},
            "nghttp2": {"url": "https://example.invalid/nghttp2.tar.gz", "url_hash": "SHA256=bb"}}
 CHECK = HERE / "check_records.py"
+ROWS = HERE / "check_rows.py"
 COMPILERS = {"L": "Clang 22.1.8", "W": "MSVC 19.51.36246"}
 CONFIG = {"CMAKE_BUILD_TYPE": "Release"}
 TARGETS = {"oneport": "s1", "oneport_config": "c1", "oneport_loop": "l1", "oneport_tests": "t1", "harness_go": "g1"}
@@ -70,6 +83,140 @@ def run(inputs_file: Path, recs: Path, coverage: Path, host: str = "L", pins: Pa
     cmd = [sys.executable, str(CHECK), "--records", str(recs), "--inputs", str(inputs_file), "--compiler", COMPILERS[host],
            "--host", host, "--pins", str(pins), "--coverage", str(coverage)]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+
+
+def gate(out: Path, recs: Path, coverage: Path, *extra: str) -> tuple[bool, dict]:
+    """check_records.py with the given arguments; (passed, its output or {})."""
+    cmd = [sys.executable, str(CHECK), "--records", str(recs), "--host", "L", "--pins", str(PINS),
+           "--coverage", str(coverage), "--out", str(out), *extra]
+    ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    return ok, (json.loads(out.read_text(encoding="utf-8")) if ok and out.exists() else {})
+
+
+def rows_ok(gates: list[Path], rows: Path) -> bool:
+    cmd = [sys.executable, str(ROWS)] + [x for g in gates for x in ("--gate", str(g))] + [str(rows)]
+    return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+
+
+def dry_run_cases(tmp: Path) -> None:
+    cov = tmp / "coverage.json"
+    d = tmp / "dry"
+    d.mkdir()
+    recs = d / "records"
+    recs.mkdir()
+    inputs_file = inputs(d, TARGETS)
+    for s in ("asan", "tsan", "msan"):
+        hashes = dict(TARGETS) if s != "msan" else {t: h for t, h in TARGETS.items() if t != "harness_go"}
+        record(recs, f"oneport-x-L-{s}-dryrun.json", s, hashes)
+        r = json.loads((recs / f"oneport-x-L-{s}-dryrun.json").read_text())
+        r["dry_run"] = True
+        write(recs / f"oneport-x-L-{s}-dryrun.json", r)
+    expect("L: a dry-run record among the records stops the gate", not run(inputs_file, recs, cov))
+    ok, out = gate(d / "gate.json", recs, cov, "--inputs", str(inputs_file), "--compiler", COMPILERS["L"], "--accept-dry-run")
+    expect("L: --accept-dry-run lets dry-run records count, and marks the output never citable",
+           ok and out.get("dry_run") is True and out.get("citable") is False)
+
+
+def harness_cases(tmp: Path) -> None:
+    cov = tmp / "coverage-h.json"
+    write(cov, {"targets": {"harness_cmux": {"not_covered_by": ["msan"], "reason": "Go"},
+                            "harness_netty": {"not_covered_by": ["asan", "tsan", "msan"], "reason": "JVM"}}})
+    go = "go version go1.27.1 linux/amd64 clang version 22.1.8"
+
+    def built(d: Path, flavour: str = "release") -> Path:
+        write(d / "build.json", {"cmux": {"flavour": flavour, "inputs_hash": "h1", "tools": "go version go1.27.1 linux/amd64\nclang version 22.1.8",
+                                          "output_sha256": "c1"},
+                                 "netty": {"flavour": flavour, "inputs_hash": "n1", "tools": "javac 25.0.4", "output_sha256": "j1"}})
+        return d / "build.json"
+
+    def hrec(recs: Path, san: str, h: str = "h1", tools: str = go) -> None:
+        write(recs / f"harness_cmux-x-L-{san}.json", {"sanitizer": san, "green": True, "compiler": tools, "config": {},
+                                                      "inputs_hash": {"harness_cmux": h}, "pins_sha256": PINS_SHA,
+                                                      "third_party": {"fetched": {}}})
+
+    def fresh(name: str) -> tuple[Path, Path]:
+        d = tmp / name
+        d.mkdir()
+        (d / "records").mkdir()
+        return d, d / "records"
+
+    d, recs = fresh("h-pass")
+    hrec(recs, "asan")
+    hrec(recs, "tsan")
+    ok, out = gate(d / "gate.json", recs, cov, "--harnesses", str(built(d)))
+    expect("harnesses: cmux covered by ASan and TSan with its declared MSan gap, Netty declared whole, passes",
+           ok and out["binaries"] == {"harness_cmux": "c1", "harness_netty": "j1"} and out.get("citable") is True)
+    d, recs = fresh("h-no-tsan")
+    hrec(recs, "asan")
+    expect("harnesses: a missing TSan record of cmux stops the gate", not gate(d / "gate.json", recs, cov, "--harnesses", str(built(d)))[0])
+    d, recs = fresh("h-toolchain")
+    hrec(recs, "asan", tools="go version go1.26.0 linux/amd64 clang version 22.1.8")
+    hrec(recs, "tsan", tools="go version go1.26.0 linux/amd64 clang version 22.1.8")
+    expect("harnesses: records made with another toolchain do not count", not gate(d / "gate.json", recs, cov, "--harnesses", str(built(d)))[0])
+    d, recs = fresh("h-inputs")
+    hrec(recs, "asan", h="h2")
+    hrec(recs, "tsan", h="h2")
+    expect("harnesses: records of other inputs do not cover the harness", not gate(d / "gate.json", recs, cov, "--harnesses", str(built(d)))[0])
+    d, recs = fresh("h-flavour")
+    hrec(recs, "asan")
+    hrec(recs, "tsan")
+    expect("harnesses: a sanitizer flavour is not a measured build", not gate(d / "gate.json", recs, cov, "--harnesses", str(built(d, "asan")))[0])
+
+
+def row_cases(tmp: Path) -> None:
+    cov = tmp / "coverage.json"
+    d = tmp / "rows"
+    d.mkdir()
+    recs = d / "records"
+    recs.mkdir()
+    build_dir = d / "build"
+    for name, rel in BINARIES["L"].items():
+        (build_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (build_dir / rel).write_bytes(name.encode())
+    write(d / "b.inputs.json", {"builds": {"oneport": {"targets": {t: {"inputs_hash": h, "files": 1} for t, h in TARGETS.items()},
+                                                       "config": CONFIG, "third_party": {"fetched": FETCHED},
+                                                       "build_dir": str(build_dir)}}})
+    for s in ("asan", "tsan", "msan"):
+        hashes = dict(TARGETS) if s != "msan" else {t: h for t, h in TARGETS.items() if t != "harness_go"}
+        record(recs, f"oneport-x-L-{s}.json", s, hashes)
+    ok, out = gate(d / "gate.json", recs, cov, "--inputs", str(d / "b.inputs.json"), "--compiler", COMPILERS["L"])
+    sha = {name: hashlib.sha256(name.encode()).hexdigest() for name in BINARIES["L"]}
+    expect("the gate's output holds the sha256 of the build's binaries", ok and out["binaries"] == sha)
+    good = d / "good.jsonl"
+    good.write_text(json.dumps({"job": "j", "provenance": {"binaries": {"oneport": sha["oneport"], "opgen": sha["opgen"]}}}) + "\n")
+    expect("rows: a row whose binaries a passing gate holds passes", rows_ok([d / "gate.json"], good))
+    bad = d / "bad.jsonl"
+    bad.write_text(json.dumps({"job": "j", "provenance": {"binaries": {"oneport": "0" * 64, "opgen": sha["opgen"]}}}) + "\n")
+    expect("rows: a row whose binary has no matching green record is refused", not rows_ok([d / "gate.json"], bad))
+    none = d / "none.jsonl"
+    none.write_text(json.dumps({"job": "j", "provenance": {}}) + "\n")
+    expect("rows: a row that names no binary is refused", not rows_ok([d / "gate.json"], none))
+    dry = json.loads((d / "gate.json").read_text())
+    dry.update(dry_run=True, citable=False)
+    write(d / "gate-dry.json", dry)
+    expect("rows: a row whose only gate is a dry run is refused", not rows_ok([d / "gate-dry.json"], good))
+    failed = dict(json.loads((d / "gate.json").read_text()), passed=False)
+    write(d / "gate-failed.json", failed)
+    expect("rows: a gate that did not pass covers nothing", not rows_ok([d / "gate-failed.json"], good))
+
+
+def build_inputs_cases() -> None:
+    db = [{"output": "bench/server/CMakeFiles/oneport_server.dir/worker.cpp.o"},
+          {"output": "bench/server/CMakeFiles/oneport.dir/main.cpp.o"},
+          {"output": "bench/server/oneport"},  # a link step, not an object
+          {"output": "bench\\gen\\CMakeFiles\\opgen.dir\\main.cpp.obj"}]
+    expect("build_inputs: the compiled targets come from the object rules",
+           build_inputs.compiled_targets(db) == {"oneport_server", "oneport", "opgen"})
+    every = [{"output": f"x/CMakeFiles/{t}.dir/a.cpp.o"} for t in build_inputs.TARGETS["L"]]
+    expect("build_inputs: L's list matches a build that compiled exactly it",
+           build_inputs.check_targets(build_inputs.compiled_targets(every), "L") == [])
+    extra = every + [{"output": "x/CMakeFiles/newtool.dir/a.cpp.o"}]
+    expect("build_inputs: a target compiled but not listed stops the hash",
+           any("newtool" in p for p in build_inputs.check_targets(build_inputs.compiled_targets(extra), "L")))
+    expect("build_inputs: a listed target that compiled nothing stops the hash",
+           any("ophold" in p for p in build_inputs.check_targets(build_inputs.compiled_targets(every[:-3]), "L")))
+    expect("build_inputs: ONEPORT_SANITIZER is not a configuration key (records and measured builds must match)",
+           "ONEPORT_SANITIZER" not in build_inputs.CONFIG_KEYS)
 
 
 def cases(tmp: Path) -> None:
@@ -168,6 +315,10 @@ def cases(tmp: Path) -> None:
 def main() -> int:
     with tempfile.TemporaryDirectory() as t:
         cases(Path(t))
+        dry_run_cases(Path(t))
+        harness_cases(Path(t))
+        row_cases(Path(t))
+    build_inputs_cases()
     print(f"{failures} failed" if failures else "all checks passed")
     return 1 if failures else 0
 

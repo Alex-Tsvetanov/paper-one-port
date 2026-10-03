@@ -88,11 +88,20 @@ def start_stub(build: Path, port: int, raw: Path, tag: str, backend: str = "epol
     return proc, out
 
 
-def server_front_cmd(build: Path, port: int, stub_port: int, kind: str = "m3", backend: str = "epoll") -> list[str]:
-    """The server's front in M3: one-port mode, relay dispatch to the stub, its default detection
-    mode (replay) and rule E's proposed relay copy (user space); B3 sets every timer to 60 s
-    (section 1)."""
-    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", "replay", "--dispatch", "relay",
+# The server's detection modes. Replay is the proposed default (hypotheses.md, section 2.1) until
+# rule E decides the default per backend after the pilot entry (section 8); peek is the other
+# option, timed against replay or against a proxy only as development data (section 8, step 2).
+DETECTS = ("replay", "peek")
+
+
+def server_front_cmd(build: Path, port: int, stub_port: int, kind: str = "m3", backend: str = "epoll",
+                     detect: str = "replay") -> list[str]:
+    """The server's front in M3: one-port mode, relay dispatch to the stub, a detection mode (replay,
+    the proposed default, unless asked) and rule E's proposed relay copy (user space); B3 sets every
+    timer to 60 s (section 1)."""
+    if detect not in DETECTS:
+        raise ValueError(f"detection mode {detect!r}, not one of {DETECTS}")
+    cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", detect, "--dispatch", "relay",
            "--relay-copy", "user-space", "--backend", backend, "--port", str(port), "--relay-port", str(stub_port)]
     if kind == "b3":
         cmd += ["--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "60000"]
@@ -103,14 +112,14 @@ class Front:
     """The front of a hand-off window: the server's relay or a competitor, on PL.server."""
 
     def __init__(self, arm_name: str, build: Path, port: int, stub_port: int, raw: Path, tag: str, kind: str = "m3",
-                 backend: str = "epoll"):
+                 backend: str = "epoll", detect: str = "replay"):
         self.name = arm_name
         self.port = port
         self.lines: list[str] = []
         self.out = None
         self.running = None
         if arm_name == SERVER:
-            cmd = server_front_cmd(build, port, stub_port, kind, backend)
+            cmd = server_front_cmd(build, port, stub_port, kind, backend, detect)
             self.proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, PL.server))] + cmd, stdout=subprocess.PIPE,
                                          stderr=open(raw / f"{tag}.front.err", "wb"), start_new_session=True, cwd=raw,
                                          preexec_fn=comp.raise_nofile)
@@ -162,7 +171,8 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
     raw.mkdir(parents=True, exist_ok=True)
     row: dict = {
         "job": session["job"], "session": session["id"], "cell": cfg["cell"], "workload": "churn", "proto": proto,
-        "backend": cfg.get("backend", "epoll"), "arm": arm, "system": system, "position": position, "development": True,
+        "backend": cfg.get("backend", "epoll"), "detect": cfg.get("detect", "replay") if system == SERVER else None,
+        "arm": arm, "system": system, "position": position, "development": True,
         "family": "M3", "port": port, "stub_port": stub_port, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "warmup_ms": window.WARMUP_MS, "duration_ms": window.DURATION_MS, "conns": window.CONNS_PER_CORE,
         "k_src": cfg["k_src"], "front_cpus": list(PL.server), "front_idle_siblings": list(PL.server_siblings),
@@ -187,7 +197,7 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
     stub_lines: list[str] = []
     front_lines: list[str] = []
     try:
-        front = Front(system, build, port, stub_port, raw, tag, "m3", cfg.get("backend", "epoll"))
+        front = Front(system, build, port, stub_port, raw, tag, "m3", cfg.get("backend", "epoll"), cfg.get("detect", "replay"))
         row["front_command"] = front.command
         row["probe"] = window.probe(build, proto, port, base, cfg["k_src"], PL.gen)
         if row["probe"]["exit"] != 0:
@@ -320,6 +330,8 @@ def main(argv=None) -> int:
     ap.add_argument("--sessions", type=int, default=1)
     ap.add_argument("--seed", type=int, required=True, help="the development order's seed, recorded in the journal")
     ap.add_argument("--k-src", type=int, required=True)
+    ap.add_argument("--detect", default="replay", choices=DETECTS,
+                    help="the server's detection mode (replay, the proposed default, until rule E; peek, the other option)")
     ap.add_argument("--tools", type=Path, default=Path.home() / "lab" / "p3" / "tools")
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
     a = ap.parse_args(argv)
@@ -343,7 +355,7 @@ def main(argv=None) -> int:
     for system, proto, n in order:
         cell = f"m3.{proto}.{system}"
         cfg = {"build": a.build, "proto": proto, "k_src": a.k_src, "cell": cell, "arms": {"A": SERVER, "B": system},
-               "ports": dict(PORTS)}
+               "ports": dict(PORTS), "detect": a.detect}
         window.guard_pair(cfg["arms"]["A"], cfg["arms"]["B"], comp.ORDER)
         fp = window.pin_fingerprint()
         sid = f"{cell}-s{n:02d}"
@@ -377,7 +389,7 @@ def main(argv=None) -> int:
         if q2 is not None:
             c["ratios_ignoring_mhz"].append(q2)
         c["invalid_windows"] += [{"tag": r.get("tag"), "reasons": r.get("invalid_reasons")} for r in rs if not r.get("valid")]
-    (a.out / "summary.json").write_text(json.dumps({"job": a.job, "cells": summary}, indent=1))
+    (a.out / "summary.json").write_text(json.dumps({"job": a.job, "detect": a.detect, "cells": summary}, indent=1))
     for cell, c in summary.items():
         print(f"{cell}: sessions {c['sessions']} ratios {[round(x, 4) for x in c['ratios']]} "
               f"ignoring the MHz rule {[round(x, 4) for x in c['ratios_ignoring_mhz']]}")

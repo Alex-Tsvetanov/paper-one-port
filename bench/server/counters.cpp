@@ -66,6 +66,7 @@ namespace oneport::server
 				case IORING_OP_ASYNC_CANCEL: return "ASYNC_CANCEL";
 				case IORING_OP_CONNECT: return "CONNECT";
 				case IORING_OP_RECV: return "RECV";
+				case IORING_OP_READ: return "READ";
 				case IORING_OP_SPLICE: return "SPLICE";
 				default: break;
 			}
@@ -79,6 +80,8 @@ namespace oneport::server
 	{
 		accept_calls += o.accept_calls;
 		recv_calls += o.recv_calls;
+		recv_eof += o.recv_eof;
+		recv_again += o.recv_again;
 		peek_calls += o.peek_calls;
 		send_calls += o.send_calls;
 		setsockopt_calls += o.setsockopt_calls;
@@ -115,6 +118,7 @@ namespace oneport::server
 		route_rejected += o.route_rejected;
 		route_timeouts += o.route_timeouts;
 		relay_connect_errors += o.relay_connect_errors;
+		tls_states += o.tls_states;
 		conns_open += o.conns_open;
 		buffers_allocated += o.buffers_allocated;
 		buffers_outstanding += o.buffers_outstanding;
@@ -136,6 +140,8 @@ namespace oneport::server
 		};
 		line("accept_calls", c.accept_calls);
 		line("recv_calls", c.recv_calls);
+		line("recv_eof", c.recv_eof);
+		line("recv_again", c.recv_again);
 		line("peek_calls", c.peek_calls);
 		line("send_calls", c.send_calls);
 		line("setsockopt_calls", c.setsockopt_calls);
@@ -201,6 +207,7 @@ namespace oneport::server
 		line("route_rejected", c.route_rejected);
 		line("route_timeouts", c.route_timeouts);
 		line("relay_connect_errors", c.relay_connect_errors);
+		line("tls_states", c.tls_states);
 		line("conns_open", c.conns_open);
 		line("buffers_allocated", c.buffers_allocated);
 		line("buffers_outstanding", c.buffers_outstanding);

@@ -1,5 +1,5 @@
 {
- "about": "Two sections. 'targets' is what the records gate reads (bench/check_records.py): a target named there with not_covered_by may lack a record of those sanitizers, for the reason given; no other gap is allowed. Since M4b-2 it names the in-process libraries' harnesses (bench/competitors/build_harnesses.sh): the Go and Rust harnesses with MSan, the Java harnesses with every sanitizer (hypotheses.md, section 11). The records driver of the code freeze names its harness targets as here. 'declared_gaps' lists what the records cannot see although they exist (hypotheses.md, section 11; design/proposal.md, Z6). The gate reads nothing from it and it allows no missing record.",
+ "about": "Two sections. 'targets' is what the records gate reads (bench/check_records.py): a target named there with not_covered_by may lack a record of those sanitizers, for the reason given; no other gap is allowed. Since M4b-2 it names the in-process libraries' harnesses (bench/competitors/build_harnesses.sh): the Go and Rust harnesses with MSan, the Java harnesses with every sanitizer (hypotheses.md, section 11). The records driver of the code freeze names its harness targets as here. A target's 'suppressions' (since M5) lists the sanitizer suppression files its records run with, each an input of the target's inputs hash, with the decision that allowed it and its evidence; the gate reads nothing from it. 'declared_gaps' lists what the records cannot see although they exist (hypotheses.md, section 11; design/proposal.md, Z6). The gate reads nothing from it and it allows no missing record.",
  "targets": {
   "harness_netty": {
    "not_covered_by": [
@@ -27,7 +27,19 @@
    "not_covered_by": [
     "msan"
    ],
-   "reason": "Section 11 declares the Rust harness's MSan gap, as P2's records left MSan out of its Rust arms. Its ASan and TSan records are built with rustc's -Zsanitizer=address and -Zsanitizer=thread on L's stable rustc 1.98.1 (RUSTC_BOOTSTRAP=1, as P2's records did) with the standard library rebuilt with the same sanitizer (-Zbuild-std, rust-src 1.98.1). rustc's -Zsanitizer=memory also exists, unstable, and needs every crate and the standard library built with it; it was not attempted, since the frozen text declares the gap."
+   "reason": "Section 11 declares the Rust harness's MSan gap, as P2's records left MSan out of its Rust arms. Its ASan and TSan records are built with rustc's -Zsanitizer=address and -Zsanitizer=thread on L's stable rustc 1.98.1 (RUSTC_BOOTSTRAP=1, as P2's records did) with the standard library rebuilt with the same sanitizer (-Zbuild-std, rust-src 1.98.1). rustc's -Zsanitizer=memory also exists, unstable, and needs every crate and the standard library built with it; it was not attempted, since the frozen text declares the gap.",
+   "suppressions": [
+    {
+     "sanitizer": "tsan",
+     "file": "bench/competitors/hyper-util/tsan.supp",
+     "entry": "race:tokio::runtime::io::registration_set::RegistrationSet>::allocate",
+     "run_env": "TSAN_OPTIONS=suppressions=<checkout>/bench/competitors/hyper-util/tsan.supp (bench/competitors/harness_inputs.py, RUN_ENV)",
+     "in_inputs_hash": "The file is one of the harness's named inputs (bench/competitors/harness_inputs.py, INPUTS), so it is part of the harness's inputs hash: a suppression decides which reports a TSan run prints, a code-selecting input of the record. Editing it changes the hash, and a record made with another suppression file no longer covers the harness.",
+     "decision": "The coordinator's decision of 2026-10-03 (M5, step 0): allowed, one entry, scoped to tokio's internals.",
+     "scope": "One frame of tokio, a third-party crate (the declared gap 'Competitor binaries and runtimes'); none of the harness's own code. The entry matches only a report with RegistrationSet::allocate in a stack, so a race between two later accesses of a ScheduledIo is still reported.",
+     "evidence": "M4b-2's development checks on L (design/status.md, M4b-2, 'Sanitizer development checks of the Go and Rust harnesses'). Without the suppression (job libsetup3): 10 ThreadSanitizer reports, 2 per process in each of the 5 harness processes the probe and the route checks started, every one with tokio's RegistrationSet::allocate as the earlier access: the thread that registers a socket initialises its ScheduledIo and adds the descriptor to epoll with the object's address as its token, and the worker thread reads and locks the object after epoll_wait returns that token. The order is the kernel's (epoll_ctl returns before the epoll_wait that reports the descriptor), which ThreadSanitizer cannot see, since it does not model synchronisation through system calls. With the suppression (job tsancheck1, a83263d): 0 reports in the 5 harness logs, every probe and route check passing (log sha256 f29b97d2b921fa0d065b38e7b6fb541b0b120dc68f03aeaf74f2fe99375cca0e)."
+    }
+   ]
   }
  },
  "declared_gaps": [

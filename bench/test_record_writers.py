@@ -16,7 +16,15 @@ test failed (CTest 4.4.3 on L, 2026-09-30). Checks:
    hashes and configuration, and its host tag;
 4. the writer's report pattern is, text for text, the shared one of the Papers repo's
    lab/bin/test_report_pattern.sh, which does not list this writer: the copy below is checked
-   here, and against that script too where the Papers repo is checked out around this one.
+   here, and against that script too where the Papers repo is checked out around this one;
+5. --dry-run marks the record (the gate refuses it, bench/test_gates.py);
+6. bench/harness_record.py, the harnesses' writer, on synthetic work directories: green from a
+   clean build and checks, with the target named as coverage.json names it, the inputs hash and
+   the run environment from build.json and the toolchain on one line; red from a sanitizer report
+   or Go's race report in a harness's log, from a build.json of another flavour or without the
+   harness, and from a failed check; since M7 also red from a run of the harness that did not end
+   through its SIGTERM handler (so its exit checks did not run), from checks that ran no harness,
+   and from LeakSanitizer's report at a clean exit.
 """
 
 from __future__ import annotations
@@ -34,6 +42,7 @@ sys.path.insert(0, str(HERE))
 from gate_lib import file_sha256  # noqa: E402
 
 WRITER = HERE / "oneport_record.py"
+HARNESS_WRITER = HERE / "harness_record.py"
 PINS = HERE / "cmake" / "pins.cmake"
 SHARED_PATTERN = ("ERROR: (Address|Memory|Leak|Thread)Sanitizer|WARNING: (Memory|Thread)Sanitizer|"
                   "SUMMARY: [A-Za-z]+Sanitizer|runtime error:")
@@ -97,7 +106,7 @@ def pattern() -> None:
 
 
 def write_record(tmp: Path, summary: str, ctest_exit: int = 0, build_exit: int = 0, inputs: bool = True,
-                 extra: dict | None = None) -> dict:
+                 extra: dict | None = None, dry_run: bool = False) -> dict:
     work = tmp / f"w-{next(runs)}"
     work.mkdir(parents=True)
     (work / "build.log").write_text("-- The CXX compiler identification is Clang 22.1.8\n", encoding="utf-8")
@@ -112,9 +121,65 @@ def write_record(tmp: Path, summary: str, ctest_exit: int = 0, build_exit: int =
     cmd = [sys.executable, str(WRITER), "--work", str(work), "--record", str(rec), "--repo", "r", "--commit", "c",
            "--repo-head", "c", "--sanitizer", "asan", "--cmake-args", "a", "--options", "o", "--host", "h",
            "--host-tag", "L", "--build-exit", str(build_exit), "--ctest-exit", str(ctest_exit), "--seconds", "1",
-           "--pins", str(PINS)]
+           "--pins", str(PINS)] + (["--dry-run"] if dry_run else [])
     subprocess.run(cmd, capture_output=True, text=True)
     return json.loads(rec.read_text(encoding="utf-8"))
+
+
+FRONT = "check/cases/raw/hyper-util-cases-matched/front"
+LISTENING = "hyper-util: listening 24000 (backlog tokio's default)\n"
+STOPPED = "hyper-util: stopped by SIGTERM\n"
+
+
+def write_harness_record(tmp: Path, flavour: str = "tsan", sanitizer: str = "tsan", check_exit: int = 0,
+                         logs: dict | None = None, harness_in_build: bool = True, dry_run: bool = False,
+                         stdout: str | None = LISTENING + STOPPED) -> dict:
+    work = tmp / f"h-{next(runs)}"
+    (work / FRONT).mkdir(parents=True)
+    (work / "build.log").write_text("build_harnesses: hyper-util (tsan) built\n", encoding="utf-8")
+    (work / "check" / "probe-cases.log").write_text("hyper-util cases: ok\n", encoding="utf-8")
+    if stdout is not None:  # the harness's run, as competitors.start writes it
+        (work / FRONT / "stdout.log").write_text(stdout, encoding="utf-8")
+    entry = {"flavour": flavour, "inputs_hash": "hh", "inputs": ["a\tx", "b\ty"], "tools": "rustc 1.98.1 (x)\nbinary: rustc\ncargo 1.98.1",
+             "run_env": {"TSAN_OPTIONS": "suppressions=/x/tsan.supp"}, "command": "cargo build", "output_sha256": "o1"}
+    (work / "build.json").write_text(json.dumps({"hyper-util": entry} if harness_in_build else {}), encoding="utf-8")
+    for rel, text in (logs or {}).items():
+        (work / rel).write_text(text, encoding="utf-8")
+    rec = work / "record.json"
+    cmd = [sys.executable, str(HARNESS_WRITER), "--work", str(work), "--harness", "hyper-util", "--sanitizer", sanitizer,
+           "--record", str(rec), "--repo", "r", "--commit", "c", "--host", "h", "--host-tag", "L", "--build-exit", "0",
+           "--check-exit", str(check_exit), "--seconds", "1", "--pins", str(PINS)] + (["--dry-run"] if dry_run else [])
+    subprocess.run(cmd, capture_output=True, text=True)
+    return json.loads(rec.read_text(encoding="utf-8"))
+
+
+def harness_writer(tmp: Path) -> None:
+    rec = write_harness_record(tmp)
+    expect("harness: green from a clean build and clean checks", rec["green"] is True)
+    expect("harness: the target is named as coverage.json names it, with build.json's inputs hash",
+           rec.get("inputs_hash") == {"harness_hyper_util": "hh"} and rec.get("inputs_files") == {"harness_hyper_util": 2})
+    expect("harness: the toolchain on one line is the record's compiler", rec.get("compiler") == "rustc 1.98.1 (x) binary: rustc cargo 1.98.1")
+    expect("harness: the run environment and the pins are recorded",
+           rec.get("run_env") == {"TSAN_OPTIONS": "suppressions=/x/tsan.supp"} and rec.get("pins_sha256") == file_sha256(PINS))
+    report = "check/cases/raw/hyper-util-cases-matched/front/stderr.log"
+    expect("harness: red from a sanitizer report in a harness's log",
+           write_harness_record(tmp, logs={report: "WARNING: ThreadSanitizer: data race (pid=1)\n"})["green"] is False)
+    go_race = "WARNING: DATA" + " RACE\n"
+    expect("harness: red from Go's race report in a harness's log", write_harness_record(tmp, logs={report: go_race})["green"] is False)
+    expect("harness: red from a build of another flavour", write_harness_record(tmp, flavour="asan")["green"] is False)
+    expect("harness: red when build.json lacks the harness", write_harness_record(tmp, harness_in_build=False)["green"] is False)
+    expect("harness: red from a failed check", write_harness_record(tmp, check_exit=1)["green"] is False)
+    expect("harness: --dry-run marks the record", write_harness_record(tmp, dry_run=True).get("dry_run") is True)
+    # M7: the exit checks run only if each run ended through the harness's SIGTERM handler.
+    expect("harness: the runs and those without an exit check are counted",
+           (rec.get("harness_runs"), rec.get("harness_runs_without_exit_check")) == (1, 0))
+    rec = write_harness_record(tmp, stdout=LISTENING)
+    expect("harness: red from a run that did not end through its SIGTERM handler",
+           rec["green"] is False and rec.get("harness_runs_without_exit_check") == 1)
+    expect("harness: red when the checks ran no harness", write_harness_record(tmp, stdout=None)["green"] is False)
+    leak = "==4711==ERROR: Leak" + "Sanitizer: detected memory leaks\n"
+    expect("harness: red from LeakSanitizer's report at a clean exit",
+           write_harness_record(tmp, flavour="asan", sanitizer="asan", logs={report: leak})["green"] is False)
 
 
 def end_to_end(tmp: Path) -> None:
@@ -134,6 +199,8 @@ def end_to_end(tmp: Path) -> None:
     expect("the record carries the inputs hashes", rec.get("inputs_hash") == {"oneport": "s", "oneport_tests": "t"})
     expect("the record carries the configuration", rec.get("config") == CONFIG)
     expect("the record carries the compiler and host tag", rec.get("compiler") == "Clang 22.1.8" and rec.get("host_tag") == "L")
+    expect("a record is not a dry run unless asked", rec.get("dry_run") is False)
+    expect("--dry-run marks the record", write_record(tmp, NEW, dry_run=True).get("dry_run") is True)
 
 
 def main() -> int:
@@ -141,6 +208,7 @@ def main() -> int:
     pattern()
     with tempfile.TemporaryDirectory() as t:
         end_to_end(Path(t))
+        harness_writer(Path(t))
     report = re.compile(SHARED_PATTERN)
     expect("no line this test printed matches the report pattern", not any(report.search(p) for p in printed))
     print(f"{failures} failed" if failures else "all checks passed")

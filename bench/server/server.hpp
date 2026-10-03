@@ -94,11 +94,18 @@ namespace oneport::server
 		// Operations by kind.
 		std::uint64_t accept_calls = 0;
 		std::uint64_t recv_calls = 0;
+		/// Of recv_calls, those that found the peer's end (0 bytes), and those that returned no
+		/// byte without an end or an error (EAGAIN; on io_uring also ENOBUFS, the ring empty), so
+		/// recv_calls less both counts the receives that returned bytes or failed (M5: those do not
+		/// depend on when the peer's FIN or its next bytes arrive). IOCP's receives are not split.
+		std::uint64_t recv_eof = 0;
+		std::uint64_t recv_again = 0;
 		std::uint64_t peek_calls = 0;
 		std::uint64_t send_calls = 0;
 		/// Every setsockopt on a connection's socket: each SO_RCVLOWAT set and reset (peek mode and
-		/// pass-through's wait in peek), the two TCP_NODELAY of a relayed connection (its client
-		/// side and its backend side), and the SO_LINGER of each side a relay closes by reset.
+		/// pass-through's wait in peek), the TCP_NODELAY of a relayed connection's backend side (its
+		/// client side inherits it from the relaying listener, M5), and the SO_LINGER of each side a
+		/// relay closes by reset.
 		std::uint64_t setsockopt_calls = 0;
 		std::uint64_t check_calls = 0;       // the non-blocking check of 1(b)
 		std::uint64_t epoll_wait_calls = 0;
@@ -123,7 +130,8 @@ namespace oneport::server
 		std::uint64_t bytes_sent = 0;
 		/// Payload bytes the server's own code moved from one user-space place to another
 		/// (design/status.md, M2b, the rule of I29): a receive buffer's compaction, output copied
-		/// into or appended behind a connection's queue, a ClientHello moved to a larger buffer.
+		/// into or appended behind a connection's queue, a pass-through ClientHello moved out of the
+		/// receive buffer into storage of its own, or that storage's bytes moved when it grows.
 		std::uint64_t bytes_copied = 0;
 		std::uint64_t bytes_spliced = 0;  // relay with splice: moved inside the kernel, counted by neither of the above
 		// Wakeups of connections during detection (the PROXY header included).
@@ -142,6 +150,9 @@ namespace oneport::server
 		std::uint64_t route_rejected = 0;        // pass-through: no route for the ClientHello, or not a ClientHello
 		std::uint64_t route_timeouts = 0;        // pass-through: the ClientHello still incomplete at T_dec (design/status.md, M3)
 		std::uint64_t relay_connect_errors = 0;  // the backend refused or failed the connect
+		// TLS in the server: OpenSSL states made (SSL_new), each once its ClientHello was complete in
+		// the handler's buffer or could not complete there (M5).
+		std::uint64_t tls_states = 0;
 		// State at the end (after stop()).
 		std::uint64_t conns_open = 0;
 		std::uint64_t buffers_allocated = 0;
@@ -224,10 +235,14 @@ namespace oneport::server
 		std::uint16_t backend_port = 0;
 		std::uint64_t route_pass = 0;
 		/// Pass-through: the ClientHello's message length (its 4-byte header included) and the
-		/// records that carried it, and the most payload bytes held while it was incomplete.
+		/// records that carried it, and the most payload bytes held while it was incomplete; in
+		/// replay, the largest size of its storage while it was incomplete, and whether a receive
+		/// buffer was held then (M5: none is).
 		std::uint32_t hello_len = 0;
 		std::uint32_t hello_records = 0;
 		std::uint32_t held_max = 0;
+		std::uint32_t hello_room_max = 0;
+		bool buffer_waiting = false;
 	};
 
 	/// Test instrumentation, null in the binary. Each hook runs on the worker thread.

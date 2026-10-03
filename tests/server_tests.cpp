@@ -12,9 +12,13 @@
 #include "harness.hpp"
 #include "http1.hpp"
 #include "oneport/loop.hpp"
+#include "run_cases.hpp"
 #include "script.hpp"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <fstream>
 #include <atomic>
 #include <cerrno>
 #include <cstring>
@@ -231,6 +235,38 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// The kernel behaviour the relay's listener rests on (M5), pinned on L's kernel: a socket
+		/// accepted from a listener with TCP_NODELAY has it set, and one from a listener without it
+		/// has not. Pinned through accept4; io_uring's accept hands out the same child socket the
+		/// kernel made at the handshake.
+		Result kernel_nodelay_inherited()
+		{
+			for (const bool set : {true, false})
+			{
+				const int l = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				sockaddr_in addr{};
+				addr.sin_family = AF_INET;
+				addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+				CHECK(::bind(l, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0 && ::listen(l, 1) == 0, "listen");
+				const int one = 1;
+				if (set) CHECK(::setsockopt(l, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0, "TCP_NODELAY on the listener");
+				socklen_t n = sizeof(addr);
+				::getsockname(l, reinterpret_cast<sockaddr*>(&addr), &n);
+				const int c = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				CHECK(::connect(c, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "connect");
+				const int s = ::accept4(l, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+				CHECK(s >= 0, "accept");
+				int v = -1;
+				socklen_t vn = sizeof(v);
+				CHECK(::getsockopt(s, IPPROTO_TCP, TCP_NODELAY, &v, &vn) == 0, "getsockopt");
+				CHECK((v != 0) == set, "the accepted socket's TCP_NODELAY is " << v << " from a listener " << (set ? "with" : "without") << " it");
+				::close(s);
+				::close(c);
+				::close(l);
+			}
+			return std::nullopt;
+		}
+
 		/// A connected pair over loopback: the client `c` (blocking, TCP_NODELAY) and the server's
 		/// accepted socket `s` (non-blocking). Closes all three on scope exit.
 		struct Pair
@@ -350,9 +386,11 @@ namespace oneport::test
 		}
 
 		/// The rest of the io_uring behaviour the backend rests on, pinned on L's kernel: a receive
-		/// that selects a provided buffer holds none until data arrives, and then names it; with
-		/// the ring empty it fails with ENOBUFS and the bytes stay queued; at EOF it returns 0
-		/// without consuming a buffer (pinned as observed); a multishot accept completes once per
+		/// (IORING_OP_READ on the socket since M5) that selects a provided buffer holds none until
+		/// data arrives, and then names it; with the ring empty it fails with ENOBUFS and the bytes
+		/// stay queued; at EOF it returns 0, and if it names a buffer (io_uring/rw.c at v7.2.6 puts a
+		/// selected buffer for 0 bytes too) the buffer is one of the ring's, which the backend gives
+		/// back to its pool (uring.cpp, take_recv); a multishot accept completes once per
 		/// connection, flagged IORING_CQE_F_MORE.
 		Result kernel_uring_recv_select()
 		{
@@ -394,7 +432,7 @@ namespace oneport::test
 			::shutdown(p.c, SHUT_WR);
 			got = completions_of(ring, 5, 1000ms);
 			CHECK(got.size() == 1 && got[0].res == 0, "EOF completes the receive with 0");
-			CHECK((got[0].flags & IORING_CQE_F_BUFFER) == 0, "at EOF the completion named a buffer: the backend would have to give it back (pinned: none)");
+			CHECK((got[0].flags & IORING_CQE_F_BUFFER) == 0 || bid_of(got[0]) == 1, "at EOF the completion named a buffer the ring did not hold");
 			// Multishot accept.
 			ring.accept_multishot(p.l, 9);
 			const int c1 = p.connect_client();
@@ -410,7 +448,8 @@ namespace oneport::test
 				CHECK(x.res >= 0 && (x.flags & IORING_CQE_F_MORE) != 0, "an accept completion with a descriptor, still armed");
 				::close(x.res);
 			}
-			CHECK(ring.enter_calls() > 0 && ring.submissions()[IORING_OP_RECV] == 5 && ring.submissions()[IORING_OP_ACCEPT] == 1, "the counters");
+			CHECK(ring.enter_calls() > 0 && ring.submissions()[IORING_OP_READ] == 5 && ring.submissions()[IORING_OP_RECV] == 0 && ring.submissions()[IORING_OP_ACCEPT] == 1,
+			      "the counters");
 			return std::nullopt;
 		}
 
@@ -684,6 +723,120 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// opcase case's line (M5): HC1's HTTP/1.1 variant against the server by port, its frozen
+		/// expectation and its transcript in one JSON line.
+		Result cases_by_port()
+		{
+			ServerArgs args;
+			Running srv(args);
+			const std::vector<opcase::Variant> vs = opcase::variants(1, opcase::SuiteParams{});
+			const auto it = std::find_if(vs.begin(), vs.end(), [](const opcase::Variant& v) { return v.proto == detect::Proto::http1; });
+			CHECK(it != vs.end(), "HC1 has an HTTP/1.1 variant");
+			const opcase::Transcript t = opcase::run(it->script, srv.port());
+			std::vector<server::DetectionReport> reps;
+			srv.collector.wait_close(t.local_port, 10000ms, reps);
+			const std::string ln = opcase::run_line(*it, 1, 1, srv.port(), t);
+			for (const std::string& want : {std::string("\"id\": \"") + it->id + "\"", std::string("\"expect\": \"classified\""),
+			                               std::string("\"proto\": \"HTTP/1.1\""), std::string("\"connected\": true"),
+			                               std::string("\"local_port\": ") + std::to_string(t.local_port), std::string("485454502f312e3120323030")})
+			{
+				CHECK(ln.find(want) != std::string::npos, "the line lacks " << want << ": " << ln.substr(0, 400));
+			}
+			return srv.stop_and_check();
+		}
+
+		/// The binary's decision record (--record; WL8, M5): one HTTP/1.1 exchange, then SIGTERM; the
+		/// record holds the connection's detection line, keyed by the client's local port, with its
+		/// accept and decision on opcase's clock (after the client's connect began, the decision no
+		/// earlier than its write), and its close line.
+		Result binary_record()
+		{
+			const std::string& path = binary_path();
+			CHECK(!path.empty(), "no binary path given");
+			char tmpl[] = "/tmp/oneport-record-XXXXXX";
+			const int tf = ::mkstemp(tmpl);
+			CHECK(tf >= 0, "mkstemp");
+			::close(tf);
+			const std::string record = tmpl;
+			int out[2];
+			CHECK(::pipe(out) == 0, "pipe");
+			posix_spawn_file_actions_t fa;
+			posix_spawn_file_actions_init(&fa);
+			posix_spawn_file_actions_adddup2(&fa, out[1], 1);
+			posix_spawn_file_actions_addclose(&fa, out[0]);
+			std::vector<std::string> args{path, "--mode", "one-port", "--detect", "replay", "--dispatch", "inproc", "--backend",
+			                              std::string(token(suite_backend())), "--record", record};
+			std::vector<char*> argv;
+			for (auto& s : args) argv.push_back(s.data());
+			argv.push_back(nullptr);
+			pid_t pid = 0;
+			const int rc = posix_spawn(&pid, path.c_str(), &fa, nullptr, argv.data(), environ);
+			posix_spawn_file_actions_destroy(&fa);
+			::close(out[1]);
+			CHECK(rc == 0, "posix_spawn: " << std::strerror(rc));
+			std::string text_out;
+			std::uint16_t port = 0;
+			auto read_more = [&](int ms) {
+				pollfd p{out[0], POLLIN, 0};
+				if (::poll(&p, 1, ms) <= 0) return false;
+				std::array<char, 4096> buf{};
+				const ssize_t k = ::read(out[0], buf.data(), buf.size());
+				if (k <= 0) return false;
+				text_out.append(buf.data(), static_cast<std::size_t>(k));
+				return true;
+			};
+			const std::string key = "oneport: listening one-port 127.0.0.1:";
+			while (port == 0 && read_more(10000))
+			{
+				const auto at = text_out.find(key);
+				const auto eol = at == std::string::npos ? std::string::npos : text_out.find('\n', at);
+				if (eol != std::string::npos) port = static_cast<std::uint16_t>(std::stoi(text_out.substr(at + key.size(), eol - at - key.size())));
+			}
+			opcase::Transcript t;
+			if (port != 0) t = opcase::run(Script{}.write(opcase::http_get()), port);
+			::kill(pid, SIGTERM);
+			while (read_more(10000))
+			{
+			}
+			int status = 0;
+			::waitpid(pid, &status, 0);
+			::close(out[0]);
+			std::ifstream f(record);
+			std::vector<std::string> lines;
+			for (std::string ln; std::getline(f, ln);) lines.push_back(ln);
+			::unlink(record.c_str());
+			CHECK(port != 0, "the binary printed no listening line");
+			CHECK(t.received == text(http1::kResponse200) && !t.write_times.empty(), "the binary did not answer 200");
+			CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the binary did not exit 0 after SIGTERM");
+			auto field = [](const std::string& ln, const std::string& k) -> std::string {
+				const auto at = ln.find("\"" + k + "\": ");
+				if (at == std::string::npos) return {};
+				const auto from = at + k.size() + 4;
+				const auto to = ln.find_first_of(",}", from);
+				return ln.substr(from, to - from);
+			};
+			const std::string peer = std::to_string(t.local_port);
+			const auto ns_of = [](opcase::TimePoint tp) { return std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count(); };
+			std::size_t detections = 0;
+			std::size_t closes = 0;
+			for (const std::string& ln : lines)
+			{
+				if (field(ln, "peer_port") != peer) continue;
+				if (field(ln, "event") == "\"detection\"")
+				{
+					++detections;
+					CHECK(field(ln, "outcome") == "\"classified\"" && field(ln, "proto") == "\"HTTP/1.1\"", "the detection line: " << ln);
+					const long long accept_ns = std::stoll(field(ln, "accept_ns"));
+					const long long end_ns = std::stoll(field(ln, "end_ns"));
+					CHECK(accept_ns >= ns_of(t.before_connect) && end_ns >= ns_of(t.write_times.front()) && end_ns >= accept_ns,
+					      "the record's times are not on opcase's clock: " << ln);
+				}
+				if (field(ln, "event") == "\"closed\"") ++closes;
+			}
+			CHECK(detections == 1 && closes == 1, detections << " detection and " << closes << " close lines for the connection in " << lines.size() << " lines");
+			return std::nullopt;
+		}
+
 	}  // namespace
 
 	void register_server_tests(Registry& r)
@@ -714,8 +867,11 @@ namespace oneport::test
 			r["server.flag_matrix" + s] = on(flag_matrix);
 			r["server.stop_with_pending" + s] = on(stop_with_pending);
 			r["server.binary_smoke" + s] = on(binary_smoke);
+			r["server.binary_record" + s] = on(binary_record);
+			r["server.cases_by_port" + s] = on(cases_by_port);
 		}
 		r["server.kernel_rcvlowat_et"] = kernel_rcvlowat_et;
+		r["server.kernel_nodelay_inherited"] = kernel_nodelay_inherited;
 		r["server.kernel_rcvlowat_uring"] = kernel_rcvlowat_uring;
 		r["server.kernel_uring_recv_select"] = kernel_uring_recv_select;
 		r["server.not_served"] = not_served;

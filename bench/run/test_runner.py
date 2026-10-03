@@ -26,6 +26,7 @@ sys.path.insert(0, str(HERE))
 
 import aa  # noqa: E402
 import b3  # noqa: E402
+import counterdelta  # noqa: E402
 import systrace  # noqa: E402
 import footprint as fp  # noqa: E402
 import window  # noqa: E402
@@ -456,6 +457,79 @@ class B3Relay(unittest.TestCase):
             b3.run(Path("."), Path("."), "j", "silent", 1, Path("."), system="traefik")
 
 
+class B3Provenance(unittest.TestCase):
+    """M7: a B3 row names the first-party binaries its window ran, by the names a gate of
+    bench/check_records.py gives them, so bench/check_rows.py binds it to a gated build (rule D5),
+    as it binds aa.py's and handoff.py's rows. On a stand-in build tree; runs anywhere."""
+
+    FILES = {"bench/server/oneport": b"oneport", "bench/gen/opgen": b"opgen", "bench/cases/opcase": b"opcase",
+             "bench/cases/ophold": b"ophold", "harness/netty/harness.jar": b"netty", "harness/jetty/harness.jar": b"jetty",
+             "harness/cmux/oneport-cmux": b"cmux", "harness/hyper-util/oneport-hyper-util": b"hyper-util"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.build = Path(self.tmp.name) / "build"
+        for rel, data in self.FILES.items():
+            (self.build / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.build / rel).write_bytes(data)
+        record = {name: {"flavour": "release", "output": str(b3.comp.SYSTEMS[name].binary_path(self.build / "harness")),
+                         "output_sha256": window.sha256_file(b3.comp.SYSTEMS[name].binary_path(self.build / "harness")),
+                         "inputs_hash": f"{name}-inputs", "tools": "stand-in"} for name in b3.comp.LIBRARIES}
+        (self.build / "harness" / "build.json").write_text(json.dumps(record))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def gate(self, drop: str = "") -> Path:
+        """A passing, citable gate holding this tree's binaries, as check_records.py writes it."""
+        bins = {name: window.sha256_file(self.build / rel) for name, rel in b3.build_inputs.BINARIES["L"].items()}
+        bins.update({b3.harness_target(n): window.sha256_file(b3.comp.SYSTEMS[n].binary_path(self.build / "harness"))
+                     for n in b3.comp.LIBRARIES})
+        bins.pop(drop, None)
+        p = Path(self.tmp.name) / f"gate{drop}.json"
+        p.write_text(json.dumps({"host": "L", "passed": True, "dry_run": False, "citable": True, "binaries": bins}))
+        return p
+
+    def test_names_by_system(self):
+        def names(system: str) -> set[str]:
+            return set(b3.window_binaries(self.build, system))
+        self.assertEqual(names("ophold"), {"opcase", "ophold"})
+        for system in (window.ONE_PORT_RELAY, "one-port-inproc") + b3.comp.ORDER:  # a proxy runs in front of the stub, oneport
+            self.assertEqual(names(system), {"oneport", "opcase"}, system)
+        self.assertEqual(names("cmux"), {"opcase", "harness_cmux"})
+        self.assertEqual(names("hyper-util"), {"opcase", "harness_hyper_util"})
+        self.assertEqual(names("netty"), {"opcase", "harness_netty"})
+        self.assertEqual(names("jetty"), {"opcase", "harness_jetty"})
+        gate_names = set(b3.build_inputs.BINARIES["L"]) | {b3.harness_target(n) for n in b3.comp.LIBRARIES}
+        for system in b3.SYSTEMS:
+            self.assertLessEqual(names(system), gate_names, system)
+
+    def test_rows_bind(self):
+        import check_rows  # bench/, on the path b3.py sets
+        rows = [{"job": "j", "system": s, "provenance": b3.binaries_provenance(self.build, s)}
+                for s in ("ophold", "one-port-inproc", window.ONE_PORT_RELAY, "cmux", "hyper-util", "netty", "jetty")]
+        prov = rows[3]["provenance"]
+        self.assertEqual(prov["binary_paths"]["harness_cmux"], str(self.build / "harness" / "cmux" / "oneport-cmux"))
+        self.assertTrue(prov["harness"]["same_as_build_json"])
+        self.assertEqual((prov["harness"]["target"], prov["harness"]["inputs_hash"]), ("harness_cmux", "cmux-inputs"))
+        covered, left_out = check_rows.load_gates([self.gate()])
+        self.assertEqual((check_rows.check(rows, covered), left_out), ([], []))
+        # The gate lacks the harness a row ran: that row alone is refused.
+        covered, _ = check_rows.load_gates([self.gate(drop="harness_cmux")])
+        self.assertEqual([rows[r["row"]]["system"] for r in check_rows.check(rows, covered)], ["cmux"])
+        # A binary rebuilt after the gate: the rows that ran it are refused.
+        covered, _ = check_rows.load_gates([self.gate()])
+        (self.build / "bench" / "cases" / "ophold").write_bytes(b"ophold, rebuilt")
+        again = [{"job": "j", "system": "ophold", "provenance": b3.binaries_provenance(self.build, "ophold")}]
+        self.assertEqual(len(check_rows.check(again, covered)), 1)
+        # A row as b3.py wrote it before M7, with no provenance, binds to nothing.
+        self.assertEqual(len(check_rows.check([{"job": "j", "system": "ophold"}], covered)), 1)
+
+    def test_harness_differs_from_build_json(self):
+        (self.build / "harness" / "cmux" / "oneport-cmux").write_bytes(b"cmux, built elsewhere")
+        self.assertFalse(b3.binaries_provenance(self.build, "cmux")["harness"]["same_as_build_json"])
+
+
 class B3InProcess(unittest.TestCase):
     """b3.py's parts for an in-process system: the HTTP/1.1 probe and the response reader against
     stand-ins, the collector checks, and on Linux the cmux harness's signal step and jcmd's step
@@ -500,6 +574,14 @@ class B3InProcess(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "the test certificate's key with the system OpenSSL")
     def test_tls_probe(self):
+        self.tls_probe_against_stand_in(("http/1.1",), "http/1.1")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the test certificate's key with the system OpenSSL")
+    def test_tls_probe_without_alpn(self):
+        # The route check of a ClientHello without ALPN (cases_check.py): no extension, none selected.
+        self.tls_probe_against_stand_in((), None)
+
+    def tls_probe_against_stand_in(self, offered: tuple[str, ...], selected) -> None:
         import ssl
         fixtures = HERE.parent.parent / "tests" / "fixtures" / "tls"
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -524,10 +606,10 @@ class B3InProcess(unittest.TestCase):
 
         th = threading.Thread(target=one, daemon=True)
         th.start()
-        r = b3.tls_probe(srv.getsockname()[1], fixtures / "test-cert.pem")
+        r = b3.tls_probe(srv.getsockname()[1], fixtures / "test-cert.pem", alpn=offered)
         th.join(5)
         self.assertTrue(r["ok"], r)
-        self.assertEqual((r["tls"]["version"], r["tls"]["alpn"]), ("TLSv1.3", "http/1.1"))
+        self.assertEqual((r["tls"]["version"], r["tls"]["alpn"]), ("TLSv1.3", selected))
         self.assertTrue(seen["got"].startswith(b"GET / HTTP/1.1\r\n"))
         self.assertIn(seen["after"], ("ConnectionResetError", "SSLError", b""))  # a reset, never a close_notify
 
@@ -627,6 +709,7 @@ class Trace(unittest.TestCase):
         u = {c["check"] for c in systrace.check_counters(counters, calls, "io_uring", 1)}
         self.assertIn("recv (peek and check)", u)
         self.assertNotIn("accept", u)  # a ring operation on io_uring
+        self.assertNotIn("connect", u)  # so is the relay's connect (IORING_OP_CONNECT)
 
     def test_stat_and_startup_offset(self):
         stat = systrace.parse_stat("1,,syscalls:sys_enter_recvfrom,635543,100.00,,\n"
@@ -654,6 +737,76 @@ class Trace(unittest.TestCase):
         g = {"ok": True, "warmup": {"completed": 10}, "measure": {"completed": 90, "errors": {"total": 0}}, "connect_failures": 0,
              "ttfb_ns": {"median": 1}, "wall_s": 2.0}
         self.assertEqual(set(systrace.counts_only(g)), {"ok", "warmup", "measure", "errors", "connect_failures"})
+
+
+def cost_trace_row(mode: str, detect: str, accepted: int, repeat: int = 0, idle: dict | None = None, **counters) -> dict:
+    sc = {"accepted": accepted, **counters}
+    return {"kind": "cost", "cell": "churn.http1.epoll", "mode": mode, "detect": detect, "repeat": repeat, "server_counters": sc,
+            "idle": {"server_counters": idle or {}}, "opgen": {"warmup": 10, "measure": 89}}
+
+
+class CounterDelta(unittest.TestCase):
+    """counterdelta.py (M5, criterion 1): one-port against dedicated per connection, the idle pass's
+    counters first taken away, and the verdict per counter."""
+
+    def test_idle_pass_is_taken_away(self):
+        ded = cost_trace_row("dedicated", "replay", 100, idle={"epoll_ctl_calls": 6}, epoll_ctl_calls=106, recv_calls=200)
+        c = counterdelta.load_counters(ded)
+        self.assertEqual((c["epoll_ctl_calls"], c["recv_calls"], c["accepted"]), (100.0, 200.0, 100.0))
+        u = cost_trace_row("dedicated", "replay", 10, idle={"io_uring_submissions": {"ACCEPT": 6}},
+                           io_uring_submissions={"ACCEPT": 6, "RECV": 20})
+        c = counterdelta.load_counters(u)
+        self.assertEqual((c["ring:ACCEPT"], c["ring:RECV"]), (0.0, 20.0))
+
+    def test_verdicts(self):
+        ded = [cost_trace_row("dedicated", "replay", 100, r, recv_calls=200 + r, send_calls=100, bytes_copied=0) for r in (1, 2)]
+        one = [cost_trace_row("one-port", "replay", 100, r, recv_calls=201 + r, send_calls=100, bytes_copied=50) for r in (1, 2)]
+        d = counterdelta.compare(ded, one)
+        self.assertEqual(d["send_calls"]["verdict"], "equal")
+        self.assertEqual(d["recv_calls"]["verdict"], "within the spread")  # 2.01, 2.02 against 2.02, 2.03
+        self.assertEqual(d["bytes_copied"]["verdict"], "differs")
+        self.assertAlmostEqual(d["bytes_copied"]["delta"], 0.5)
+        rep = counterdelta.cost_report(ded + one)
+        self.assertEqual(set(rep), {"churn.http1.epoll.replay"})
+        self.assertEqual(rep["churn.http1.epoll.replay"]["rows"], {"dedicated": 2, "one-port": 2})
+
+    def test_per_request(self):
+        r = cost_trace_row("dedicated", "replay", 3, send_calls=100)
+        self.assertAlmostEqual(counterdelta.per_unit(r, "request")["send_calls"], 1.0)  # 10 + 89 + the probe's 1
+
+    def test_detection_mode_reaches_the_commands(self):
+        import handoff
+        cmd = handoff.server_front_cmd(Path("/b"), 1, 11, "b3", "io_uring", "peek")
+        self.assertEqual(cmd[cmd.index("--detect") + 1], "peek")
+        self.assertEqual(cmd[cmd.index("--backend") + 1], "io_uring")
+        default = handoff.server_front_cmd(Path("/b"), 1, 11)
+        self.assertEqual(default[default.index("--detect") + 1], "replay")  # the proposed default
+        with self.assertRaises(ValueError):
+            handoff.server_front_cmd(Path("/b"), 1, 11, detect="sniff")
+        self.assertEqual(systrace.DETECTS, ("replay", "peek"))
+
+    def test_slab_all_is_recorded(self):
+        r = reading(slab_all={"io_kiocb": 4096, "eventpoll_epi": 8192})
+        self.assertEqual(fp.reading_dict(r)["slab_all"], {"io_kiocb": 4096, "eventpoll_epi": 8192})
+
+
+def wait_for_child(pid: int, comm: str, timeout: float = 20.0) -> bool:
+    """Whether a child of `pid` named `comm` (the wrapper's job) appears within `timeout` s."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for d in Path("/proc").iterdir():
+            if not d.name.isdigit():
+                continue
+            try:
+                stat = (d / "stat").read_text()
+            except OSError:
+                continue
+            name = stat[stat.index("(") + 1:stat.rindex(")")]
+            ppid = int(stat[stat.rindex(")") + 2:].split()[1])
+            if ppid == pid and name == comm:
+                return True
+        time.sleep(0.05)
+    return False
 
 
 CLOCKFLOOR = HERE / "clockfloor.sh"
@@ -735,6 +888,7 @@ class ClockFloor(unittest.TestCase):
             while time.monotonic() < deadline and not (rec.exists() and '"set_at": "' in rec.read_text()):
                 time.sleep(0.05)
             self.assertEqual(floor_of(root, 0), HIGH)
+            self.assertTrue(wait_for_child(p.pid, "sleep"), "the job did not start")
             os.killpg(p.pid, signal.SIGTERM)  # as a job is stopped: TERM to its process group
             self.assertEqual(p.wait(timeout=20), 143)
             self.assertEqual((floor_of(root, 0), floor_of(root, 1)), (LOW, LOW))
@@ -867,6 +1021,7 @@ class Thp(unittest.TestCase):
             while time.monotonic() < deadline and not (rec.exists() and '"set_at": "' in rec.read_text()):
                 time.sleep(0.05)
             self.assertEqual(thp_word(root, "enabled"), "madvise")
+            self.assertTrue(wait_for_child(p.pid, "sleep"), "the job did not start")
             os.killpg(p.pid, signal.SIGTERM)  # as a job is stopped: TERM to its process group
             self.assertEqual(p.wait(timeout=20), 143)
             self.assertEqual(thp_word(root, "enabled"), "always")

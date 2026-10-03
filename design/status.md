@@ -13,10 +13,10 @@ has run.
 | M2a | h2c, TLS, PROXY, SSH, MQTT and SMTP handlers on epoll in-process; the pinned OpenSSL and nghttp2; the recorded ClientHello; every hard case full on epoll in-process | done, 2026-10-02 (below) |
 | M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | done, 2026-10-02 (below) |
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | done, 2026-10-03 (below) |
-| M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b (the libraries) next |
-| M5 | Iterate until it wins | |
+| M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
+| M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) open |
-| M7 | Code freeze | |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the freeze itself open |
 
 ## Engineering constraints
 
@@ -3747,7 +3747,1127 @@ fa1877066a006d8c29381aff88a54e84f760a034ca8b3bfee6bf2aa33885cb88, beside it in a
 members; made under the lab lock); build trees, source clones, the sanitizer harness builds, the
 discovery directory and the check builds are left out.
 
-## Follow-ups outside this repository
+## M5 exit criteria (set by the coordinator before M5)
+
+Written before any engineering of M5. M5 ends when all five hold, or when criterion 5 stops it.
+
+1. **Untimed counter deltas, one-port against dedicated**, checked with section 10's untimed counter
+   checks (`bench/run/systrace.py`), never with windows. Replay mode: 0 extra system calls and 0
+   extra user-space copies per connection. Peek mode: exactly the MSG_PEEK (or poll) operations the
+   design adds, and nothing else. This holds for every protocol, backend and dispatch.
+2. **B3 in relay against each of the five proxies**, both cases, both backends: the server's W at
+   least 1.25 times below the proxy's (W_proxy / W_srv at least 1.25), in development windows. The
+   frozen bound is 1.10; 1.25 is headroom.
+3. **M3, the relay against nginx and against HAProxy**: ratio (server / proxy) at least 1.05 in at
+   least three development sessions each. Otherwise record that the margin is thin, and let the
+   frozen narrowing order speak.
+4. **The suite green under all four sanitizers** (Debug, ASan+UBSan, TSan, MSan) after every change.
+   Every engineering timing journaled as development.
+5. **A cap of two engineering rounds.** If a criterion is still unmet after round two, M5 stops,
+   this file records the gap, and the paper narrows per the frozen order (section 12: M3, then B3,
+   then the cost family per backend).
+
+Note on criterion 2, written by M5 before any engineering (development data and a bound derived
+from it, not a result). In every B3 window so far (b3dev1, b3thp1, b3lib2), every system's Ks lies
+between 6,771.1 and 7,778.3 bytes per pending connection, most of it the kernel's two loopback
+socket ends that `K_BASE` will measure; the server's relay had Ks 7,215.1 (silent) and 7,102.5
+(partial ClientHello), and sslh-ev had W 7,644.0 and 7,657.5 with U 399.8 and 524.3 (b3dev1). The
+server's W is at least its own Ks, which no change to the server can bring below a bare held
+socket's. Even at the lowest Ks any system has shown and U = Kq = 0, W_sslh / W_srv would be at
+most 7,657.5 / 6,771.1 = 1.13; at the relay's own Ks it is at most 7,657.5 / 7,102.5 = 1.08, and
+with the server's connection state (U about 400 bytes in the silent case) it stays near 1.0. So
+criterion 2 is out of reach against sslh-ev by construction, and so is the frozen 1.10 unless the
+server's Ks and U together fell below 6,961 bytes (7,657.5 / 1.10), under every Ks the relay has
+shown. M5's rounds go to the other four proxies.
+There, in those windows, the server's relay on epoll was ahead of nginx by 11,971.0 / 7,622.2 = 1.57
+(silent) and 13,378.5 / 11,773.1 = 1.14 (partial), and of HAProxy by 1.32 and 1.22 (b3thp1 for the
+proxies under THP at `madvise`, b3dev1 for the relay under `always`, so not the same day); the
+relay on io_uring had not run in B3.
+
+## M5, 2026-10-03
+
+M5: step 0 (the exit criteria above, the revision log, tokio's TSan suppression), then two
+engineering rounds against the exit criteria: round 1 (2127a8a to deaabfe: the TLS handler's
+deferred OpenSSL state, the relay's parked ClientHello and its system calls, and the two carried
+items) and round 2 (e69e860 to ac84f2d: io_uring's receives as `IORING_OP_READ`, the receive
+counters split by result, the relay's drained-source rule, and three fixes of tests). Nothing in
+this section is a result: every window, session, profile and check is development data, journaled
+where it times anything; one-port mode was timed only against the competitors and against its other
+option, and dedicated mode was never timed, so no FC5 pair exists.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| e06fa82 | docs: status.md, M5 exit criteria, with the bound development B3 data puts on sslh-ev's cells |
+| d166e44 | docs: hypotheses.md revision log, M4b-2's eleven readings |
+| 6057afa | feat: the harnesses' named inputs and inputs hash (harness_inputs.py), hyper-util's tsan.supp among them; build.json; coverage.json records the suppression; tests |
+| 2847315 | feat: the runners take the detection mode; systrace.py's repeats; counterdelta.py; every slab cache in each B3 reading; journal.py --kind b3; tests |
+| 6bb6484 | feat: perfrec.py, a profile of a front of M3 under its load |
+| 2734b19 | fix: perfrec.py's perf report (-f); systrace.py's relay on either backend; journal.py --kind perf |
+| 2127a8a | feat: the TLS handler makes OpenSSL's state only once the ClientHello is complete (both arms); clienthello::scan; tls_states; tests |
+| 23eae82 | perf: the relay's footprint and system calls (one-port relay only): the parked ClientHello; TCP_NODELAY from the listener; no SO_ERROR on success; no speculative reads; the half-close's short read; close() for the last direction; tests |
+| deaabfe | feat: the binary's decision record for WL8 (--record) and opcase case (hard cases by port); tests |
+| e69e860 | feat: the receive counters split by result (recv_eof, recv_again; both arms) |
+| c8e588a | fix: handlers.tls_deferred's last input passes the detector; a range-loop copy |
+| 666a6b7 | perf: io_uring's receives are IORING_OP_READ, not IORING_OP_RECV (both arms) |
+| 333d846 | perf: the relay takes a short read as the source drained (one-port relay only) |
+| 0aa639e | fix: the relay remembers a side's reported half-close (333d846 left a FIN unseen) |
+| ac84f2d | fix: the runner's tests when two suites run at once (ports by build tree; the signal tests wait for the job) |
+| 681c58e | fix: systrace.py checks the connect counter on epoll only (the relay's connect on io_uring is a ring operation) |
+
+Papers (local, not pushed): the lab journal (below). Every one-port commit is on the `lab` remote;
+nothing is pushed to origin.
+
+### Step 0
+
+- **Exit criteria** (e06fa82): written above, under "M5 exit criteria (set by the coordinator before
+  M5)", before any engineering, with the bound that development B3 data puts on sslh-ev's cells.
+- **Revision log** (d166e44): "Readings fixed during engineering (M4b-2), before the code freeze",
+  M4b-2's eleven readings, one line each with why it follows. The two that change what runs are
+  supported by the frozen lines, and each says why: Jetty's PROXY header is detected because
+  Appendix B puts `ProxyConnectionFactory` inside the one `DetectorConnectionFactory`, which falls
+  through to the next protocol when no detector recognises the bytes (the survey, section 2.16,
+  says so of the frozen structure); cmux's `Any()` stays in B3 because Appendix B lists it without
+  a condition and starts B3 from the case configuration, and only the hard cases' "cases" kind
+  leaves it out, because HC6 asks for a listener without a fallback. Not logged by M5, and not
+  M5's: M4b-1's nine readings ("Readings of the frozen text in M4b-1") are still not in the
+  revision log.
+- **tokio's TSan suppression** (6057afa), the coordinator's decision (allowed, one entry, scoped to
+  tokio's internals):
+  - `bench/competitors/harness_inputs.py` names each harness's inputs (its sources and lock files;
+    the hyper-util harness's `tsan.supp` among them, since a suppression decides what a TSan
+    record reports) and hashes them as `lab/bin/inputs_hash.py` does (the sorted lines
+    "<path>\t<sha256>", CRLF read as LF). `build_harnesses.sh` records the list, the hash and the
+    environment each flavour runs with in `build.json` (hyper-util's TSan:
+    `TSAN_OPTIONS=suppressions=<checkout>/bench/competitors/hyper-util/tsan.supp`). Editing the file
+    changes the hash, so a record made with another suppression no longer covers the harness. The
+    run configurations (`cases.args`, `b3.args`) and the probe scripts are not inputs.
+  - `bench/coverage.json`: `targets.harness_hyper_util.suppressions` records the file, its one entry,
+    the run environment, the decision and the evidence (10 reports without it in libsetup3, 2 per
+    process in each of 5, all with `RegistrationSet::allocate` as the earlier access, the order
+    epoll gives and TSan cannot see; 0 with it in tsancheck1); the gate reads only `not_covered_by`
+    and `reason` of a target (`bench/gate_lib.py`), so the new key changes no gate decision
+    (`bench/test_gates.py` passes).
+  - Tests (`run.test_competitors`, `HarnessInputs`): every input exists; `tsan.supp` is one of
+    hyper-util's and holds exactly the one entry; a copy of the inputs hashes the same, CRLF hashes
+    the same, an added line changes the hash, a missing input is an error.
+
+### The engineering, round by round
+
+**Before (6bb6484).** The runners first learned to take the server's detection mode (handoff.py,
+b3.py, systrace.py: replay, the proposed default of section 2.1 until rule E, or peek) and
+systrace.py to repeat each cost cell's arms, interleaved; `counterdelta.py` computes one-port
+against dedicated per connection from section 10's untimed rows, after each arm's idle pass; every
+B3 reading keeps the size of every slab cache (`slab_all`), deciding nothing, so Ks's growth can be
+attributed to caches; `perfrec.py` profiles a front of M3 under its load. The before data:
+m5b3a and m5b3a2 (B3), m5perf1 and m5perf2 (profiles), m5m3a (M3 sessions), m5tr1 (counters).
+
+**Round 1** (2127a8a, 23eae82, deaabfe; measured as deaabfe: m5b3b, m5perf3, m5m3b, m5tr2):
+- The TLS handler (in-process dispatch; both arms, since dedicated mode's TLS port runs the same
+  handler) makes OpenSSL's state only once the ClientHello is complete in the handler's buffer, or
+  cannot complete there: malformed, not a ClientHello, needing more record bytes than the buffer
+  has room for, or the peer has ended. `clienthello::scan` gives the reassembler's verdict without
+  its copy (test `clienthello.scan`: the same verdict, need, lengths and record count as
+  `reassemble` on every prefix of six inputs). Until then a pending TLS connection holds its bytes
+  in the handler's buffer (section 2.1's replay bound) and no OpenSSL state. OpenSSL then reads the
+  bytes it would have read piecemeal, with the frozen settings, so its replies and alerts are the
+  same; the counter `tls_states` counts the states made (`handlers.tls_deferred`, each arm: half a
+  ClientHello then a reset makes none; two writes make one with the second; half then the peer's
+  end makes one; a ClientHello too long to be one gets OpenSSL's alert).
+- The relay (one-port relay dispatch only; dedicated mode has no relay, so no cost contrast is
+  touched):
+  - pass-through in replay parks a ClientHello still incomplete after a read in storage of its own,
+    sized to the record bytes the reassembly needs next (5 plus the length its record header
+    announces), with one counted copy of the bytes held, and gives the 4,096-byte receive buffer
+    back; a ClientHello whole in its first read is routed from the receive buffer as before, with no
+    copy (the relay test's `bytes_copied == 0` over whole ClientHellos still holds). Tests:
+    `relay.pass_through` and `relay.pass_through_tdec` check that no receive buffer is held while
+    the ClientHello is incomplete and that the storage never outgrows the records it needs;
+  - per relayed connection: TCP_NODELAY is set once on the relaying listener and inherited by every
+    accepted socket (pinned on L: `server.kernel_nodelay_inherited`), the backend's set before its
+    connect, so one `setsockopt` instead of two; a connect that epoll reports with EPOLLOUT and no
+    error is not asked for SO_ERROR; a side is read when the copy starts only if it may hold bytes
+    (a read that filled its room, a peek, a seen end, a client event while the connect was
+    pending, or a backend connect reported with EPOLLIN); a short read after a reported half-close
+    ends its source without a second read; the direction that ends last is closed by `close()`,
+    whose FIN passes its end on, with no `shutdown()` first (M2b's reading 1 still holds: each
+    end is passed on, and the connection closes when both have ended).
+- The carried items (below): `--record` and `opcase case`.
+
+**Round 2** (e69e860, c8e588a, 666a6b7, 333d846, 0aa639e, ac84f2d; measured as ac84f2d: m5b3c,
+m5m3c, m5tr3):
+- io_uring's receives are `IORING_OP_READ` on the socket, not `IORING_OP_RECV` (both arms: every
+  io_uring receive, the handlers' in dedicated mode too). At v7.2.6 every RECV allocates its
+  `io_async_msghdr` at preparation (io_uring/net.c, `io_recvmsg_prep_setup`), which L serves from
+  kmalloc-512; an armed READ allocates an `io_async_rw` (io_uring/rw.c, `io_rw_alloc_async`). In
+  every io_uring window with an armed receive in m5b3a, m5b3a2 and m5b3b, kmalloc-512 grew by 236
+  to 532 bytes per pending connection, and in no epoll window was it among the six caches that grew
+  most. The receive is the same: `sock_read_iter` calls `sock_recvmsg` with
+  MSG_DONTWAIT at offset 0, which a socket, a stream file, always has (net/socket.c); the same
+  provided buffers; 0 at EOF. A READ that took a buffer and returned 0 names it, and the buffer goes
+  back to the pool (the pin `server.kernel_uring_recv_select` now pins READ and allows that).
+  Section 1(b)'s form for io_uring replay, a receive posted with a buffer and its non-waiting reap,
+  is unchanged. The sources (io_uring/net.c, net.h, rw.c, rw.h, net/socket.c) were read at the
+  v7.2.6 tag of the stable tree.
+- The receive counters split by result (`recv_eof`: the peer's end; `recv_again`: no byte without an
+  end or an error, EAGAIN or the ring's ENOBUFS), so the receives that returned bytes, which do not
+  depend on when a FIN or the next bytes arrive, compare exactly between arms (`recv_data` in
+  counterdelta.py). Counter increments only, in the shared read paths, so both arms alike. IOCP's
+  receives are not split (iocp.cpp was not touched: M6b works there).
+- The relay's user-space copy takes a short read as the source drained (333d846), as the handlers'
+  reads do; found by round 1's counters (m5tr2: the relay in peek mode read the client again into
+  EAGAIN, 5.0 receives per connection against replay's 3.2). Its first form left a FIN that had
+  arrived before the short read unseen (no later edge reports it), and `case.HC13` and `case.HC19`
+  in relay peek on epoll waited past their limit in every build (m5chk3); 0aa639e remembers a side's
+  reported half-close from any event (the route stage's included) or an end already read, so the
+  short read after it ends the source. One-port relay dispatch only.
+- Tests fixed: `handlers.tls_deferred`'s last input in round 1 had byte 5 changed, so the
+  detector rejected it in one-port mode before any handler (c8e588a: the handshake length's top
+  byte instead); two suites run at once met in the runner's tests (ac84f2d: `test_competitors`'
+  integration ports move with the build tree; the clock floor's and THP's signal tests wait for
+  the wrapper's job to start, since a TERM between a wrapper's record and its fork of the job is
+  honoured only when the job ends, which the loaded host made happen).
+
+### Criterion 1: the counters, one-port against dedicated
+
+Section 10's untimed counter checks (`systrace.py --kind cost`): each cost cell's two arms, in-process
+dispatch, in both detection modes (dedicated mode ignores the mode, so its rows are A/A repeats),
+three times each, interleaved; churn at 2,000 exchanges per second for 2 s after 0.5 s and
+keep-alive with two connections for 0.5 s (counts only; never a window). `counterdelta.py` takes each
+row's counters less its idle pass's, per connection (keep-alive: per request), and compares the arms:
+"equal" (every row the same), "within the spread" (the arms' ranges over the repeats overlap) or
+"differs". Jobs m5tr1 (6bb6484), m5tr2 (deaabfe), m5tr3 (ac84f2d, the final code, below). Every
+counter that names a system call agreed with `perf stat`'s count of its entry tracepoint in all
+120 cost rows of m5tr3 (`perf trace -s`, the cross-check, in 53, short by at most 1.1% of a call's
+count).
+
+At ac84f2d, per connection, one-port less dedicated, for HTTP/1.1, h2c, TLS and MQTT churn on epoll
+and io_uring and HTTP/1.1 keep-alive on both (per request):
+- **Replay: no extra system call and no extra copy.** Equal in every cell: sends, `setsockopt` (0),
+  `epoll_ctl` (1), connects, shutdowns and splices (0), peeks and checks (0), io_uring's READ
+  submissions, the receives that returned bytes (`recv_data`), and `bytes_copied` (0 in every row
+  of both arms). What differs, differs within the dedicated arm's own spread over its three
+  repeats, and depends on when bytes or a FIN arrive, not on the mode: the accept that ends a
+  batch with EAGAIN (2.0 per connection in both arms, within 0.0004), the loop's waits
+  (`epoll_wait`, `io_uring_enter`, at most 0.0011 apart), and the receives that found the peer's end
+  (`recv_eof`: MQTT on epoll +0.0118, h2c on epoll +0.0079, the arms' ranges overlapping; the
+  dedicated arm's own ranges are 0.9486 to 0.9842 and 0.956 to 0.9868). Before the split of e69e860 the same effect showed as
+  `recv_calls`: at 6bb6484 MQTT on epoll was 2.8774 to 2.981 receives per connection in dedicated
+  mode and 2.9846 to 2.985 in one-port mode (m5tr1), whether the client's FIN came with its
+  DISCONNECT or after it, and at deaabfe (m5tr2) the arms overlapped.
+- **Peek: exactly the operations the design adds.** On epoll, one `recv(MSG_PEEK)` per connection
+  (24 bytes peeked for HTTP/1.1, h2c and TLS, 14 for MQTT; keep-alive 0.0001 per request, one per
+  connection), and nothing else structural. On io_uring, one `IORING_OP_POLL_ADD`, one peek, and
+  one more `io_uring_enter` per connection (2.0 to 3.0 for HTTP/1.1, 3.0 to 4.0 for the others):
+  the poll's completion comes back through the ring before the handler's receive can be posted,
+  so at this load, where every step is its own wait, the poll costs a round of the ring. The
+  receives, sends and copies are the replay counts. One timing difference lies just outside the
+  spread: MQTT on epoll in peek, `recv_eof` +0.0035 (0.9772 to 0.9812 against 0.9826 to 0.9836),
+  receives that found the end only, with `recv_data` equal.
+- **The relay** (relay dispatch, which dedicated mode does not have; `systrace.py --kind proxy`, one
+  row per mode, backend and protocol, per relayed connection; `bytes_copied` 0 in every row):
+
+| Relay row (ac84f2d, m5tr3) | System calls per connection | Peek less replay |
+|---|---|---|
+| HTTP/1.1, epoll, replay | 20.6: accept4 2, epoll_ctl 2, recvfrom 3.22 (2.0 returned bytes), sendto 2, setsockopt 1, socket 1, connect 1, shutdown 1, close 2, epoll_pwait2 5.4 | |
+| HTTP/1.1, epoll, peek | 22.4 | +1 peek; `recv_data` equal; `recv_eof` +0.27 and waits +0.55 (when the FIN came) |
+| TLS by SNI, epoll, replay | 21.1 | |
+| TLS by SNI, epoll, peek | 23.0 | +2 peeks (detection's 24 bytes, then the route's whole ClientHello); `recv_data` equal; `recv_eof` -0.12 |
+| HTTP/1.1, io_uring, replay | 13.0: io_uring_enter 6, sendto 2, setsockopt 1, socket 1, shutdown 1, close 2 (accept, connect and receives are ring operations) | |
+| HTTP/1.1 and TLS, io_uring, peek | 15.0 and 16.0 | +1 POLL_ADD, +1 io_uring_enter, +1 peek (TLS +2) |
+
+  Round 1's relay changes took the epoll relay from 25.0 system calls per connection (m5tr1) to
+  20.6 (m5tr2), and round 2's drained-source rule took peek's from 24.0 (m5tr2: it read the client
+  again into EAGAIN, and its EOF reads followed) to 22.4. nginx makes 22.1 to 22.4 and HAProxy 44.0
+  to 44.2 per connection at the same rate (m5tr3).
+- **Criterion 1: met**, with the two kinds of timing difference named above (the loop's waits and the
+  reads of a FIN, which fall within the dedicated arm's spread except MQTT's +0.0035 per
+  connection in peek) and, on io_uring in peek, the poll's extra `io_uring_enter`, which the brief
+  asked to report rather than fold into "the poll the design adds": it is the poll's round trip
+  through the ring.
+- `systrace.py`'s check of the relay on io_uring compared the `connect` counter with `connect(2)`,
+  which the relay on io_uring never calls (its connect is `IORING_OP_CONNECT`): the four io_uring
+  relay rows of m5tr3 disagreed on that check alone (681c58e makes the check epoll's only).
+
+### Criterion 2: B3 in relay against each proxy
+
+W at sample 2 in bytes per pending connection, replay (the proposed default), development windows
+(WL7's layout, all valid by section 7). Q is the proxy's W over the relay's. Before and after round
+1 the proxies' W is m5b3a's (the same day, earlier in the day) and the relay's comes from other
+jobs (m5b3a2 or m5b3a before, m5b3b after); after round 2 (m5b3c) each proxy ran twice around the
+relay on both backends (proxy, relay on epoll, relay on io_uring, proxy), and Q uses the mean of
+its two windows. Within m5b3c every system's Ks fell steadily through the job, from 7,173 to 6,451
+(TCP's and the inode caches' growth per connection falling as their slabs fill), so a Q across jobs
+carries a few hundred bytes of the host's drift; the interleaved Q of m5b3c does not.
+
+| Case | Proxy | Proxy W (m5b3a / m5b3c) | Q, epoll: before / round 1 / round 2 | Q, io_uring: before / round 1 / round 2 |
+|---|---|---|---|---|
+| silent | nginx | 11,941.9 / 11,957.5 | 1.586 / 1.530 / 1.597 | 1.475 / 1.458 / 1.545 |
+| silent | HAProxy | 10,092.1 / 9,940.2 | 1.340 / 1.293 / 1.372 | 1.247 / 1.232 / 1.320 |
+| silent | Envoy | 17,063.5 / 16,747.3 | 2.266 / 2.186 / 2.368 | 2.108 / 2.084 / 2.296 |
+| silent | caddy-l4 | 17,895.8 / 17,707.2 | 2.377 / 2.293 / 2.479 | 2.211 / 2.185 / 2.392 |
+| silent | sslh-ev | 7,220.0 / 6,960.1 | 0.959 / 0.925 / 1.000 | 0.892 / 0.882 / 0.964 |
+| partial | nginx | 13,424.8 / 13,286.8 | 1.146 / 1.660 / 1.718 | 1.068 / 1.591 / 1.661 |
+| partial | HAProxy | 14,273.7 / 14,068.1 | 1.218 / 1.765 / 1.859 | 1.135 / 1.692 / 1.800 |
+| partial | Envoy | 18,460.0 / 18,201.8 | 1.576 / 2.283 / 2.458 | 1.468 / 2.188 / 2.352 |
+| partial | caddy-l4 | 20,672.1 / 20,440.3 | 1.764 / 2.556 / 2.739 | 1.644 / 2.450 / 2.664 |
+| partial | sslh-ev | 7,324.1 / 7,064.8 | 0.625 / 0.906 / 0.957 | 0.583 / 0.868 / 0.927 |
+
+The server's relay itself (W; U; Ks):
+
+| Case, backend | Before (6bb6484) | Round 1 (deaabfe, m5b3b) | Round 2 (ac84f2d, m5b3c: the five windows' range) |
+|---|---|---|---|
+| silent, epoll | 7,529.7; 407.1; 7,122.5 | 7,804.5; 407.1; 7,397.4 | 6,962.8 to 7,486.7; 407.1; 6,555.6 to 7,079.5 |
+| silent, io_uring | 8,095.3; 407.1; 7,688.2 | 8,189.5; 407.1; 7,782.4 | 7,218.8 to 7,738.2; 407.1; 6,811.6 to 7,331.0 |
+| partial, epoll | 11,715.8; 4,670.7; 7,045.1 | 8,086.3; 791.3; 7,295.0 | 7,381.0 to 7,732.8; 791.3; 6,589.6 to 6,941.5 |
+| partial, io_uring | 12,571.9; 4,671.9; 7,900.0 | 8,436.9; 791.3; 7,645.6 | 7,616.8 to 8,000.7; 791.3; 6,826.8 to 7,209.4 |
+
+- Round 1's parked ClientHello cut the relay's U with a partial ClientHello from 4,670.7 to 791.3
+  bytes per pending connection on both backends (the 4,096-byte receive buffer gone; the
+  connection's state, the relay's, and storage of 5 + l bytes remain).
+- Round 2's `IORING_OP_READ` removed the kmalloc-512 growth that every io_uring window with an armed
+  receive showed before it (236 to 532 bytes per pending connection in m5b3a, m5b3a2 and m5b3b, one
+  `io_async_msghdr` each); in m5b3c io_uring's Ks exceeded epoll's in the adjacent window by 211
+  to 335 bytes (io_kiocb about 195, and an `io_async_rw` from kmalloc-256 about 170 where it
+  shows); within m5b3a2 and m5b3b, before it, the gap was 351 to 566 bytes.
+- Peek, the other option, after round 1 (m5b3b): relay silent 7,560.4 (epoll) and 7,527.6
+  (io_uring); partial 8,725.1 and 8,804.9 (Kq 1,068.0: the bytes stay in the socket; U 567.3).
+- **Criterion 2: met against nginx, HAProxy, Envoy and caddy-l4, in both cases on both backends**
+  (the smallest Q is HAProxy's silent case on io_uring, 1.320); **not met against sslh-ev** (Q 0.927
+  to 1.000), as the note under the exit criteria derived before any engineering: sslh-ev's W is
+  its sockets' Ks and 400 to 524 bytes of U, and the server's Ks alone is as large.
+
+### Item 3: the in-process footprint with a partial ClientHello
+
+| System | Case | W | U | Job |
+|---|---|---|---|---|
+| server, epoll | partial, before | 56,524.0 | 49,746.3 | m5b3a (6bb6484) |
+| server, io_uring | partial, before | 57,162.5 | 49,742.2 | m5b3a |
+| server, epoll | partial, round 1 | 11,458.2 | 4,521.2 | m5b3b (deaabfe) |
+| server, io_uring | partial, round 1 | 11,778.0 | 4,522.8 | m5b3b |
+| server, epoll | partial, round 2 | 11,057.6 | 4,521.2 | m5b3c (ac84f2d) |
+| server, io_uring | partial, round 2 | 11,266.0 | 4,522.8 | m5b3c |
+| server, epoll and io_uring | partial, peek, round 1 | 11,345.9; 11,681.4 | 4,521.2; 4,522.8 | m5b3b |
+| Netty | partial | 8,837.9 | 2,340.5 | m5b3c |
+| Jetty | partial | 38,744.9 | 32,165.1 | m5b3c |
+| cmux | partial | 18,981.3 | 12,530.5 | m5b3c |
+| server, epoll and io_uring | silent, round 2 | 6,941.9; 7,172.9 | 402.2; 402.2 | m5b3c |
+
+The deferred OpenSSL state took 45,225 bytes of U per pending connection away (49,746.3 to
+4,521.2): a pending TLS connection now holds its state (368 bytes) and the handler's 4,096-byte
+buffer with the 108 bytes received. Netty, which buffers the ClientHello in a growing buffer and
+makes no engine until it is complete, holds 2,340.5; the server is below Jetty and cmux and above
+Netty in this case (Q of Netty over the server 0.80 on epoll, 0.78 on io_uring). Going below Netty
+would mean holding the incomplete ClientHello in storage smaller than the handler's buffer, a copy
+in the handler, which dedicated mode runs too; not done (section 2.1 names the handler's buffer as
+replay's bound, and the cells are descriptive). Peek does not change it: in-process, the handler
+reads the bytes into its buffer at classification in either mode.
+
+### Criterion 3: M3 against nginx and HAProxy
+
+The server's one-port relay on epoll (replay, the user-space copy) against each proxy in its M3
+configuration, sessions X Y Y X in hand-off placement, every window valid by section 7 (48 of 48 in
+each job). Session ratio, server / proxy:
+
+| Cell | Before (6bb6484, m5m3a, seed 851) | Round 1 (deaabfe, m5m3b, seed 853) | Round 2 (ac84f2d, m5m3c, seed 857) |
+|---|---|---|---|
+| HTTP/1.1, nginx | 1.0210, 1.0237, 1.0174 | 1.0738, 1.0744, 1.0745 | 1.0764, 1.0773, 1.0812 |
+| HTTP/1.1, HAProxy | 1.0511, 1.0562, 1.0522 | 1.1206, 1.1080, 1.1119 | 1.1086, 1.1226, 1.1102 |
+| TLS by SNI, nginx | 1.0243, 1.0239, 1.0265 | 1.0763, 1.0860, 1.0810 | 1.0932, 1.0793, 1.1142 |
+| TLS by SNI, HAProxy | 1.0355, 1.0327, 1.0364 | 1.0964, 1.0956, 1.0943 | 1.0906, 1.0999, 1.1006 |
+
+- Every front was the bottleneck (CPU 14 saturated). The relay's CPU per connection (front) fell
+  from 48.0 to 48.9 us (m5m3a) to 44.2 to 45.0 us (m5m3c); nginx's stayed 48.7 to 50.1 us (one
+  m5m3c window of nginx, TLS, 53.2 us, which makes that session's 1.1142), HAProxy's 54.1 to 56.0
+  us. WL6 (front and stub) per connection: the relay 69.9 to 70.7 us before, 66.1 to 67.0 us after.
+- Where it came from. `perf record` of the relay under M3's load (m5perf2, a profiling build):
+  about 91% of its samples in the kernel, 3.3 to 3.6% in nf_tables (the loopback NOTRACK rules and
+  Docker's), and under 3% in oneport and libc together (oneport 1.6%); nginx's profile (m5perf1)
+  is about 88.6% kernel. So the user-space code was never the cost; the system calls were. At
+  section 10's untimed rate (2,000 per second, so every step is its own wait) the relay made 25.0
+  system calls per connection before (m5tr1: accept4 2, recvfrom 5, epoll_pwait2 5, sendto 2,
+  setsockopt 2, shutdown 2, close 2, epoll_ctl 2, connect, socket, getsockopt) against nginx's 22.4
+  (its epoll_wait 4.4, recvfrom 4, writev 2, ioctl and getsockopt 1 each) and HAProxy's 44.1 (16
+  of them clock_gettime); after round 1, 20.6 (HTTP/1.1; m5tr2: recvfrom 3.2, setsockopt 1,
+  shutdown 1, no getsockopt) and after round 2, 20.6 and 21.1 (HTTP/1.1 and TLS, replay; m5tr3).
+- **Criterion 3: met.** Every session of round 1 and round 2 is at least 1.05 against both proxies
+  in both protocols (the smallest, 1.0738, HTTP/1.1 against nginx in round 1; 1.0764 in round 2).
+  The margin over nginx is about 7.4 to 11%, over HAProxy about 9 to 12%, in development sessions;
+  section 4.4's test at R_M = 16 decides.
+
+### Criterion 4: the suite under the four builds
+
+Each check is a lab job (`checks_job.sh`: a fresh clone of the lab remote at the commit, then
+`~/lab/p3/sancheck.sh` with Debug and ASan+UBSan at once, then TSan and MSan at once; clang 22.1.8,
+`ctest -V -j 8`; report lines counted with the lab's shared pattern). Development checks, not
+records.
+
+| Job | Commit | Debug | ASan+UBSan | TSan | MSan | Warnings, report lines |
+|---|---|---|---|---|---|---|
+| m5chk1 | deaabfe (round 1) | 381 of 383 | 381 of 383 | 381 of 383 | 381 of 383 | 1 (a range-loop copy in a test), 0 |
+| m5chk2 | 666a6b7 | 383 of 383 | 383 of 383 | 383 of 383 | 381 of 383 | 0, 0 |
+| m5chk3 | 333d846 | 380 of 383 | 381 of 383 | 381 of 383 | 380 of 383 | 0, 0 |
+| m5chk4 | ac84f2d (round 2, measured) | 383 of 383 | 383 of 383 | 383 of 383 | 383 of 383 | 0, 0 |
+| m5chk5 | 681c58e (systrace.py's connect check) | 383 of 383 | 383 of 383 | 383 of 383 | 383 of 383 | 0, 0 |
+
+- m5chk1: `handlers.tls_deferred` failed on both backends in every build: its last input changed
+  byte 5, so one-port mode's detector rejected it before any handler (a test error; c8e588a). The
+  code measured as round 1 is unchanged by the fix.
+- m5chk2 (MSan) and m5chk3 (Debug, MSan): `run.test_runner` (the THP signal test: the wrapper's TERM
+  landed before its fork of the job) and `run.test_competitors` (the integration probe's stub did
+  not start: the other build of the pair held its fixed port), failures of two suites run at once
+  (ac84f2d).
+- m5chk3: `case.HC13.epoll.relay.peek` and `case.HC19.epoll.relay.peek` in every build: 333d846's
+  short read left a FIN unseen (0aa639e). That commit was never measured: chain c4, which would
+  have measured it, was stopped by SIGTERM before its first window.
+- 383 tests: M4b-2's 375 and `clienthello.scan`, `handlers.tls_deferred` (two backends),
+  `server.kernel_nodelay_inherited`, `server.binary_record` (two backends), `server.cases_by_port`
+  (two backends).
+- Log sha256 (L, `~/lab/p3/m5/check/681c58e/`): debug-681c58e.build.log
+  42bedaf9f94915266715cd2753fd31806055e9462df0006b4e61dd7ffb5438cc, debug-681c58e.ctest.log
+  926b25de097389b177b33032aa00048b00eb4484aca437a5a7da02c0a5174b3a, asan-681c58e.build.log
+  27612d2d187d08f669bf4c7eacd8bd70651516d78941b72560c95ce3b05030d6, asan-681c58e.ctest.log
+  749b54943879994ec0bd210c9443f3167300db685251bbef1500f963c3ff552a, tsan-681c58e.build.log
+  94e5916e8ab8426ca56e9b0e594a5c2832ceb65b6562b3c0cd9d320f2e7f16dd, tsan-681c58e.ctest.log
+  8f794042bc5266eb94826e99c9d1b23441ed0a725ddf2e91dd713fdcde30009e, msan-681c58e.build.log
+  6729b9fb2623376b99e683fc00d1494bae94f3d6363f1b48505e9c72775abdd6, msan-681c58e.ctest.log
+  9ca9314f1967a1b876f5e0fe75553acac6ed3c1af263d8d2d2ebb00b8cd10bec.
+- Log sha256 (L, `~/lab/p3/m5/check/ac84f2d/`): debug-ac84f2d.build.log
+  ed9e56e0ae80548ad4fd553a0a57289a6bc008a053a94bc157fc8bd0bae99c92, debug-ac84f2d.ctest.log
+  da86841400dfa90988661954bbbee8212af5aa872bca281749e06faa40b359fb, asan-ac84f2d.build.log
+  b62e7126cec10ee248ed32ac3d41249fe896449ee33a19a77c5435fe955f9a7e, asan-ac84f2d.ctest.log
+  61d3819ea097fc9fe4e7fb7bd0afcb1831cbb3f0a74966d0d87a6c090ff42c07, tsan-ac84f2d.build.log
+  3a2e148719889e1c5d6a7809550109299ef65acfbef0bb750617cd48ecb55d2c, tsan-ac84f2d.ctest.log
+  6b032200ff64008b58ffdc735187c164f31ba100dccfc3da2166236111c77c52, msan-ac84f2d.build.log
+  52c825d369f7ce7cd4837348a4d418ef97e87b5f5aed303d347a987fd09649c3, msan-ac84f2d.ctest.log
+  06d1d65ead56d2a906e37300c888a6b782239033946339ff99809a1cea5d95b8.
+- W: not built or run in M5. `handlers.cpp` (the TLS deferral and the receive counters) and
+  `bench/cases` (opcase case's library code) compile on W too; M6b's merge of `m6b-windows` with
+  main must build them and run W's suite.
+- **Criterion 4: met at the end, not after every change.** ac84f2d, the code of round 2's
+  measurements, and 681c58e, the last commit, are green in all four builds (383 of 383, 0
+  warnings, 0 report lines). Three
+  intermediate commits were not: deaabfe (round 1's measured code) failed a test whose input was
+  wrong, not the product; 666a6b7 failed a runner test of two suites at once; 333d846 broke the
+  relay in peek mode and was never measured. The suite ran on four commits; 2127a8a, 23eae82,
+  e69e860, c8e588a and 0aa639e were checked only as parts of the commits after them. Every
+  engineering timing is journaled as development (below).
+
+### Both detection modes stay engineered
+
+Both modes remain flag values of the one binary, and no default is written into the code or decided
+by M5: the runners take `--detect`, with replay as the proposed default of section 2.1 until rule E
+picks per backend on the frozen binary after the pilot entry. Peek was measured only option against
+option, as development data that decides nothing: in B3 (m5b3a2, m5b3b: the relay silent 7,560.4 on
+epoll and 7,527.6 on io_uring, partial 8,725.1 and 8,804.9, where replay held 7,804.5, 8,189.5,
+8,086.3 and 8,436.9; in-process partial 11,345.9 and 11,681.4) and in the untimed counters (above).
+It was not timed in M3, and nothing of peek against replay was timed under load. Every change of M5
+was made in both modes' paths where they share code, and the relay's changes were checked in both
+(the counters, and `case.*.relay.peek` in every build).
+
+### Carried items
+
+- **WL8's per-connection record** (deaabfe). `oneport --record PATH` writes one JSON line per event
+  of the server's test hooks: each connection's end of detection (outcome, class, deciding byte,
+  the passes of accept, end, last read and half-close, accept, timer start and end times, bytes
+  seen and held, wakeups, SO_RCVLOWAT sets and resets, the PROXY source, the timed event with its
+  deadline, wait return and pass), each relayed connection's route, and each close, every time in
+  nanoseconds of the server's steady clock, which on L is CLOCK_MONOTONIC, the clock of `opcase`'s
+  write times. A hard-case run against the server in its own process matches them to `opcase`'s
+  transcripts by the client's local port. Without `--record` no hook is set and nothing changes;
+  it is never set in a measured window. `describe()` prints `record`. Test `server.binary_record`
+  (both backends): the binary with `--record`, one HTTP/1.1 exchange, SIGTERM; the record holds the
+  connection's detection line (classified, HTTP/1.1) keyed by the client's port, its accept no
+  earlier than the client's connect began and its decision no earlier than its write, and its close
+  line.
+- **`opcase case`** (deaabfe, `bench/cases/run_cases.cpp`): the hard cases of Appendix A against
+  any system by port. `--hc K` runs case K's variants in their fixed order (`--variant` selects by
+  id prefix), `--replicates R` times each, a variant whose setup needs the PROXY header against
+  `--proxy-port`, every other against `--port`; the timers default to section 1's 3 s, GAP_SPLIT
+  and G to the suite's stand-ins until the pilot entry sets them (`--gap-split-ms`, `--g-ms`), and
+  every wait to `T_OBS` = 60 s (`--wait-ms`). One JSON line per run: the variant, its frozen
+  expectation (setup, outcome, class, when, reply, deciding byte) and the transcript (local port,
+  connect times, each write's time, bytes sent, the reply's bytes, first byte and end, EOF or reset,
+  the TLS result), every time on CLOCK_MONOTONIC. It judges nothing; section 10's runner, which
+  starts each system in the setup a variant names and judges the outcome, comes after the pilot
+  entry. Test `server.cases_by_port`: HC1's HTTP/1.1 variant against the server, its line.
+- **sslh-ev's M3 cells**, as the frozen rules decide them: no M5 work and no M5 window. Every
+  sslh-ev window of M3 fails section 7's 0.1% error rule as configured (sslh 2.3.1's defect with
+  libev's reused descriptors; revision log, "sslh-ev's stalled exchanges"), so both cells will
+  have fewer than R_M valid sessions, enter Holm with p = 1 (section 4.1) and be "not shown"
+  (section 12), and the narrowing order puts M3 first. sslh-ev's B3 cells are the subject of the
+  note under the exit criteria.
+
+### The exit criteria, after round 2
+
+| Criterion | State | Figures (development data) |
+|---|---|---|
+| 1. Counter deltas | met | replay: 0 extra system calls and 0 extra copies per connection in every cell; peek: +1 MSG_PEEK on epoll, +1 POLL_ADD, +1 MSG_PEEK and +1 `io_uring_enter` on io_uring; timing-dependent counts inside the dedicated arm's spread but one (MQTT, epoll, peek: EOF reads +0.0035) |
+| 2. B3 relay at 1.25 | met against nginx, HAProxy, Envoy, caddy-l4 (both cases, both backends; least 1.320); not met against sslh-ev (0.927 to 1.000) | the server's W cannot fall below its Ks, which sslh-ev's W barely exceeds (the note under the criteria) |
+| 3. M3 at 1.05 against nginx and HAProxy | met | every session of round 2: nginx 1.0764 to 1.1142, HAProxy 1.0906 to 1.1226 |
+| 4. Four sanitizers after every change | met at the end, not after every change | ac84f2d (m5chk4) and 681c58e (m5chk5) green in all four builds; deaabfe, 666a6b7 and 333d846 were not |
+| 5. Two rounds | used both | round 1 (deaabfe), round 2 (ac84f2d) |
+
+M5 stops here with one gap, recorded: criterion 2 against sslh-ev, out of reach by construction.
+The frozen order decides what follows from the confirmatory runs, not from these data: if sslh-ev's
+four B3 cells fail section 4.4's test, B3 narrows (section 12) to the competitors and cases the
+server beats; M3 comes first in that order, and these development data give it no sign of needing
+to narrow against nginx and HAProxy.
+
+### Readings, and changes against the proposal's text (for the coordinator)
+
+None of these changes a frozen rule; each is listed so the code freeze can log what it needs.
+1. Criterion 1 for relay dispatch. Dedicated mode has no relay (only a detecting listener relays,
+   `enter_handler`), so the relay has no one-port against dedicated delta. Its rows are given per
+   relayed connection in each detection mode, and peek against replay is the check of "exactly the
+   MSG_PEEK (or poll) operations the design adds".
+2. The revision log's M3 entry, item 2, lists "the two `TCP_NODELAY` of a relayed connection" among
+   the `setsockopt` calls counted. Its rule (every `setsockopt` on a connection's socket is counted;
+   a listener's options, set once at start, are not) stands; since 23eae82 a relayed connection
+   makes one, its backend's, and the relaying listener's is set once at start and inherited. The
+   example list is now out of date; the code freeze's entry can say so.
+3. Proposal I11 and I15 name `IORING_OP_RECV` for io_uring's receives; since 666a6b7 they are
+   `IORING_OP_READ` on the socket (why, above). The frozen text names no opcode: section 2.1 counts
+   "submissions by opcode", and section 1(b) and section 11 speak of a receive posted with a
+   provided buffer, which READ is. For the coordinator to accept, or to send back.
+4. Section 2.1's memory bounds hold as frozen: in-process with replay the handler's buffer from the
+   first byte (the TLS handler's state now comes later, the buffer does not change); in
+   pass-through the partial ClientHello, at most B_CH, now in storage sized to the records it needs
+   next (at most the message and 5 bytes per record, M2b's reading 3).
+5. M2b's reading 1 (the relay passes each side's end on as a half-close and closes when both have
+   ended) holds: the end that comes last is passed on by `close()`'s FIN rather than by a
+   `shutdown()` before it; the bytes either peer sees do not change.
+
+### Design choices of M5
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| Counter repeats | 3 per cell and mode, interleaved | `trace_job2.sh` (`systrace.py --repeat`) | the dedicated arm's own spread beside one-port's distance from it |
+| Integration test ports | shifted by 400 times (CRC-32 of the build tree mod 16) | `test_competitors.port_shift` | two suites at once do not bind each other's ports |
+| Profile | perf record -g at 4999 Hz for 4 s after 1.5 s of load | `perfrec.py` | about 20,000 samples of the front's one core |
+| Profile port | 24200, the stub 10 above | `perfrec.PORT` | off the ephemeral range, apart from the other runners' ports |
+| B3 development order | per proxy and case: the proxy, the relay on epoll, on io_uring, the proxy | `c5.sh` (m5b3c) | the host's drift within a job falls on both arms |
+| Parked ClientHello storage | the record bytes the reassembly needs next | `Worker::hello_room` | the records a pending connection has, no more |
+
+### How the jobs ran, and what went wrong
+
+- Every job ran under `lab_job.sh` (the lab lock, the clock floor, THP at `madvise`, NOTRACK), from
+  `~/lab/p3/m5/src`, a clone of the lab remote, in chains of jobs (`c1.sh` to `c5.sh`, kept in
+  `~/lab/p3/m5/`). Each chain's results came back over one ssh session opened before its B3
+  windows, so no new TCP connection reached L while a B3 window measured (section 7's TIME-WAIT
+  rule counts the host); two ssh calls during m5b3c's build came before its first baseline, which
+  waits until the host holds no TIME-WAIT socket.
+- Chain c1 was launched with its arguments typed into L's login shell, zsh, whose history modifiers
+  (`$R:s...`, `$R:h...`) ate every argument written as `$R:...`: m5b3a and m5perf1 ran their proxy
+  windows and profiles but lost most of the server's; m5b3a2 and m5perf2 ran them again. Every later
+  chain is a bash script.
+- Chain c3 (666a6b7) was stopped after its checks, before any window, to add 333d846; chain c4
+  (333d846) was stopped by SIGTERM to its process group during its B3 job's start, before any
+  window, when its checks failed. Every setting came back (the records' `restored` true). Chain c5
+  (ac84f2d) ran to its end.
+
+### Lab journal and raw data
+
+Ten lines in the Papers repo's `lab/journal.jsonl` (Papers 0c4d67d and 6b82bb0, local, not pushed),
+each marked development: m5b3a, m5perf1, m5b3a2, m5perf2, m5m3a (before, 6bb6484), m5b3b, m5perf3,
+m5m3b (round 1, deaabfe), m5b3c and m5m3c (round 2, ac84f2d). No line for the untimed counter checks
+(m5tr1 to m5tr3: counts, never a time or a rate), the checks (m5chk1 to m5chk4), or the stopped
+chains (no window ran). Everything stays on L under `~/lab/p3/m5/`, archived in
+`~/lab/runs-archive/p3-m5-20261003T194756.tar.gz` (sha256
+0ca57c74b29e2d8d5998a0531e89a2426a63b0ea560fc17187cb8f1b1aa0a182, beside it in a `.sha256` file;
+5,993 members; made under the lab lock, job m5arch); build trees, source clones and the check
+builds are left out.
+
+## M7 preparation, 2026-10-03
+
+The preparation of the code freeze, not the freeze: M4b-1's reading 4 fixed in the configurations
+instead of logged; M5's readings in the revision log; the records drivers, written and tried in a
+dry run that makes no citable record; and the checklist of the freeze (next section). Nothing here
+is a result. No window ran: `cases_check.py`, the reassembler check and the drivers' dry run are
+functional and untimed, so no lab-journal line was written. `m6b-windows` and W were not touched.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| f7d62a2 | feat: the route for a ClientHello without ALPN in the five proxies' cases configurations; cases_check.py checks it |
+| 785b66b | feat: the code freeze's records drivers, prepared and not run for records |
+| b701194 | fix: build_inputs.py finds L's inputs_hash.py in ~/lab/p3/tools and records the tool's sha256 |
+| e68087f | fix: the integration tests' port shift is a multiple of 600 (two suites at once collided at 400) |
+| 3627355 | fix: test_competitors.py's Linux-only decorator moves to class Integration (e68087f broke the file) |
+| 9afccbc | fix: sanitize_oneport.ps1 names cl as the C++ compiler |
+| c644ffd | docs: hypotheses.md revision log, M5's readings 1 and 5; reading 4 reported |
+| 6795407 | fix: the integration tests bind their ports below 10000, apart from the in-process servers' random ports |
+| 8e01e1d | fix: the integration tests fail on a sanitizer report in their started processes' files |
+| 49e4bb3 | docs: test_competitors.py's comment on the port move (dryrun3's cause is likely, not proven) |
+
+Then this section (the commit after these). Papers 53b929a (local, not
+pushed): `lab/bin/test_report_pattern.sh`'s list of record writers held a literal `\n` where a
+line continuation was meant, so the loop also took a token `n` and printed "skip: n" (the one-port
+writer after it was still checked); fixed. A copy of the fixed script on L, with sanitize.sh,
+sanitize.ps1 and oneport_record.py beside it as in the Papers tree, prints PASS and no "skip: n".
+
+### M4b-1's reading 4: the route for a ClientHello without ALPN, added
+
+The server's pass-through route table (`bench/server/relay.cpp`, `routable`) sends a ClientHello
+for oneport.test with no ALPN, or with an ALPN list that offers http/1.1 or h2, to the backend's
+TLS port. The proxies' cases configurations held only the ALPN part. Appendix B asks for "every
+route its features cover", so the route without ALPN is now in each (f7d62a2):
+
+| System | How | Exact? |
+|---|---|---|
+| nginx | map key `"oneport.test "`: `$ssl_preread_alpn_protocols` is empty without the extension | yes |
+| HAProxy | `use_backend tls_backend if { req.ssl_sni -m str oneport.test } !tls_has_alpn`, with `acl tls_has_alpn req.ssl_alpn -m found`: the fetch returns no sample without the extension (src/payload.c, `smp_fetch_ssl_hello_alpn`, v3.4.6) | yes |
+| Envoy | a second chain, `server_names` and `transport_protocol: tls`, no `application_protocols`: FilterChainMatch has no form for "none", so the chain without the field takes any list the ALPN chain does not | no: also takes ALPN lists that offer neither h2 nor http/1.1 |
+| caddy-l4 | a route `tls { sni oneport.test }` after the ALPN route, on both listeners: the alpn matcher matches only a protocol the client offers (modules/l4tls/alpn_matcher.go, v0.1.2) | no: as Envoy |
+| sslh-ev | a second `tls` entry with `sni_hostnames` alone: with both lists set, a ClientHello without the extension does not match (tls.c lines 207 to 209, v2.3.1) | no: as Envoy |
+
+- The brief named four proxies. By their features and sources all five can carry the route, two
+  of them exactly, so all five carry it; this is for the coordinator, and leaving one out is a
+  small revert of that system's file and of `cases_check.NOALPN_SYSTEMS`.
+- What else changes, in Envoy, caddy-l4 and sslh-ev only: a ClientHello for oneport.test whose
+  ALPN offers neither h2 nor http/1.1 now reaches the backend's TLS port, where the server refuses
+  it with no_application_protocol (M2a's reading 6), instead of the path a ClientHello without
+  ALPN took before (the control below). No hard case of Appendix A sends one.
+- `cases_check.py` checks the route on every proxy (`routes["tls-noalpn"]`, with `exact`): a TLS
+  1.3 handshake for oneport.test without the ALPN extension against the test certificate
+  (`b3.tls_probe`, which now takes the offered ALPN list), then HTTP/1.1; it passes only if the
+  backend's TLS port answered 200 with the 13-byte body and no protocol was selected. Judged at
+  matched timers, and at the defaults where routes are judged (not HAProxy's, M4b-1's reading 5).
+- Tests: `test_competitors.Configurations.test_no_alpn_route` (the five rendered configurations),
+  `test_runner.test_tls_probe_without_alpn` (the probe against a local TLS stand-in).
+
+The check on L, job casecheck1 (f7d62a2, lab_job.sh: lock, clock floor, THP at madvise, NOTRACK;
+a Release build; `ctest -L run` 2 of 2 passed, the runner's and the competitors' tests with their
+integration part; then `cases_check.py` on the five proxies, both kinds, both timer settings).
+Every judged check passed (exit 0):
+
+| System, kind | Matched: routes / no ALPN / PROXY / fallback | Default: routes / no ALPN |
+|---|---|---|
+| nginx, cases | HTTP/1.1, TLS / ok / v1, v2 | the same / ok |
+| HAProxy, cases | all five / ok / v1, v2 | all but TLS / no (both recorded, not judged) |
+| HAProxy, cases-fallback | all five / ok / v1, v2 / SMTP at 3.00 s | the same as cases / no (recorded); SMTP at 0.00 s |
+| Envoy, cases | HTTP/1.1, h2c, TLS / ok / v1, v2 | the same / ok |
+| Envoy, cases-fallback | the same / ok / v1, v2 / SMTP at 3.00 s | the same / ok; SMTP at 15.00 s |
+| caddy-l4, cases | all five / ok / v1, v2 | the same / ok |
+| sslh-ev, cases | HTTP/1.1, TLS, MQTT, SSH / ok / none | the same / ok |
+| sslh-ev, cases-fallback | the same / ok / none / no greeting (recorded, as M4b-1) | the same / ok |
+
+The control, job casecontrol1: the same `cases_check.py` against the five configurations as they
+were at 9853131, matched timers. The no-ALPN check failed on every proxy in every kind: the
+connection closed or reset (nginx, HAProxy, Envoy and caddy-l4 in "cases", sslh-ev's), or the SMTP
+greeting came back (every "cases-fallback"). So the check tells the route apart.
+
+Raw data on L, `~/lab/p3/m7prep/`: casecheck1/cases_check.jsonl
+8848cb61fe989aa5262d495ac158853cc8162ce060f68635fd7137e4f7646c73, casecheck1.log
+5acd1b152d8c09a588cb1e1ae8de95184f0e221f1836cd22cd9cd8783f99b8cf, casecontrol1/cases_check.jsonl
+3387f2fd262661ee6f84e878f023e3724aea5086e5e10d048603d57e267b0124, casecontrol1.log
+eb57c93b8ff93680cf9df432d77b3fb45a6159579f592aced71b170daa90b1cc.
+
+### M5's readings in the revision log
+
+The entry "Readings fixed during engineering (M5), before the code freeze" logs readings 1 (relay
+dispatch has no dedicated counterpart, so the relay's operations are given per detection mode)
+and 5 (M2b's reading 1 holds with `close()` for the last direction), one line each with why it
+follows. Readings 2 and 3 were logged by the coordinator's entry after M5. Reading 4 is not
+logged (below). A note in the same entry says M4b-1's reading 4 no longer describes the
+configurations (f7d62a2).
+
+### For the coordinator: M5's reading 4 does not hold for every record framing
+
+Reading 4 says section 2.1's bounds hold as frozen, the pass-through ClientHello "now in storage
+sized to the records it needs next (at most the message and 5 bytes per record, M2b's reading
+3)". That holds when each record ends with the ClientHello. It does not when a record header
+announces more payload than the ClientHello can still take:
+- `clienthello::reassemble` returns "more" with `need` = the bytes so far, 5 and the length the
+  incomplete record's header announces (clienthello.hpp lines 64 to 68); it refuses a record that
+  would take the message past B_CH only once that record is whole (line 69).
+- In replay, `try_route` sizes the ClientHello's storage to `need` (relay.cpp lines 241 and 253;
+  `hello_room`, capped at `kHelloWireMax` = 6 × B_CH, worker.hpp line 111), and the resize writes
+  zeros, so the storage is memory the pending connection holds. In peek, `SO_RCVLOWAT` is set to
+  the same `need` (relay.cpp line 236); the kernel then holds only what arrived.
+
+A check of the pure function at f7d62a2 (job helloroom1; `~/lab/p3/m7prep/hello-room/need.cpp`,
+sha256 7741b32a41c8d4d8a185f72b465f8d83b2d2c29b9ea8e9de22d59a54692818b2; log
+ddc2d4a9fe1a73946ec733fb9d9a129878b9ca26b3220c16c54c1e8870d7b225):
+
+| Framing | Received | need | The message and 5 bytes per record |
+|---|---|---|---|
+| A: a 512-byte ClientHello in one record, its first 9 bytes | 9 | 517 | 517 |
+| B: a 104-byte ClientHello in a record whose header announces 16,384 | 9 | 16,389 | 109 |
+| C: a 16,384-byte ClientHello, record 1 whole with 16,000 bytes, record 2's header announcing 16,384 | 16,010 | 32,394 | 16,394 |
+
+B3's partial ClientHello is A's shape (the recorded ClientHello in one record), so no development
+B3 window was affected. Two readings of the frozen text meet here: B2(d) bounds the "user-space
+payload bytes" a pending connection holds, and the bytes received stay within reading 3's bound;
+section 2.1 bounds the "memory held by a pending connection", and in C the storage is about twice
+B_CH. A candidate fix, not made: `reassemble` and `scan` return "no" at a record header whose
+length would take the message past B_CH (`got + len > cap`), the verdict that record gets once
+whole, only earlier; the storage then stays within B_CH and 5 bytes per record. B (a record longer
+than the short ClientHello it carries, within B_CH) would remain; bounding it by the message
+needs the message's length from a partial record. Either change is first-party code, so it must
+land before `CODE_FREEZE` and before the records.
+
+### The records drivers (785b66b, b701194, e68087f)
+
+Prepared for the freeze; no citable record was made. Each follows P2's drivers (same author) and
+the Papers repo's rule D5.
+
+| File | What it does |
+|---|---|
+| `bench/build_inputs.py` | Hashes a oneport build the one way the records and the gate share: every first-party target per host (L: oneport, oneport_server, oneport_config, oneport_loop, oneport_tls, opcase, opcase_bin, ophold, record_clienthello, opgen, opgen_core, oneport_tests; W the same less opcase_bin, ophold and record_clienthello), checked against the compile database first (a target compiled but not listed, or listed and not compiled, stops it); config keys `CMAKE_BUILD_TYPE` and `ONEPORT_BACKENDS`; root label `oneport`. Adds the compiler identification, the host and the inputs_hash.py used (path, sha256). Names the measured binaries per host. |
+| `bench/sanitize_oneport.sh` | L: one record of oneport per sanitizer (ASan+UBSan, TSan, MSan with the MSan libc++), Release, from a clean checkout: build, inputs hash, `ctest -V` (M5's green options), logs kept and packed (`keep_record_logs.sh`), `oneport-<commit>-L-<san>.json` by `oneport_record.py`. Each sanitizer's suite gets its own port block (`ONEPORT_TEST_PORT_SHIFT`). |
+| `bench/sanitize_oneport.ps1` | W: the same with MSVC ASan from a vcvars x64 shell, M6a's ASan options. Untested and not even parsed: W was in use, and nothing ran there. Run it only with Alex's yes. |
+| `bench/sanitize_harness.sh`, `bench/harness_record.py` | L: one record of the Go or Rust harness per sanitizer (ASan, TSan): the flavour's build (`build_harnesses.sh`), then its probe in its cases kinds and its route checks at both timer settings, in the environment its flavour runs with (`run_env` of build.json: hyper-util's TSan with its tsan.supp), as M4b-2's development checks ran. The record names the target as `coverage.json` does (`harness_cmux`, `harness_hyper_util`), the inputs hash of `harness_inputs.py`, the toolchain as its compiler, and counts the lab's report pattern and Go's race report. |
+| `bench/records_job.sh` | L: every record in order in one lab job: a Release build and the release harnesses; oneport ASan and TSan at once (two suites at most), then MSan; the four harness records one at a time (fixed ports); then the gate of the Release build, into `gate-L.json`, and the inputs hash and sha256 of every measured binary into `measured-L.json`. Stops at the first record that is not green. |
+| `bench/keep_record_logs.sh` | P2's, unchanged: logs in `~/lab/records-logs/<record>/`, packed, with a sha256. |
+| `bench/gate_lib.py`, `bench/check_records.py` | The gate also refuses a dry-run record found among the records; `--accept-dry-run` lets one count and marks the output never citable. `--harnesses build.json` gates the measured harnesses (release flavour) against their records, with `coverage.json`'s declared gaps (Netty and Jetty whole, MSan for cmux and hyper-util). The output holds `binaries`, the sha256 of the measured executables and harness outputs. |
+| `bench/check_rows.py` | A row is refused unless every first-party binary its provenance names (aa.py and handoff.py write `binaries`) has the same name and sha256 in a gate that passed and is citable. |
+
+Dry runs: `DRY_RUN=1` names every record `...-dryrun`, marks it, refuses to write into
+`lab/sanitizer-records`, and keeps the logs under the job's directory, so the citable records'
+log directories stay free. Records match builds by inputs hash, not commit, so a dry-run record
+must never gate the freeze's build; the gate refuses one, and `check_rows.py` refuses a gate made
+with `--accept-dry-run`.
+
+Tests: `gate.test_gates` (new: a dry-run record stops the gate; `--accept-dry-run` marks the output;
+the harnesses' gate, covered, missing TSan, another toolchain, other inputs, a sanitizer flavour
+as the measured build; the gate's binaries; `check_rows.py` passes a covered row and refuses a row
+whose binary has no matching green record, a row with no binary, a row whose only gate is a dry
+run or did not pass; `build_inputs`' target check), `gate.test_record_writers` (new: `--dry-run`;
+`harness_record.py` green and red cases), `run.test_competitors` (new: `PortShifts`, the port
+blocks of two shifts never overlap and lie below the in-process servers' random ports;
+`ChildReports`, the scan of the started processes' files). On L before the dry run (job unit1, the patch of 785b66b on f7d62a2):
+test_gates and test_record_writers all checks passed, test_competitors 35 checks passed (2 skipped,
+no build); `bash -n` found the quoting fault fixed in 785b66b before its commit.
+
+### The drivers' dry run
+
+`DRY_RUN=1 bench/records_job.sh`, one lab job each (lab_job.sh: lock, clock floor, THP at madvise,
+NOTRACK), from a clone of the lab remote, the records and their logs under
+`~/lab/p3/m7prep/dryrun<n>/`. None is citable, and none was copied anywhere.
+
+| Job | Commit | What happened |
+|---|---|---|
+| dryrun1 | b701194 | ASan's suite red (382 of 383): `run.test_competitors`, a hand-off stub that did not start. Two suites at once at port shifts 3200 and 3600: TSan's probe front (23100 + 3600) took ASan's hand-off port (23500 + 3200); the stride of 400 was less than the tests' block of 516 ports (fixed in e68087f). TSan green. |
+| dryrun2 | e68087f | Both suites red: e68087f broke `test_competitors.py` (a decorator above the new constants; fixed in 3627355). |
+| dryrun3 | 9afccbc | ASan green, TSan red: the probe's stub for the silent case (port 24910) exited at once although the two suites' blocks were apart. The C++ tests' in-process servers take random runs of free ports from 10000 up to the ephemeral range (`server.cpp`, `bind_all`), so with two suites' C++ tests running one could hold it; the stub's standard error was in the test's temporary directory, gone, so the cause is not proven. Alone, the same stub started 20 times of 20 and the same probe passed 6 times of 6. 6795407 moves the integration tests below 10000; dryrun4 and dryrun5 then passed. |
+| dryrun4 | 6795407 | Every step green (below). |
+| dryrun5 | 8e01e1d | The three oneport records again, after the integration tests learned to fail on a sanitizer report in their processes' files (8e01e1d): all three green, 383 of 383 tests each, 0 report lines, `run.test_competitors` passing in each with ASan and TSan at once (records sha256 95ea5bdf..., 7e39d1b4..., 7b3458d4...; records.log b538d76e52ef22df1be603028baa3d030eed489a5eba09a83fc0f9ec42c30957). |
+
+dryrun4, every record a dry run (`-dryrun`, `"dry_run": true`):
+
+| Record | Green | What it ran | Seconds |
+|---|---|---|---|
+| oneport ASan+UBSan | yes | 383 of 383 tests, 0 report lines; 12 targets hashed | 154 (with TSan beside it) |
+| oneport TSan | yes | 383 of 383, 0 | 148 (with ASan beside it) |
+| oneport MSan | yes | 383 of 383, 0 | 146 |
+| harness_cmux ASan (`go build -asan`) | yes | probe in cases and cases-fallback, route checks at both timer settings, 0 reports | 36 |
+| harness_cmux TSan (`go build -race`) | yes | the same, 0 reports or races | 34 |
+| harness_hyper_util ASan | yes | probe in cases, route checks, 0 | 54 |
+| harness_hyper_util TSan | yes | the same, with `TSAN_OPTIONS=suppressions=<checkout>/bench/competitors/hyper-util/tsan.supp`, 0 | 50 |
+
+- The gate (`check_records.py --accept-dry-run`): passed, marked `"dry_run": true` and
+  `"citable": false`. It matched the Release build's 12 targets (inputs hash of `oneport`
+  d10d4f45b353, config `CMAKE_BUILD_TYPE` Release, `ONEPORT_BACKENDS` epoll;io_uring, compiler
+  Clang 22.1.8, pins 2d49d03bacf8) to the three oneport records, and the release harnesses to
+  their four records, with Netty and Jetty allowed by their declared gap and the harnesses' MSan
+  by theirs. `measured-L.json` holds the inputs hash of 16 targets (12 and the four harnesses) and
+  the sha256 of 8 binaries (oneport, opgen, opcase, ophold and the four harness outputs).
+- The refusals, on the same build (job gateneg, under the lock): without `--accept-dry-run` the
+  gate refuses the dry-run records ("is a dry run of the records driver"); with no records it
+  refuses the build ("oneport ... has no green asan, tsan, msan record"); `check_rows.py` refuses
+  all 48 rows of M5's job m5m3c and a row naming this build's oneport and opgen, since the only
+  gate is a dry run. The Release oneport and opgen of 6795407 have the same sha256 as m5m3c's at
+  ac84f2d (2f2d9d35582e, 0c0f3457a34c): no compiled input changed between them, and the build
+  reproduced the same bytes. The unit tests cover a passing row and a row whose binary differs.
+- Seen in passing: in dryrun2's ASan suite `run.test_runner` passed but printed a thread's
+  exception from its stand-in stub (`B3Relay.serve_once`: `ENOTCONN` at its `shutdown`, the
+  client having reset first); it matches no report pattern.
+
+dryrun4's files (sha256): gate-L.json
+b35c4271fd1345c6229bceb6dbf81fef47a9672d0739ee65f44c85345a1c7ba6, measured-L.json
+6c6c67904685e0ec95efbfdf7aa33a4ef6cfaa9c86a102467648f1ab66a4c607, release.inputs.json
+4fe72ec3d5a68a1c90efcf1f2b84388bd1ecf770efb46c3019052a800fc509dc, records.log
+cd2994a12f2b16d1e30ed8af621420c2c847ad35720649d0166cd23d43786fcc.
+
+## M7 fixes, 2026-10-03
+
+The coordinator's five decisions after the M7 preparation, done before the freeze. Nothing here
+is a result. Every job on L was untimed (scratch builds, unit and integration tests, the leak
+checks, the suite in four builds, the records drivers' dry run) and ran under `lab_job.sh` (the
+lab lock, the clock floor, THP at madvise, NOTRACK), from fresh clones of the lab remote; no
+window ran, so no lab-journal line was written. `m6b-windows`, `m7-analysis` and W were not
+touched. Scripts and logs on L: `~/lab/p3/m7fix/`.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| d15e775 | fix: the pass-through ClientHello's storage stays within B_CH and 5 bytes per record (M5's reading 4) |
+| c1b4283 | feat: b3.py's rows name the binaries they ran, so check_rows.py binds them |
+| 3382bb8 | docs: hypotheses.md revision log: the route without ALPN; N_BG_TLS = N_BG_MQTT = N_BG_SILENT = 64 |
+| 97a5363 | fix: the Go and Rust harnesses end on SIGTERM by a normal exit, so the sanitizers' exit checks run |
+
+Then this section (the commit after these).
+
+### 1. The route without ALPN in all five proxies
+
+Logged as decided, one line: item 1 of the revision-log entry "The code freeze's preparation
+(M7)". The configurations are f7d62a2's, unchanged.
+
+### 2. M5's reading 4: the ClientHello reassembler, fixed (d15e775)
+
+Not logged as a reading, as decided.
+- The refusal. `clienthello::reassemble` and `scan` refuse a record at its header when the
+  length it announces would take the reassembled handshake bytes past B_CH (`got + len > cap`),
+  the verdict that record got before once whole, only earlier. The relay then closes the
+  connection and counts it `route_rejected`, the frozen outcome of a ClientHello longer than B_CH
+  (M2b's reading 3, M3's reading 1). Every whole stream gets the verdict it got before.
+- The bound. With the refusal, what the reassembly asks for while the verdict is "more" is at
+  most B_CH and 5 bytes for each record that carries the bytes so far, the incomplete one
+  included (`need <= B_CH + 5 * (records + 1)`). The relay sizes the storage to it in replay and
+  `SO_RCVLOWAT` in peek, so the cap of the brief falls out with no change to either backend's
+  I/O path. `hello_room` now reserves exactly that size: libc++'s `resize()` had grown the
+  storage from 16,005 to 32,010 bytes in shape C even with the refusal (control2r, below).
+- The reading of the bound, for the coordinator: B_CH for the handshake bytes and 5 bytes per
+  record, as M2b's reading 3 counts them ("at most the message and 5 bytes per record"), with
+  B_CH as the message's bound. Shape B, a 104-byte ClientHello in a record that announces 16,384,
+  still asks for 16,389 bytes: B_CH and one record's 5, the bound itself, not past it. Bounding B
+  by its own message (109 bytes) would need the ClientHello to complete before its last record is
+  whole, which changes when a route is chosen; not done.
+- Both arms. `scan()` runs in the in-process TLS handler (`tls_step`) in one-port and in
+  dedicated mode, so the change is compiled into both arms of every TLS cost cell. There the
+  early "no" can only replace a "more" whose need exceeded the handler's buffer (`kRecvBuf`,
+  4,096 bytes; the refusal needs more than B_CH), where the handler already made OpenSSL's state,
+  so its behaviour does not change in either arm. `reassemble()` serves pass-through, which runs
+  in one-port mode with relay dispatch only (`config.cpp`).
+
+helloroom1's shapes, what the reassembly asks for:
+
+| Shape | Received | Before (f7d62a2) | Now |
+|---|---|---|---|
+| A: a 512-byte ClientHello in one record | 9 | more, 517 | more, 517 |
+| B: a 104-byte ClientHello in a record announcing 16,384 | 9 | more, 16,389 | more, 16,389 (= B_CH + 5) |
+| C: record 1 whole with 16,000 bytes of a 16,384-byte ClientHello, record 2's header announcing 16,384 | 16,010 | more, 32,394 | no (refused at record 2's header) |
+
+Tests: `clienthello.helloroom1` (the three shapes, with the numbers before the fix from a copy of
+the old reader kept in the test); `clienthello.refusal` (every prefix of C's whole stream: never
+"yes", "more" as before until record 2's header is whole, "no" from then on; the old reader also
+refused the whole stream; the boundary, a record 2 of exactly the 384 bytes the message lacks, is
+accepted, 16,394 bytes on the wire); `clienthello.need_bound` (every prefix of nine framings, the
+long ones near each record boundary and every 61st byte: the bound, `scan()` equal to
+`reassemble()`, and no verdict other than an earlier "no" against the old reader);
+`relay.pass_through_storage.{replay,peek}` on both backends (A and B close at T_dec in storage of
+exactly 517 and 16,389 bytes; C is rejected at once, its storage at most 16,394 bytes; counters).
+
+On L, scratch jobs (`try_job.sh`, a patch on a clone at adbc041, ASan+UBSan):
+
+| Job | What | Result |
+|---|---|---|
+| try2a | the fix and the tests | 52 of 53: `need_bound`'s count of prefixes checked was set too high (6,030, not above 10,000); lowered to 5,000 |
+| try2b | the same, the count fixed | 20 of 20 (`clienthello` and `pass_through`), 0 report lines |
+| control2 | the tests on the code before | 7 failed, exactly the new tests: C's need 32,394; C not refused at 16,010; C's route timed out, not rejected |
+| control2r | the fix without the exact allocation | C's storage 32,010 bytes in replay, on both backends |
+
+Logs (sha256): try2b.log a099497e967d52bf904bbe5ce1a1bc7547de9dfea51046acc80144311c61c97a,
+try2b/ctest.log 15b00d2d802857cb29dbb9e88682cd081c2144b704f49f3a90f57a2905b80345, control2.log
+503c51d642db57c852764dabcacc23142a263a377b6c4c28411b1ee90d87ceee, control2/ctest.log
+c142aae9c6670c72a19d9d69da4fd3f83a94aa5c7e87e8399b259334c4d7045f, control2r.log
+fd21cce50439ae7a2d46d768abe32aa04367dc8f7315f8ede744d9667b02d412, control2r/ctest.log
+fe12578c8142a8e56ac122d670a8e06a20e4e5030b5c01dfc644d77775f0829a.
+
+### 3. b3.py's rows name their binaries (c1b4283)
+
+Each B3 row's `provenance` is aa.py's (commit, build, compiler, pins) with:
+- `binaries`, {name: sha256} of the first-party executables the window ran, under a gate's names
+  (`build_inputs.BINARIES` and `harness_<name>`): `opcase` always; `ophold` in its windows;
+  `oneport` for the server's arms and, as the stub, behind every relay system; `harness_<name>`
+  (the file at `<build>/harness` that ran) for a library. This is what `check_rows.py` binds.
+- `binary_paths`; `inputs_hash_gate`, every target's inputs hash as the gate hashes the build
+  (`build_inputs.py`), with its configuration and compiler; aa.py's development `inputs_hash`
+  stays beside it.
+- For a library, `harness`: build.json's entry (target, inputs hash, flavour, tools, recorded
+  output sha256) and `same_as_build_json`, whether the file run is that output.
+- For a proxy, `competitors`: its binary's path and sha256 and its B3 configuration's sha256.
+  Proxies are not first-party and never appear under `binaries`.
+Tests (`run.test_runner`, class `B3Provenance`, a stand-in build tree, runs anywhere): the names
+per system, all among a gate's names; rows of seven systems pass `check_rows.py` against a
+passing, citable gate of the tree's binaries; a gate without the cmux harness refuses that row
+alone; a binary rebuilt after the gate is refused; a row without provenance, as before, is
+refused; a harness that differs from its build.json is marked.
+
+On L, job b3prov1 (`b3prov_job.sh`, untimed, no window, nothing started), against the dry run
+dryrun6's Release build and harnesses (below): `b3.provenance` for each of the 12 systems names
+the binaries above; every row's binaries equal the dry-run gate's (0 of 12 refused, matched
+directly, since `check_rows.py` refuses the dry-run gate itself as never citable, which it did);
+each row's inputs hash per target equals `measured-L.json`'s for all 12 targets; every harness
+file is its build.json's output. Log sha256
+6e1d7bb3c285d3ff5e77255de13785425d6095df4d01234c0f4637a5b1edca93.
+
+### 4. The harnesses' leak checks (97a5363)
+
+Both harnesses now end on SIGTERM by a normal exit and print `<name>: stopped by SIGTERM`:
+cmux closes its listener and its HTTP server and returns from main (it does not wait for
+connections still being matched, which cmux's `Serve` would, up to their read timeout); the
+hyper-util harness's handler writes one byte to a socket pair (glibc's `signal(2)` and
+`write(2)`, declared in main.rs, so no crate is added and Cargo.toml and Cargo.lock are
+unchanged), its accept loop returns, and the runtime is dropped with its tasks and threads. The
+JVM harnesses are unchanged; their gap is declared. `coverage.json` declares no gap for the
+harnesses' leak check, so nothing there changes (the checklist's alternative, item 7, is not
+needed).
+
+`harness_record.py` makes a record green only if every run of the harness in the checks ended
+through the handler (each `stdout.log` that says `<name>: listening` also says
+`<name>: stopped by SIGTERM`), and not if the checks ran none; its docstring and each record's
+note now say the exit checks run. Tests in `gate.test_record_writers`: the counts, red from a run
+that did not end through the handler, red from checks with no run, red from LeakSanitizer's
+report at a clean exit.
+
+The deliberate leak, job leak1 (`leak_job.sh`, scratch clones at c1b4283 with the patch of
+97a5363; build_harnesses.sh's asan flavour; each harness started, sent SIGTERM once listening,
+waited for):
+
+| Harness | Variant | Exit | Stop line | LeakSanitizer |
+|---|---|---|---|---|
+| cmux | new | 0 | yes | none |
+| cmux | new, with a leak (a C `malloc` of 4096 bytes whose only pointer is cleared) | 1 | yes | 4096 bytes in 1 allocation |
+| cmux | before (adbc041), with the same leak | 143 (SIGTERM) | no | none |
+| hyper-util | new | 0 | yes | none |
+| hyper-util | new, with a leak (`std::mem::forget` of a 4096-byte Vec) | 1 | yes | 4096 bytes in 1 allocation |
+| hyper-util | before (adbc041), with the same leak | 143 (SIGTERM) | no | none |
+
+So the handler is what lets the exit check run. Files (sha256): leak1/summary.txt
+c1241a850ea556e4c8677af0f1d360b4de4688662018256b2b08587bf9893aa5, leak1/cmux-new-leak.stderr
+aa2659abeb15c2084a19cf2247a185dd5aea5379d9c8942a334e55f04cb60924,
+leak1/hyper-util-new-leak.stderr
+0cddf176cecab848b6a0023be0e07cf1f14cc784826b761de67455d620090cdd, leak1.log
+e1a87ba96e0412a97f47be3cd2d27466aa9ef85f9ff26490b38e4320d9e0b225, leak_job.sh
+889aa04d2e25e369bbd2101da153f2006c3f1ace4857bbdd83177e0e775016c2.
+
+### 5. N_BG_TLS, N_BG_MQTT, N_BG_SILENT: 64 each (3382bb8)
+
+- The frozen text. Section 9.1's row names them "the background of the secondary mixed-protocol
+  cell" and gives no rule beyond that; section 10 makes the background "fixed", of TLS
+  keep-alive, MQTT keep-alive and silent connections, "the same in both modes"; section 9 says
+  each value "is never chosen after data that could favour a value"; the proposal (5.7, E3) says
+  only that they are set in engineering before the freeze.
+- So they are a design choice, set with no measurement: a window run to choose them could later
+  be read as a choice after data. No window of the mixed cell has run (it has no runner).
+- The value: 64 each. C = 64, WL1's connection slots per server core and WL3's connections, is
+  the only count of connections per core the frozen text fixes for a cost cell; each kind of
+  background then holds as many connections as the churn has slots, and equal counts weigh no
+  kind above another.
+- The revision log: section 8 step 3 records the values engineering sets at the code freeze.
+  They are logged now as well (item 2 of the entry "The code freeze's preparation (M7)"), as
+  `K_SRC` was, which fixes them before any mixed-cell code exists; the freeze's entry names them
+  again.
+- For the coordinator, before the mixed cell's runner is written: how the background is held
+  in a 5 s window. In one-port mode a silent connection is closed at T_dec (1 f) on a listener
+  without a fallback, or handed to the fallback at T_fb (1 a), both 3 s, while dedicated mode has
+  no detection timer; so "fixed" needs a rule (the generator opens a closed silent connection
+  again, or the listener names a fallback), and whether the keep-alive background sends requests,
+  and at what rate, is not set either. opgen takes one protocol and one load per process and
+  opcase holds silent connections without opening them again, so the background can be made of
+  several processes of the existing generators, or needs a generator change, which must land
+  before `CODE_FREEZE`.
+
+### The suite in four builds
+
+Job chk1 (`checks_job.sh`, at 97a5363, a fresh clone of the lab remote): Debug and ASan+UBSan at
+once, then TSan and MSan at once, each `ninja -j 5` and `ctest -V -j 8`, as M5's `sancheck.sh`
+ran them, with one change: each build's integration tests get their own port block
+(`ONEPORT_TEST_PORT_SHIFT` 0, 600, 1200, 1800), as `sanitize_oneport.sh` gives them, since two
+suites run at once.
+
+| Build | Warnings | Tests | Report lines |
+|---|---|---|---|
+| Debug | 0 | 390 of 390 | 0 |
+| ASan+UBSan | 0 | 390 of 390 | 0 |
+| TSan | 0 | 390 of 390 | 0 |
+| MSan | 0 | 390 of 390 | 0 |
+
+390 is M5's 383 and the 7 new entries (`clienthello.helloroom1`, `.refusal`, `.need_bound`, and
+`relay.pass_through_storage.{replay,peek}` on two backends). Seen in passing, as in dryrun2: in
+three of the four logs `run.test_runner` passed but printed a thread's exception from its
+stand-in stub (`B3Relay.serve_once`: `ENOTCONN` at its `shutdown`, the client having reset
+first); it matches no report pattern, and the test is older than this work.
+
+Logs (sha256): debug build 1b29f2127009a5e6720264afa1e64096ffd3b3ca0969e65539a1a3cf5b30f58e,
+ctest bd184b57532085e7645ea23389974039ce79e94958f7ab6c3e0b52d6a78cec35; asan build
+d79861281373ae703693f67505e2c89a85819f1e814f30e29501573c17102d86, ctest
+a614332f87203968e40e7f5025efc1d9e045259adbae4e8754b6ab6659a8a686; tsan build
+46d5c50aae6b476e8f061f2aab1eef76e90cfcc57bea8be82a95aa80dd5da7d0, ctest
+1461ebdd4be17f6bc80b884b44005933511efcb7065fbcba013ac861fa28033e; msan build
+b7070f4fb3b0279e643f4113a191d80d409599fbc2036f463e7a2238e0db5577, ctest
+98975a6dfb13bc59a4e98e4804294d27a6d6e64a20b28089b9f66a6e1ef44ec7 (all in
+`~/lab/p3/m7fix/check/97a5363/`).
+
+### The records drivers' dry run
+
+Job dryrun6: `DRY_RUN=1 bench/records_job.sh` at 97a5363 from a fresh clone of the lab remote
+(`~/lab/p3/m7fix/dry-src`), one lab job, every record named `-dryrun` and marked, never citable,
+nothing copied anywhere. Every step exited 0:
+
+| Step | Green | What it ran | Seconds |
+|---|---|---|---|
+| release | yes | the Release build and the release harnesses | 35 |
+| oneport ASan+UBSan | yes | 390 of 390 tests, 0 report lines | 153 (with TSan beside it) |
+| oneport TSan | yes | 390 of 390, 0 | 153 (with ASan beside it) |
+| oneport MSan | yes | 390 of 390, 0 | 147 |
+| harness_cmux ASan | yes | probe and route checks, 0 reports; 10 harness runs, each ended through its SIGTERM handler | 37 |
+| harness_cmux TSan | yes | the same, 0 reports or races; 10 runs, each so ended | 44 |
+| harness_hyper_util ASan | yes | the same, 0 reports; 5 runs, each so ended | 54 |
+| harness_hyper_util TSan | yes | the same, with tsan.supp, 0; 5 runs, each so ended | 50 |
+| gate | passed, `dry_run` true, `citable` false | the Release build's 12 targets and the 4 release harnesses against the 7 records | 0 |
+
+So the harnesses' ASan records now include LeakSanitizer's check at exit, and none reported a
+leak. The gate's binaries (sha256, first 12): oneport 8a72e37da73b, opgen 0c0f3457a34c (as at
+6795407: no input of opgen changed), opcase da382a7e821c, ophold 3f405ac29c62, harness_cmux
+8b4f12a1edb5, harness_hyper_util d6e52b94e88c, harness_netty b469789ec32c, harness_jetty
+9937e7f0a0fc. `measured-L.json` holds 16 inputs hashes (12 targets and 4 harnesses); config
+`CMAKE_BUILD_TYPE` Release, `ONEPORT_BACKENDS` epoll;io_uring.
+
+Files (sha256), `~/lab/p3/m7fix/dryrun6/`: gate-L.json
+68e1bf7b06d8274822725947aa8621880a829b13341cddf6a076b499e1b11e98, measured-L.json
+113259e968a3fed4aac8dfc9b47755f42e15dd81b39c92f3797bbf73953d6a54, release.inputs.json
+0a7b89abb55fe40b16af0a0ffd899e8ba98aa4044316abeea72ed8ac8c02d954, records.log
+03a6d4836ec565760062fcfb034b67000b02fdf5c72c4e62d36393298eab507f.
+
+### What the freeze still needs
+
+In the M7 checklist's order (below), after these fixes:
+1. `ANALYSIS_COMMIT`: the merge of the analysis branch (`m7-analysis`, another agent's) with the
+   code that runs 4.6 and its tests, committed before the code freeze (section 8 step 2).
+2. The final merge of `m6b-windows` into main, and W's checks with Alex's yes when W is free
+   (Debug and MSVC ASan, the whole suite). W has not built any of these fixes: the new pure tests
+   (`clienthello.helloroom1`, `.refusal`, `.need_bound`) and the changed `clienthello.hpp`
+   compile on W; the relay, the harnesses and `b3.py` are Linux only. Then `build_inputs.py`'s
+   `TARGETS["W"]` and `BINARIES["W"]` against the merged tree, and the L suite again on the merged
+   tree.
+3. The pins read again on the freeze's day (the JDK, 25.0.5 if published; OpenSSL 3.5, nghttp2,
+   the competitors, caddy-l4's commit, xcaddy, the Rust toolchain; Netty's allocators).
+4. The `/sys/kernel/slab/` re-read on L.
+5. The seeds entry (every seed of 4.7, checked against the lab journal).
+6. For the coordinator: how the mixed cell holds its background ("M7 fixes", item 5). If the
+   frozen generators cannot hold it as decided, the generator change lands before the freeze.
+   With it, the runners still to write (the mixed cell's; the competitors' hard-case table of
+   section 10, "What M7 starts from"): checklist item 8 freezes the Python half of the suite with
+   the tests, so a runner written after `CODE_FREEZE` would need the coordinator's reading of
+   whether a new runner, as against a changed test, is a later change.
+7. The freeze: the `CODE_FREEZE` commit with the final `coverage.json`, the records at that
+   commit (L: `records_job.sh` with `REPO_URL` set; W: `sanitize_oneport.ps1` with Alex's yes),
+   the gates and `measured-L.json`, and the freeze's revision-log entry with every value of
+   section 9.1.
+
+## M7 checklist
+
+The code freeze needs these, in this order. Where the order differs from the list the coordinator
+gave, the reason is in the item. Each item names what decides it.
+
+1. **Open decisions that block the freeze** (the coordinator's, or Alex's where named). All but
+   `ANALYSIS_COMMIT` are resolved ("M7 fixes, 2026-10-03"):
+   - Resolved (d15e775): M5's reading 4. The reassembler refuses at a record header that would
+     take the handshake bytes past B_CH, and the storage stays within B_CH and 5 bytes per
+     record; case B sits at that bound (the reading is in "M7 fixes", item 2, for the coordinator).
+   - Open: `ANALYSIS_COMMIT` (section 8 step 2: "the analysis code that runs 4.6 is committed with
+     its tests" before engineering ends). `analysis/` holds only `appendix_a_r_rule.py`, which says
+     it is not that code; the analysis branch `m7-analysis` is another agent's. Section 8 makes
+     each step start after the one before it is committed, so this precedes the code freeze.
+   - Resolved (97a5363): the harnesses' LeakSanitizer. Both end on SIGTERM by a normal exit, and
+     a harness record is green only if every run ended so; no gap is declared.
+   - Resolved (3382bb8): the route without ALPN stays in all five proxies, logged.
+   - Resolved (c1b4283): `b3.py`'s rows name the binaries they ran, so `check_rows.py` binds them.
+   - Resolved (3382bb8): `N_BG_TLS` = `N_BG_MQTT` = `N_BG_SILENT` = 64, logged. Open with it, for
+     the coordinator: how the mixed cell holds its background (above, "M7 fixes", item 5); if it
+     needs a generator change, that change lands before item 8.
+2. **The final merge of `m6b-windows`** into main, then the build of the merged tree:
+   - L: Debug, ASan+UBSan, TSan and MSan, the whole suite in each (as `checks_job.sh` ran M5's).
+   - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free.
+   - Check `bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` against the merged tree
+     (M6b built opgen on Windows): a compiled target added or removed stops the hash until the
+     list is right.
+3. **The pins, re-read before the records**, since every record carries the sha256 of
+   `bench/cmake/pins.cmake` and the gate refuses a build whose pins differ from its records':
+   - The JDK. Section 2.3: Netty and Jetty "on the latest LTS JDK at the code freeze"; section
+     9.1: the JDK (latest LTS) is pinned "by archive URL and sha256"; section 2.3: "each change is
+     recorded in the revision log then". The rule: on the day of the freeze, before its commit,
+     read Adoptium's Temurin 25 releases. If a build newer than 25.0.4.1+1 (25.0.5 is due in
+     October) is published, pin it (URL and the published sha256, checked against the archive),
+     install it (`install.sh jdk`), build the Java harnesses again, run their probes and route
+     checks, write out the heap bounds again from L's MemTotal with it (M4b-2's list), and log
+     the change. If none is published by the freeze commit, 25.0.4.1+1 stays: "at the code freeze"
+     is fixed by that commit, and a JDK released after it changes nothing; adopting one later
+     would be a later change under section 8 (new records, the runs of the old build archived).
+   - The others of section 9.1's row, the same way: OpenSSL (the latest 3.5 release at the freeze,
+     section 2.1), nghttp2, every competitor (section 2.3: a newer release at the freeze replaces
+     the survey's), caddy-l4's commit (Appendix B: "read again at the code freeze"), xcaddy, the
+     Rust toolchain; Netty's allocators read again (M4b-2's reading 11). A changed library is
+     rebuilt in every flavour (`build_deps.sh` on L, `build_deps.ps1` on W) before item 9.
+4. **The `/sys/kernel/slab/` re-read on L** (section 9.1): as root, read only: that
+   `/proc/slabinfo` exists; for skbuff_head_cache, skbuff_fclone_cache and skbuff_small_head, the
+   name `/proc/slabinfo` lists each under and the co-tenants of a merged one (the links in
+   `/sys/kernel/slab/`, `aliases`); the page size. Compared with WL7's reading and the re-read of
+   2026-10-03 12:11 (the entry "Host change before the code freeze", item 1); a difference is
+   handled by WL7's rule for merged caches and logged.
+5. **The seeds entry** (sections 4.7, 8 step 2 and 9.1): one revision-log entry fixing every seed,
+   `SEED_ORDER_C_L`, `SEED_ORDER_C_W`, `SEED_ORDER_B_L`, `SEED_ORDER_M_L`, `SEED_ORDER_M_W`,
+   `SEED_ORDER_S_L`, `SEED_ORDER_S_W`, `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`,
+   `SEED_BOOT_S`, `SEED_PILOT_L`, `SEED_PILOT_W` and `SEED_SIM`, each checked against the Papers
+   repo's `lab/journal.jsonl` as used by no earlier run, committed before the code-freeze commit
+   and never changed after.
+6. **The values engineering set**, ready for the code freeze's entry (section 9.1): `K_SRC` = 16
+   (logged, M3 entry item 9), `N_ACCEPTEX` = 64 (M6a), `RELAY_BUF` = 4096 bytes per direction
+   beside each proxy's default, the three background counts, 64 each (logged, entry "The code
+   freeze's preparation (M7)", item 2), ℓ from `tests/fixtures/tls/clienthello.hex`, and the pins
+   as item 3 leaves them.
+7. **The final `bench/coverage.json`**, in the freeze commit: every declared gap of section 11 as
+   now, plus what item 2 decides (any third-party library W cannot build with MSVC's ASan, which
+   section 11 asks to declare "before the code freeze"); the harnesses' leak check runs since
+   97a5363, so it needs no gap. One
+   gap may go: OpenSSL's tsan flavour is built with `-fsanitize=thread` (`build_deps.sh`), so if
+   the TSan record is green, section 11 lets the revision log record that OpenSSL ran under TSan
+   and the gap "OpenSSL under TSan" is removed.
+8. **The code-freeze commit, `CODE_FREEZE`** (section 8 step 3): one commit of the server, the
+   generators, the holder, the harnesses, the pins and the tests, with the suite passing on L
+   (four builds) and W (Debug, ASan). From then on no commit may touch a first-party input
+   (anything a target compiles, a harness input, `pins.cmake`): records match by inputs hash, so
+   a commit of docs only (hypotheses.md, status.md) keeps them, and any other is a later change
+   under section 8. The gate sees compiled targets and harness inputs only, not the Python half
+   of the suite (`bench/*.py`, `bench/run/*.py`, `bench/competitors/*.py`) or `coverage.json`,
+   which section 8 freezes with "the tests" too: before any frozen run, `git diff
+   CODE_FREEZE..HEAD -- bench tests CMakeLists.txt` must show nothing, checked by hand.
+9. **The sanitizer records at `CODE_FREEZE`** (section 11, rule D5), for every first-party input,
+   on every platform:
+   - L, one lab job from a fresh clone at `CODE_FREEZE`:
+     `setsid nohup bash <clone>/bench/run/lab_job.sh <dir> records bash <clone>/bench/records_job.sh <OUT> <RECORDS>`.
+     It makes oneport's ASan+UBSan and TSan records at once, then MSan (the server, opgen,
+     opcase, ophold, the suite and the libraries they link, on epoll and io_uring); then the Go
+     harness's ASan (`go build -asan`) and race (`go build -race`) records and the Rust harness's
+     ASan and TSan records, TSan with tokio's suppression (`tsan.supp`, the coordinator's
+     decision); the JVM harnesses have none, their gap declared whole. Every record must be
+     green; the job stops at the first that is not. Logs: `~/lab/records-logs/<record>/` and its
+     `.tar.gz` with a sha256. Set `REPO_URL` to the paper's repository URL, as P2's records name
+     theirs; unset, a record names the clone's origin, L's bare repository path.
+   - W: `bench/sanitize_oneport.ps1 -Records <dir>` at `CODE_FREEZE`, MSVC 19.51.36246 ASan,
+     the server, opgen and the suite, with Alex's yes when W is free.
+   - The records go into the Papers repo's `lab/sanitizer-records/`, committed there (pushed only
+     with Alex's yes). `lab/bin/test_report_pattern.sh` passes on the Papers repo.
+10. **The gate and the inputs hash of every measured binary**: `records_job.sh`'s gate step writes
+    `gate-L.json` and `measured-L.json` (every target's inputs hash, the harnesses', and the
+    sha256 of oneport, opgen, opcase, ophold and each harness output); on W,
+    `build_inputs.py --host W` on the measured Release build, then `check_records.py --host W`.
+    Every runner's rows name the binaries they ran, and `check_rows.py` passes them against these
+    gates before any number is cited. The pilot and every frozen run use the binaries and
+    harnesses of the records job's `build-release` (or show equal sha256 before any window): the
+    C++ binaries reproduced byte for byte across build directories (dryrun4 against m5m3c), but
+    the Rust harness's release profile may embed its checkout path, so a harness built elsewhere
+    can differ and `check_rows.py` would refuse its rows.
+11. **The code freeze's revision-log entry** (section 8 step 3, section 9.1): `CODE_FREEZE`, the
+    values of item 6, the pins as frozen, the slab re-read of item 4, the records' names and the
+    gates' sha256. Then section 8 step 4, on the frozen binary in dedicated mode only.
+
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
   added `papers/one-port/bench/oneport_record.py` to it.
@@ -3772,6 +4892,19 @@ discovery directory and the check builds are left out.
   5846aaf (local, not pushed), each marked development.
 - M4b-2's readings of the frozen text and its open items (the Rust harness's TSan suppression; the
   server's in-process footprint with a partial ClientHello) are for the coordinator (M4b-2).
+- M5's lab journal: 10 lines in the Papers repo's `lab/journal.jsonl`, Papers commits 0c4d67d and
+  6b82bb0 (local, not pushed), each marked development.
+- M5's items for the coordinator: proposal I11's and I15's `IORING_OP_RECV`, now `IORING_OP_READ`; the
+  revision log's M3 item 2 example list; M4b-1's readings still unlogged (M5, "Readings, and changes
+  against the proposal's text").
+- M7 preparation: Papers 53b929a (local, not pushed) fixes `lab/bin/test_report_pattern.sh`'s
+  writer list. No lab-journal line: no window ran. The submodule pointer is the coordinator's.
+  For the coordinator: M5's reading 4 (not logged), the five proxies against the brief's four, and
+  the blockers at the top of the M7 checklist.
+- M7 fixes: no lab-journal line, since no window ran (builds, tests, the leak checks and the dry
+  run are untimed). No Papers commit. The submodule pointer is the coordinator's. For the
+  coordinator: the bound's reading for case B, and how the mixed cell holds its background
+  ("M7 fixes", items 2 and 5).
 
 ## What M1 starts from
 
@@ -3998,3 +5131,30 @@ discovery directory and the check builds are left out.
   read the JDK's latest LTS build again (25.0.5 is due in October); write out the heap bounds again
   from L's MemTotal with the pinned JDK; read caddy-l4's pin and Netty's allocators again.
 - Nothing in M4b-2 blocks M5.
+
+## What M7 starts from
+
+- The code at 681c58e (ac84f2d's server, generators and harnesses; 681c58e changed only
+  `systrace.py`'s check), green in all four builds on L (m5chk5). M5's exit criteria stand as in
+  M5's table: 1, 3 and 5 met; 2 met against nginx, HAProxy, Envoy and caddy-l4, not against
+  sslh-ev (out of reach by construction, recorded); 4 met at the end.
+- For the coordinator before the freeze (M5, "Readings, and changes against the proposal's text"):
+  io_uring's receives are `IORING_OP_READ` where proposal I11 and I15 say `IORING_OP_RECV`; the
+  revision log's M3 item 2 still says "the two `TCP_NODELAY` of a relayed connection" (now one,
+  the listener's inherited); and M4b-1's nine readings are still not in the revision log.
+- M7 must still: write the records driver with the harness targets as `coverage.json` names them,
+  each harness's inputs hash from `bench/competitors/harness_inputs.py` and hyper-util's TSan run
+  with `TSAN_OPTIONS=suppressions=` its `tsan.supp`; fix the seeds of section 4.7 and
+  `ANALYSIS_COMMIT` (section 8, step 2); record the values engineering set (`K_SRC`, `N_ACCEPTEX`,
+  `RELAY_BUF`, the background counts, l, the pins); read the JDK's latest LTS build again (25.0.5),
+  the heap bounds, the slab caches in sysfs, caddy-l4's pin and Netty's allocators (M4b-2's list).
+- W: M5 changed `bench/server/handlers.cpp` (the TLS deferral, the receive counters), which IOCP
+  compiles, and added `bench/cases/run_cases.cpp` and `bench/server/record.cpp` to libraries W
+  builds; none of it was built or run on W. M6b's merge with main must build them and run W's suite.
+- Not done in M5, as before: `RELAY_BUF` beside each proxy's default, `IORING_OP_SEND`, and whether
+  `IORING_OP_SPLICE` runs in the kernel's worker threads (rule E's relay copy stays user space as
+  proposed); more than one worker on IOCP (M6b).
+- Ready for the runs after the pilot entry: `oneport --record` and `opcase case` for WL8's hard-case
+  runs and the competitors' descriptive table (section 10), whose runner, which starts each system
+  in the setup a variant names and judges the outcome, is still to write.
+- Nothing in M5 blocks M7.

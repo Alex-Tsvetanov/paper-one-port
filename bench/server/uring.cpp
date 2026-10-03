@@ -2,7 +2,8 @@
 //
 // Accept is one multishot IORING_OP_ACCEPT per listener and worker (I4), armed again when a
 // completion comes without IORING_CQE_F_MORE. A connection's input comes as completions:
-//   replay    an IORING_OP_RECV into a buffer the kernel selects from the worker's provided-buffer
+//   replay    a receive (IORING_OP_READ on the socket since M5: bench/loop/src/uring.cpp) into a
+//             buffer the kernel selects from the worker's provided-buffer
 //             ring when data arrives, so a pending receive holds no buffer (I15); once the
 //             connection holds a buffer, into the room after its bytes;
 //   peek      an IORING_OP_POLL_ADD for POLLIN | POLLRDHUP, then the synchronous MSG_PEEK of
@@ -228,11 +229,13 @@ namespace oneport::server::detail
 						}
 						else if (x.res == 0)
 						{
+							++c_.recv_eof;
 							rr.eof = true;
 							c->eof_seen = true;
 						}
 						else if (x.res == -EINTR || x.res == -EAGAIN)
 						{
+							++c_.recv_again;
 							rr.retry = true;
 						}
 						else
@@ -401,9 +404,10 @@ namespace oneport::server::detail
 			c->last_read_full = len == kRecvBuf;
 			return rr;
 		}
-		if (selected != nullptr) pool_.put(selected);  // not seen on L's kernel (server.kernel_uring_recv_select)
+		if (selected != nullptr) pool_.put(selected);  // a READ that took a buffer and returned 0 or failed (io_uring/rw.c at v7.2.6)
 		if (x.res == 0)
 		{
+			++c_.recv_eof;
 			rr.eof = true;
 			if (&buf == &c->buf)
 			{
@@ -414,6 +418,7 @@ namespace oneport::server::detail
 		}
 		if (x.res == -ENOBUFS || x.res == -EINTR || x.res == -EAGAIN)
 		{
+			++c_.recv_again;
 			rr.retry = true;
 			return rr;
 		}
@@ -459,12 +464,11 @@ namespace oneport::server::detail
 		}
 		if (c->stage == Stage::route && c->relay && !c->relay->hello.empty())
 		{
-			// Pass-through: the ClientHello's records outgrew the receive buffer and are read into
-			// its own storage.
+			// Pass-through: the incomplete ClientHello waits in its own storage, sized to what the
+			// reassembly needs next (relay.cpp), and the receive goes there.
 			if ((c->posted & bit(Op::recv)) != 0) return;
 			Relay& r = *c->relay;
-			const std::size_t want = std::min<std::size_t>(kHelloWireMax, std::max<std::size_t>(r.hello.size(), r.hello_len + kRecvBuf));
-			r.hello.resize(want);
+			hello_room(c, r.hello_need);
 			if (r.hello_len >= r.hello.size()) return;  // at kHelloWireMax: try_route has decided by then
 			ur_->recv(c->fd, r.hello.data() + r.hello_len, static_cast<std::uint32_t>(r.hello.size() - r.hello_len), ud(c, Op::recv));
 			c->recv_into = Into::hello;

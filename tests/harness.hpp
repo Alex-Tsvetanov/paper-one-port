@@ -193,6 +193,7 @@ namespace oneport::test
 			const server::Counters t = server->totals();
 			CHECK(t.accepted == t.closed, "accepted " << t.accepted << ", closed " << t.closed);
 			CHECK(t.conns_open == 0, t.conns_open << " connections left open");
+			CHECK(t.recv_eof + t.recv_again <= t.recv_calls, "receives at the end " << t.recv_eof << " and empty " << t.recv_again << " exceed " << t.recv_calls);
 			CHECK(t.buffers_outstanding == 0, t.buffers_outstanding << " buffers not returned");
 			CHECK(t.relayed + t.relay_connect_errors + t.route_rejected + t.route_timeouts <= t.accepted, "more relay ends than connections");
 			CHECK(t.outcomes[static_cast<std::size_t>(server::Outcome::rejected_budget)] == 0, "a budget was exceeded");

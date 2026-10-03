@@ -15,7 +15,14 @@
 // GOMAXPROCS comes from the CPU affinity mask and the collector keeps Go's defaults (GOGC 100, no
 // memory limit; runtime/debug docs). On SIGUSR1 the harness calls debug.FreeOSMemory and prints one
 // JSON line with HeapInuse (WL7's collector step for the cmux harness; b3.py sends the signal, so no
-// connection is opened for it). Prints "cmux: listening <port>". SIGTERM ends it (Go's default).
+// connection is opened for it). Prints "cmux: listening <port>".
+//
+// SIGTERM, which every runner sends to stop a system (bench/competitors/competitors.py, stop), ends
+// the harness by a normal exit (M7): it closes the listener and the HTTP server, prints "cmux:
+// stopped by SIGTERM" and returns from main, so the sanitizers' exit checks run (go build -asan's
+// leak check at exit, the race detector's exit status). Go's default action for SIGTERM ended the
+// process before them. Connections still being matched are not waited for: cmux's Serve waits for
+// them, and a silent connection may wait for its read timeout; the exit closes them.
 package main
 
 import (
@@ -34,6 +41,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -41,6 +49,9 @@ import (
 )
 
 var body = []byte("Hello, World!")
+
+// stopping is set when SIGTERM starts the harness's end, so the listeners closing then are not errors.
+var stopping atomic.Bool
 
 func main() {
 	port := flag.Int("port", 0, "the listener's port")
@@ -108,15 +119,27 @@ func main() {
 	usr1 := make(chan os.Signal, 1)
 	signal.Notify(usr1, syscall.SIGUSR1)
 	go collector(usr1)
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM)
 
+	served := make(chan error, 1)
+	go func() { served <- m.Serve() }()
 	fmt.Printf("cmux: listening %d (GOMAXPROCS %d, timer %d s, fallback %v)\n", *port, runtime.GOMAXPROCS(0), *timerS, *fallback)
-	if err := m.Serve(); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
-		log.Fatalf("cmux: serve: %v", err)
+	select {
+	case <-term:
+		stopping.Store(true)
+		_ = l.Close()
+		_ = srv.Close()
+		fmt.Println("cmux: stopped by SIGTERM")
+	case err := <-served:
+		if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			log.Fatalf("cmux: serve: %v", err)
+		}
 	}
 }
 
 func serve(f func(net.Listener) error, l net.Listener) {
-	if err := f(l); err != nil && err != cmux.ErrListenerClosed && err != http.ErrServerClosed {
+	if err := f(l); err != nil && !stopping.Load() && err != cmux.ErrListenerClosed && err != http.ErrServerClosed {
 		log.Fatalf("cmux: a listener stopped: %v", err)
 	}
 }
