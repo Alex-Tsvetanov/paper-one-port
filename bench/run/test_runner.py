@@ -515,10 +515,7 @@ class B3InProcess(unittest.TestCase):
             c, _ = srv.accept()
             with ctx.wrap_socket(c, server_side=True) as s:
                 seen["got"] = s.recv(4096)
-                s.sendall(b"HTTP/1.1 200 OK
-Content-Length: 13
-
-Hello, World!")
+                s.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!")
                 try:
                     seen["after"] = s.recv(16)
                 except (ConnectionResetError, ssl.SSLError) as e:
@@ -531,8 +528,7 @@ Hello, World!")
         th.join(5)
         self.assertTrue(r["ok"], r)
         self.assertEqual((r["tls"]["version"], r["tls"]["alpn"]), ("TLSv1.3", "http/1.1"))
-        self.assertTrue(seen["got"].startswith(b"GET / HTTP/1.1
-"))
+        self.assertTrue(seen["got"].startswith(b"GET / HTTP/1.1\r\n"))
         self.assertIn(seen["after"], ("ConnectionResetError", "SSLError", b""))  # a reset, never a close_notify
 
     def test_response_ok(self):
