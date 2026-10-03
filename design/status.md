@@ -3475,7 +3475,7 @@ b753ce1b0ba2c1e5f68c88156e637dd8d5ce109b16b99d1f77aa696fc510dcba.
 | Rust | Arch's rust 1:1.98.1-1 (rustc 1.98.1, 48a229cea 2026-09-01, LLVM 22.1.8), installed before; hyper-util 0.1.21's `rust-version` is 1.85 | L's package | package sha256 a0e72c52cf8b8cbc9a16a82fca439e6fe502c6dc4a27b7c1d805f0399ad709ba |
 | rust-src | 1:1.98.1-1, for `-Zbuild-std` in the sanitizer builds | `sudo pacman -S --needed rust-src` (no `-y`), 2026-10-03 | package sha256 68f5e4b1592418cf68e816a71f4490bd26963394055485e369e90072f691641c |
 | Go | go1.27.1 (Arch's go 2:1.27.1-1), `GOTOOLCHAIN=local` | L | cmux v0.1.5, x/net c7110b5ffcbb (cmux's own pin) and x/text v0.3.3 by `bench/competitors/cmux/go.sum` |
-| Rust crates | 38 packages, among them hyper 1.11.1, h2 0.4.19, tokio 1.53.2, http-body-util 0.1.5, bytes 1.12.1 | crates.io | `bench/competitors/hyper-util/Cargo.lock`; every build `--locked` |
+| Rust crates | 37 crates (Cargo locked 37 packages; Cargo.lock has 38 entries, the harness included), among them hyper 1.11.1, h2 0.4.19, tokio 1.53.2, http-body-util 0.1.5, bytes 1.12.1 | crates.io | `bench/competitors/hyper-util/Cargo.lock`; every build `--locked` |
 
 A nightly Rust is not needed: P2's records built their Rust arms with `-Zsanitizer=address` on the
 stable rustc with `RUSTC_BOOTSTRAP=1`, and the same rustc with rust-src at its own version rebuilds
