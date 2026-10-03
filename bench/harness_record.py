@@ -15,13 +15,19 @@ log the harness wrote). The record names the harness's inputs hash, its toolchai
 "tools": go and clang, or rustc and cargo), the flavour, the environment the flavour ran with
 (hyper-util's TSan: TSAN_OPTIONS=suppressions=<its tsan.supp>, the coordinator's decision of
 2026-10-03), and the sha256 of pins.cmake. Green means the build and the checks exited 0, build.json
-holds the harness in this flavour, and no log of the work directory holds a sanitizer report: the
-lab's shared pattern (bench/oneport_record.py's REPORT) or Go's race report ("WARNING: DATA RACE",
-which go build -race prints instead of ThreadSanitizer's own first line).
+holds the harness in this flavour, no log of the work directory holds a sanitizer report (the
+lab's shared pattern, bench/oneport_record.py's REPORT, or Go's race report, "WARNING: DATA RACE",
+which go build -race prints instead of ThreadSanitizer's own first line), and every run of the
+harness in the checks ended through its SIGTERM handler.
 
-Not seen by such a record: LeakSanitizer's exit check, since the checks stop each harness with
-SIGTERM, whose default action ends it before any exit handler (cmux/main.go and hyper-util's
-main.rs install no handler for it). --dry-run marks the record, as oneport_record.py does.
+The exit checks (M7). The checks stop each harness with SIGTERM (competitors.py, stop). Since M7
+both harnesses handle it and exit normally (cmux/main.go, hyper-util's src/main.rs), printing
+"<name>: stopped by SIGTERM" on their standard output, so LeakSanitizer's check at exit and the
+race detector's exit status run, and their reports land in the run's stderr.log, which the scan
+reads. Before M7 the default action ended each harness before them. A run whose stdout.log says
+"<name>: listening" and not "<name>: stopped by SIGTERM" ended some other way (killed after the
+grace period, or a crash), so its exit checks did not run: the record is not green.
+--dry-run marks the record, as oneport_record.py does.
 """
 
 from __future__ import annotations
@@ -53,6 +59,21 @@ def toolchain(tools: str) -> str:
 def blocks(text: str) -> list[str]:
     lines = text.splitlines()
     return ["\n".join(lines[i:i + 30]) for i, line in enumerate(lines) if REPORT.search(line) or GO_RACE.search(line)]
+
+
+def runs_without_exit_check(work: Path, harness: str) -> tuple[int, list[str]]:
+    """The harness's runs in the checks (each started process's stdout.log under check/ that says
+    "<harness>: listening"), and those that did not end through the SIGTERM handler."""
+    started = f"{harness}: listening"
+    stopped = f"{harness}: stopped by SIGTERM"
+    runs, missing = 0, []
+    for f in sorted((work / "check").rglob("stdout.log")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if started in text:
+            runs += 1
+            if stopped not in text:
+                missing.append(str(f.relative_to(work)))
+    return runs, missing
 
 
 def scan(work: Path) -> list[str]:
@@ -94,6 +115,12 @@ def main() -> int:
     elif entry.get("flavour") != FLAVOURS[a.sanitizer]:
         problems.append(f"build.json's {a.harness} is flavour {entry.get('flavour')}, not {FLAVOURS[a.sanitizer]}")
     reports = scan(work)
+    runs, unchecked = runs_without_exit_check(work, a.harness)
+    if runs == 0:
+        problems.append(f"no run of {a.harness} in the checks (no stdout.log says '{a.harness}: listening')")
+    if unchecked:
+        problems.append(f"{len(unchecked)} of {runs} runs did not end through the SIGTERM handler, so their exit checks did not run: "
+                        + ", ".join(unchecked[:5]))
     green = a.build_exit == 0 and a.check_exit == 0 and not problems and not reports and "inputs_hash" in entry
     rec = {"repo": a.repo, "commit": a.commit, "repo_head": a.commit,
            "date": datetime.now().astimezone().isoformat(timespec="seconds"), "host": a.host, "host_tag": a.host_tag,
@@ -106,11 +133,13 @@ def main() -> int:
            "pins_sha256": file_sha256(Path(a.pins)), "pins_file": "bench/cmake/pins.cmake",
            "build_exit": a.build_exit, "check_exit": a.check_exit, "seconds": a.seconds, "problems": problems,
            "sanitizer_reports": len(reports), "report_blocks": reports[:20],
+           "harness_runs": runs, "harness_runs_without_exit_check": len(unchecked),
            "logs_archive": a.logs_archive, "logs_archive_sha256": a.logs_sha256, "dry_run": a.dry_run,
            "note": ("The harness built in its sanitizer flavour (bench/competitors/build_harnesses.sh), then its probe in "
                     "its cases kinds and its route checks at both timer settings (bench/competitors/probe.py, "
-                    "cases_check.py), as M4b-2's development checks ran (hypotheses.md, section 11). LeakSanitizer's "
-                    "exit check does not run: SIGTERM ends each harness.")
+                    "cases_check.py), as M4b-2's development checks ran (hypotheses.md, section 11). Each run ended "
+                    "through the harness's SIGTERM handler, a normal exit, so the sanitizers' exit checks ran "
+                    "(LeakSanitizer's at exit; the race detector's exit status).")
                    + (" A dry run of the records driver: never citable, refused by the gate." if a.dry_run else "")}
     Path(a.record).parent.mkdir(parents=True, exist_ok=True)
     Path(a.record).write_text(json.dumps(rec, indent=1) + "\n", encoding="utf-8")

@@ -22,7 +22,9 @@ test failed (CTest 4.4.3 on L, 2026-09-30). Checks:
    clean build and checks, with the target named as coverage.json names it, the inputs hash and
    the run environment from build.json and the toolchain on one line; red from a sanitizer report
    or Go's race report in a harness's log, from a build.json of another flavour or without the
-   harness, and from a failed check.
+   harness, and from a failed check; since M7 also red from a run of the harness that did not end
+   through its SIGTERM handler (so its exit checks did not run), from checks that ran no harness,
+   and from LeakSanitizer's report at a clean exit.
 """
 
 from __future__ import annotations
@@ -124,12 +126,20 @@ def write_record(tmp: Path, summary: str, ctest_exit: int = 0, build_exit: int =
     return json.loads(rec.read_text(encoding="utf-8"))
 
 
+FRONT = "check/cases/raw/hyper-util-cases-matched/front"
+LISTENING = "hyper-util: listening 24000 (backlog tokio's default)\n"
+STOPPED = "hyper-util: stopped by SIGTERM\n"
+
+
 def write_harness_record(tmp: Path, flavour: str = "tsan", sanitizer: str = "tsan", check_exit: int = 0,
-                         logs: dict | None = None, harness_in_build: bool = True, dry_run: bool = False) -> dict:
+                         logs: dict | None = None, harness_in_build: bool = True, dry_run: bool = False,
+                         stdout: str | None = LISTENING + STOPPED) -> dict:
     work = tmp / f"h-{next(runs)}"
-    (work / "check" / "cases" / "raw" / "hyper-util-cases-matched" / "front").mkdir(parents=True)
+    (work / FRONT).mkdir(parents=True)
     (work / "build.log").write_text("build_harnesses: hyper-util (tsan) built\n", encoding="utf-8")
     (work / "check" / "probe-cases.log").write_text("hyper-util cases: ok\n", encoding="utf-8")
+    if stdout is not None:  # the harness's run, as competitors.start writes it
+        (work / FRONT / "stdout.log").write_text(stdout, encoding="utf-8")
     entry = {"flavour": flavour, "inputs_hash": "hh", "inputs": ["a\tx", "b\ty"], "tools": "rustc 1.98.1 (x)\nbinary: rustc\ncargo 1.98.1",
              "run_env": {"TSAN_OPTIONS": "suppressions=/x/tsan.supp"}, "command": "cargo build", "output_sha256": "o1"}
     (work / "build.json").write_text(json.dumps({"hyper-util": entry} if harness_in_build else {}), encoding="utf-8")
@@ -160,6 +170,16 @@ def harness_writer(tmp: Path) -> None:
     expect("harness: red when build.json lacks the harness", write_harness_record(tmp, harness_in_build=False)["green"] is False)
     expect("harness: red from a failed check", write_harness_record(tmp, check_exit=1)["green"] is False)
     expect("harness: --dry-run marks the record", write_harness_record(tmp, dry_run=True).get("dry_run") is True)
+    # M7: the exit checks run only if each run ended through the harness's SIGTERM handler.
+    expect("harness: the runs and those without an exit check are counted",
+           (rec.get("harness_runs"), rec.get("harness_runs_without_exit_check")) == (1, 0))
+    rec = write_harness_record(tmp, stdout=LISTENING)
+    expect("harness: red from a run that did not end through its SIGTERM handler",
+           rec["green"] is False and rec.get("harness_runs_without_exit_check") == 1)
+    expect("harness: red when the checks ran no harness", write_harness_record(tmp, stdout=None)["green"] is False)
+    leak = "==4711==ERROR: Leak" + "Sanitizer: detected memory leaks\n"
+    expect("harness: red from LeakSanitizer's report at a clean exit",
+           write_harness_record(tmp, flavour="asan", sanitizer="asan", logs={report: leak})["green"] is False)
 
 
 def end_to_end(tmp: Path) -> None:
