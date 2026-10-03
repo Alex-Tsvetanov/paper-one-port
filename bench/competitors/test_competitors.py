@@ -133,7 +133,7 @@ class Configurations(unittest.TestCase):
             self.assertTrue(str(comp.SYSTEMS[s].binary_path()).startswith(str(comp.OPT)), s)
 
     def test_pins(self):
-        for name in ("NGINX", "HAPROXY", "ENVOY", "XCADDY", "SSLH"):
+        for name in ("NGINX", "HAPROXY", "ENVOY", "XCADDY", "SSLH", "JDK"):
             self.assertRegex(comp.pin(f"ONEPORT_{name}_SHA256"), r"^[0-9a-f]{64}$", name)
         self.assertRegex(comp.pin("ONEPORT_CADDY_L4_COMMIT"), r"^[0-9a-f]{40}$")
 
@@ -201,9 +201,12 @@ class Cases(unittest.TestCase):
 
     def test_fallback_only_in_its_kind(self):
         smtp = str(22110 + comp.STUB_OFFSET["smtp"])
-        for s in comp.FALLBACK_SYSTEMS:
+        for s in (x for x in comp.FALLBACK_SYSTEMS if x in comp.ORDER):
             self.assertNotIn(smtp, live(rendered(s, "cases")), s)
             self.assertIn(smtp, live(rendered(s, "cases-fallback")), s)
+        # cmux's fallback is Any() in the harness, to its own SMTP handler (no backend).
+        self.assertNotIn("-fallback", comp.args_lines(rendered("cmux", "cases")))
+        self.assertIn("-fallback", comp.args_lines(rendered("cmux", "cases-fallback")))
         self.assertIn("default_backend smtp_backend", live(rendered("haproxy", "cases-fallback")))
         e = live(rendered("envoy", "cases-fallback"))
         self.assertEqual(e.count("continue_on_listener_filters_timeout: true"), 2)
@@ -219,7 +222,7 @@ class Cases(unittest.TestCase):
         self.assertEqual(v2[12:14], b"\x21\x11")  # version 2, PROXY; TCP over IPv4
         self.assertEqual(int.from_bytes(v2[14:16], "big"), 12)
         self.assertEqual(len(v2), 16 + 12)
-        self.assertEqual(set(cases_check.COVERS), set(comp.ORDER))
+        self.assertEqual(set(cases_check.COVERS), set(comp.ORDER) | set(comp.LIBRARIES))
 
     def test_sslh_list_stays_well_formed(self):
         # The fallback entry carries its own leading comma, so the list has no trailing comma
@@ -228,6 +231,100 @@ class Cases(unittest.TestCase):
             body = live(rendered("sslh-ev", kind))
             protocols = body[body.index("protocols:"):]
             self.assertNotRegex(protocols, r",\s*\)")
+
+
+class Libraries(unittest.TestCase):
+    """The in-process libraries' harnesses (M4b-2): their two configurations (Appendix B: cases and
+    B3), the JVM's flags, the command lines, the jar locks, and the probe's expectations."""
+
+    def args(self, system: str, kind: str, timers: str = "matched") -> list[str]:
+        return comp.args_lines(comp.render(system, kind, 22100, 22110, 14, RUN, timers))
+
+    def value(self, args: list[str], flag: str) -> str | None:
+        return args[args.index(flag) + 1] if flag in args else None
+
+    def test_kinds(self):
+        for s in comp.LIBRARIES:
+            self.assertTrue(comp.SYSTEMS[s].library)
+            with self.assertRaises(ValueError):
+                comp.SYSTEMS[s].template("m3")  # no M3 configuration (Appendix B)
+        self.assertEqual([s for s in comp.LIBRARIES if s in comp.FALLBACK_SYSTEMS], ["cmux"])
+        self.assertEqual([s for s in comp.LIBRARIES if s in comp.PROXY_SYSTEMS], ["netty", "jetty"])
+
+    def test_timers(self):
+        # Matched to the server's 3 s in the cases, 60 s in B3 (section 1); at the defaults the line is gone.
+        for s, flag, matched, b3 in (("netty", "--timer-s", "3", "60"), ("jetty", "--idle-ms", "3000", "60000"),
+                                     ("cmux", "-timer-s", "3", "60")):
+            self.assertEqual(self.value(self.args(s, "cases"), flag), matched, s)
+            self.assertIsNone(self.value(self.args(s, "cases", "default"), flag), s)
+            self.assertEqual(self.value(self.args(s, "b3"), flag), b3, s)
+        for kind in ("cases", "b3"):  # hyper-util has no detection timer, and none is added
+            self.assertEqual(self.args("hyper-util", kind)[:2], ["--port", "22100"])
+
+    def test_b3_limits_and_listeners(self):
+        self.assertEqual(self.value(self.args("netty", "b3"), "--backlog"), "10000")
+        self.assertEqual(self.value(self.args("jetty", "b3"), "--accept-queue"), "10000")
+        self.assertEqual(self.value(self.args("hyper-util", "b3"), "--backlog"), "10000")
+        self.assertNotIn("-backlog", self.args("cmux", "b3"))  # net.core.somaxconn (Appendix B)
+        self.assertIn("-fallback", self.args("cmux", "b3"))  # Appendix B's line keeps Any() last
+        for s in ("netty", "jetty"):
+            self.assertEqual(self.value(self.args(s, "cases"), "--proxy-port"), "22101")
+            self.assertIsNone(self.value(self.args(s, "b3"), "--proxy-port"))  # one listener in a B3 window
+            self.assertTrue(self.value(self.args(s, "b3"), "--cert").endswith("tests/fixtures/tls/test-cert.pem"))
+
+    def test_jvm_args(self):
+        a = comp.jvm_args()
+        self.assertIn("-XX:+UseG1GC", a)
+        self.assertIn("-Xms253755392", a)  # 1/64 and 1/4 of L's memory, as the pinned JDK aligns them
+        self.assertIn("-Xmx4037017600", a)
+        self.assertIn("-Djava.net.preferIPv4Stack=true", a)
+        self.assertFalse([x for x in a if "TransparentHugePages" in x])
+
+    def test_commands(self):
+        h = Path("/b/harness")
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / "b3.args"
+            cfg.write_text("--port 1\n# a comment\n")
+            n = comp.SYSTEMS["netty"].command(cfg, RUN, h)
+            self.assertEqual(Path(n[0]).parts[-3:], (f"jdk-{comp.pin('ONEPORT_JDK_VERSION')}", "bin", "java"))
+            self.assertEqual(n[1:1 + len(comp.jvm_args())], comp.jvm_args())  # the JVM's flags before the class path
+            cp = n[n.index("-cp") + 1]
+            self.assertTrue(cp.startswith(str(h / "netty" / "harness.jar") + ":") and cp.endswith("lib/*"))
+            self.assertEqual(n[-3:], ["oneport.NettyHarness", "--port", "1"])
+            self.assertEqual(comp.SYSTEMS["cmux"].command(cfg, RUN, h), [str(h / "cmux" / "oneport-cmux"), "--port", "1"])
+        with self.assertRaises(ValueError):
+            comp.SYSTEMS["hyper-util"].binary_path()  # a library's harness is built per checkout
+
+    def test_maven_locks(self):
+        for s in ("netty", "jetty"):
+            rows = [ln.split() for ln in (HERE / s / "maven.lock").read_text().splitlines() if ln and not ln.startswith("#")]
+            self.assertTrue(rows)
+            for coords, sha, url in rows:
+                parts = coords.split(":")
+                g, a, v = parts[:3]
+                name = f"{a}-{v}" + (f"-{parts[3]}" if len(parts) > 3 else "") + ".jar"
+                self.assertEqual(url, f"https://repo1.maven.org/maven2/{g.replace('.', '/')}/{a}/{v}/{name}")
+                self.assertRegex(sha, r"^[0-9a-f]{64}$")
+            version = comp.pin(comp.SYSTEMS[s].version_pin)
+            self.assertTrue(all(v == version for _, a, v, *_ in (r[0].split(":") for r in rows) if a.startswith(s)), s)
+        self.assertIn("io.netty:netty-transport-native-epoll:4.2.18.Final:linux-x86_64",
+                      (HERE / "netty" / "maven.lock").read_text())  # the native epoll transport (Appendix B)
+
+    def test_probe_expectations(self):
+        for kind, systems in probe.EXPECT_LIB.items():
+            for s, cases in systems.items():
+                self.assertIn(s, comp.LIBRARIES)
+                self.assertEqual(set(cases), {"silent", "partial"})
+        self.assertEqual(set(probe.EXPECT_LIB["b3"]), set(comp.LIBRARIES))
+        self.assertEqual(set(probe.LIB_PROTOS), set(comp.LIBRARIES))
+        quiet = {"closed_at_s": None, "bytes_back": 0, "first_bytes_at_s": None}
+        self.assertTrue(probe.judge_lib("hold", quiet, 60.0)[0])
+        self.assertFalse(probe.judge_lib("hold", dict(quiet, bytes_back=3), 60.0)[0])
+        self.assertTrue(probe.judge_lib("close", dict(quiet, closed_at_s=3.02), 3.0)[0])
+        self.assertTrue(probe.judge_lib("greet", dict(quiet, first_bytes_at_s=3.0, bytes_back=24), 3.0)[0])
+        self.assertFalse(probe.judge_lib("greet", dict(quiet, first_bytes_at_s=0.0, bytes_back=24), 3.0)[0])
+        self.assertTrue(probe.judge_lib("reject", dict(quiet, closed_at_s=0.01), 3.0)[0])
+        self.assertEqual(probe.judge_lib(None, quiet, 3.0), (None, "observed only"))
 
 
 class Guard(unittest.TestCase):

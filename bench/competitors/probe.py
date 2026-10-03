@@ -18,7 +18,13 @@ it does at its timer (EXPECT, from design/competitor-survey.md and Appendix B); 
 nothing (sslh-ev, survey 2.8: "Runtime behaviour: not verified") the probe records and does not
 judge. The routes check always judges. Exit 0 when every judged check passes.
 
+An in-process library (M4b-2: Netty, Jetty, cmux, hyper-util) is probed alone on CPU 14, its
+harness from <build>/harness, in its cases configuration (any kind, at matched timers) or its B3
+configuration: `routes` runs opgen --probe for every protocol it serves (LIB_PROTOS; the reply is
+the library's own), and `silent` and `partial` watch as above, judged against EXPECT_LIB.
+
     probe.py --system nginx|haproxy|envoy|caddy-l4|sslh-ev|one-port-relay --kind m3|b3 --build DIR --out DIR
+    probe.py --system netty|jetty|cmux|hyper-util --kind cases|cases-fallback|b3 --build DIR --out DIR
 """
 from __future__ import annotations
 
@@ -42,7 +48,7 @@ REPO = HERE.parent.parent
 SERVER = window.ONE_PORT_RELAY
 # Watching: past the M3 timer (3 s) by 3 s; in B3 past the window's 30 s (WL7), which the 60 s
 # timers must outlast.
-WATCH_S = {"m3": 6.0, "b3": 32.0}
+WATCH_S = {"m3": 6.0, "b3": 32.0, "cases": 6.0, "cases-fallback": 6.0}
 # A timed event counts as "at the timer" from 50 ms before it (the clock's and the loop's grain)
 # to 1 s after it (a coarse timer wheel; Envoy's and Go's timers are not exact).
 EARLY_S, LATE_S = 0.05, 1.0
@@ -60,6 +66,36 @@ EXPECT_M3 = {
     "envoy": {"silent": "close", "partial": "close"},         # listener_filters_timeout closes, continue_on_... false (survey 2.5)
     "caddy-l4": {"silent": "close", "partial": "close"},      # matching_timeout closes, no fallback (survey 2.7)
     "sslh-ev": {"silent": None, "partial": None},             # no ev_timer found; runtime behaviour not verified (survey 2.8)
+}
+
+
+# The protocols each library serves (Appendix B; design/competitor-survey.md 2.10, 2.12, 2.15, 2.16),
+# each checked by opgen --probe: its exchange completes only against the server's reply.
+LIB_PROTOS = {"netty": ("http1", "h2c", "tls"), "jetty": ("http1", "h2c", "tls"), "cmux": ("http1", "h2c", "tls", "ssh"),
+              "hyper-util": ("http1", "h2c")}
+# What each library does with a silent and a partial-ClientHello connection (the probe's two
+# watches), by its documents and code, at matched timers (3 s) in its cases kinds and at 60 s in B3:
+#   "close"  closed at the timer;
+#   "hold"   neither closed nor answered within the watch;
+#   "greet"  the fallback's first bytes (the SMTP greeting) at the timer, the connection open;
+#   "reject" closed within LATE_S of the opening, whatever it was answered.
+EXPECT_LIB = {
+    "cases": {
+        "netty": {"silent": "close", "partial": "close"},     # ReadTimeoutHandler; SniHandler's handshake timeout (survey 2.15)
+        "jetty": {"silent": "close", "partial": "close"},     # the endpoint's idle timeout (survey 2.16)
+        "cmux": {"silent": "close", "partial": "hold"},       # SetReadTimeout fails the reading matchers, no Any(); TLS() matches the
+                                                              # record header and clears the deadline, crypto/tls has none (survey 2.10)
+        "hyper-util": {"silent": "hold", "partial": "reject"},  # no timer in ReadVersion; 0x16 is not the preface, so HTTP/1 (survey 2.12)
+    },
+    "cases-fallback": {"cmux": {"silent": "greet", "partial": "hold"}},  # Any() after SetReadTimeout (survey 2.10)
+    "b3": {
+        "netty": {"silent": "hold", "partial": "hold"},
+        "jetty": {"silent": "hold", "partial": "hold"},
+        "cmux": {"silent": "hold", "partial": "hold"},
+        # A partial ClientHello is no pending connection for hyper-util, which serves no TLS:
+        # section 6.2 has no such cell.
+        "hyper-util": {"silent": "hold", "partial": "reject"},
+    },
 }
 
 
@@ -100,9 +136,9 @@ def watch(port: int, opening: bytes, watch_s: float, stub_ports: set[int]) -> di
     if opening:
         c.sendall(opening)
     c.setblocking(False)
-    obs = {"closed_at_s": None, "close": None, "routed_at_s": None, "bytes_back": 0}
+    obs = {"closed_at_s": None, "close": None, "routed_at_s": None, "bytes_back": 0, "first_bytes_at_s": None}
     while time.monotonic() - t0 < watch_s:
-        if obs["routed_at_s"] is None and stub_sockets(stub_ports) - before:
+        if stub_ports and obs["routed_at_s"] is None and stub_sockets(stub_ports) - before:
             obs["routed_at_s"] = round(time.monotonic() - t0, 3)
         if obs["closed_at_s"] is None:
             r, _, _ = select.select([c], [], [], 0.02)
@@ -110,6 +146,8 @@ def watch(port: int, opening: bytes, watch_s: float, stub_ports: set[int]) -> di
                 try:
                     data = c.recv(65536)
                     if data:
+                        if obs["first_bytes_at_s"] is None:
+                            obs["first_bytes_at_s"] = round(time.monotonic() - t0, 3)
                         obs["bytes_back"] += len(data)
                     else:
                         obs["closed_at_s"], obs["close"] = round(time.monotonic() - t0, 3), "eof"
@@ -147,6 +185,56 @@ def judge(kind: str, expect: str | None, obs: dict, timer: float) -> tuple[bool 
     raise ValueError(expect)
 
 
+def judge_lib(expect: str | None, obs: dict, timer: float) -> tuple[bool | None, str]:
+    """An in-process library's observation against EXPECT_LIB (no stub, so no route)."""
+    if expect is None:
+        return None, "observed only"
+    if expect == "hold":
+        ok = obs["closed_at_s"] is None and obs["bytes_back"] == 0
+        return ok, "held, nothing sent" if ok else "closed or answered before the watch ended"
+    if expect == "close":
+        ok = at_timer(obs["closed_at_s"], timer)
+        return ok, f"closed at the timer ({timer} s)" if ok else f"expected a close at {timer} s"
+    if expect == "greet":
+        ok = at_timer(obs["first_bytes_at_s"], timer) and obs["closed_at_s"] is None
+        return ok, f"the fallback's greeting at the timer ({timer} s)" if ok else f"expected the greeting at {timer} s"
+    if expect == "reject":
+        ok = obs["closed_at_s"] is not None and obs["closed_at_s"] <= LATE_S
+        return ok, "closed at once" if ok else "expected a close at once"
+    raise ValueError(expect)
+
+
+def run_library(system: str, kind: str, build: Path, out: Path) -> dict:
+    """The probe of an in-process library (M4b-2): its harness alone on the front's core."""
+    timer = float(comp.TIMER_S[kind])
+    harness = comp.harness_dir(build)
+    res: dict = {"system": system, "kind": kind, "timer_s": timer, "watch_s": WATCH_S[kind], "checks": {},
+                 "harness": str(comp.SYSTEMS[system].binary_path(harness)),
+                 "harness_sha256": window.sha256_file(comp.SYSTEMS[system].binary_path(harness))}
+    port = PORTS["routes"]
+    r = comp.start(system, kind, port, 0, list(window.HANDOFF.server), out / f"{system}-{kind}-routes", harness=harness)
+    try:
+        probes = {proto: window.probe(build, proto, port, 0x7F000101, 1, window.HANDOFF.gen) for proto in LIB_PROTOS[system]}
+        alive = r.proc.poll() is None
+    finally:
+        comp.stop(r)
+    res["checks"]["routes"] = {"ok": all(v["exit"] == 0 for v in probes.values()) and alive, "probes": probes, "alive": alive}
+    for case, opening in (("silent", b""), ("partial", partial_opening())):
+        port = PORTS[case]
+        r = comp.start(system, kind, port, 0, list(window.HANDOFF.server), out / f"{system}-{kind}-{case}", harness=harness)
+        try:
+            obs = watch(port, opening, WATCH_S[kind], set())
+            alive = r.proc.poll() is None
+        finally:
+            comp.stop(r)
+        exp = EXPECT_LIB[kind][system][case]
+        verdict, text = judge_lib(exp, obs, timer)
+        res["checks"][case] = {"ok": verdict if alive else False, "expected": exp, "verdict": text if alive else "the system exited",
+                               "observed": obs, "opening_bytes": len(opening), "alive": alive}
+    res["ok"] = all(c["ok"] is not False for c in res["checks"].values())
+    return res
+
+
 def expectation(system: str, kind: str, case: str) -> str | None:
     if kind == "b3":
         return "hold"
@@ -178,6 +266,8 @@ class Pair:
 
 
 def run(system: str, kind: str, build: Path, out: Path) -> dict:
+    if system in comp.LIBRARIES:
+        return run_library(system, kind, build, out)
     timer = float(comp.TIMER_S[kind])
     res: dict = {"system": system, "kind": kind, "timer_s": timer, "watch_s": WATCH_S[kind], "checks": {}}
     if system != SERVER:
@@ -214,7 +304,7 @@ def run(system: str, kind: str, build: Path, out: Path) -> dict:
 def main(argv=None) -> int:
     window.stop_on_signals()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--system", required=True, choices=(SERVER,) + comp.ORDER)
+    ap.add_argument("--system", required=True, choices=(SERVER,) + comp.ORDER + comp.LIBRARIES)
     ap.add_argument("--kind", required=True, choices=comp.KINDS)
     ap.add_argument("--build", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)

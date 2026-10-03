@@ -21,7 +21,12 @@ probe timeout only on read activity (survey 2.8; M4a's probes). HAProxy's routes
 are recorded only: with no inspect delay it decides on the bytes at hand, which its documents call
 racy (JUDGE_ROUTES_AT_DEFAULT). Exit 0 when every judged check passes.
 
-    cases_check.py --build DIR --out DIR [--systems nginx,...] [--timers matched,default]
+An in-process library (M4b-2) has no backend: it answers each class it serves itself, with the
+server's replies, so `routes` checks its own exchanges. Its harness comes from <build>/harness
+(build_harnesses.sh). cmux's fallback is judged at matched timers only: at its defaults it sets
+no read timeout, so no matcher fails on a silent client and Any() is never reached (survey 2.10).
+
+    cases_check.py --build DIR --out DIR [--systems nginx,...,netty,...] [--timers matched,default]
 """
 from __future__ import annotations
 
@@ -51,16 +56,21 @@ COVERS = {
     "envoy": {"http1", "h2c", "tls"},                   # tls_inspector and http_inspector (survey 2.5)
     "caddy-l4": {"http1", "h2c", "tls", "mqtt", "ssh"},  # the tls, http, ssh and regexp matchers (survey 2.7)
     "sslh-ev": {"http1", "tls", "mqtt", "ssh"},         # tls, http, ssh and a regex probe; no h2c probe (survey 2.8)
+    "netty": {"http1", "h2c", "tls"},                   # SniHandler, CleartextHttp2ServerUpgradeHandler, the HTTP codec (survey 2.15)
+    "jetty": {"http1", "h2c", "tls"},                   # SslConnectionFactory, HTTP/1.1 with the h2c upgrade (survey 2.16)
+    "cmux": {"http1", "h2c", "tls", "ssh"},             # HTTP2(), HTTP1Fast(), TLS(), PrefixMatcher("SSH-") (survey 2.10)
+    "hyper-util": {"http1", "h2c"},                     # server::conn::auto (survey 2.12)
 }
 # The defaults' timers where a fallback waits for one: HAProxy has no default inspect delay, so it
 # decides at once; Envoy's listener_filters_timeout is 15 s (survey 2.5).
-FALLBACK_TIMER_S = {"matched": {"haproxy": 3.0, "envoy": 3.0, "sslh-ev": 3.0}, "default": {"haproxy": 0.0, "envoy": 15.0, "sslh-ev": 5.0}}
+FALLBACK_TIMER_S = {"matched": {"haproxy": 3.0, "envoy": 3.0, "sslh-ev": 3.0, "cmux": 3.0},
+                    "default": {"haproxy": 0.0, "envoy": 15.0, "sslh-ev": 5.0, "cmux": 3.0}}
 FALLBACK_LATE_S = 2.0
-JUDGE_FALLBACK = {"haproxy", "envoy"}
+JUDGE_FALLBACK = {"matched": {"haproxy", "envoy", "cmux"}, "default": {"haproxy", "envoy"}}
 # At its defaults HAProxy has no inspect delay and "will immediately apply a verdict based on the
 # available information ... might even be racy, so such setups are not recommended"
 # (configuration.txt v3.4.6, tcp-request inspect-delay): its routes are recorded there, not judged.
-JUDGE_ROUTES_AT_DEFAULT = {"nginx", "envoy", "caddy-l4", "sslh-ev"}
+JUDGE_ROUTES_AT_DEFAULT = {"nginx", "envoy", "caddy-l4", "sslh-ev", "netty", "jetty", "cmux", "hyper-util"}
 REQUEST = b"GET / HTTP/1.1\r\nHost: oneport.test\r\nConnection: close\r\n\r\n"
 
 
@@ -118,11 +128,13 @@ def check(build: Path, system: str, kind: str, timers: str, raw: Path, blocks: w
     run = raw / f"{system}-{kind}-{timers}"
     run.mkdir(parents=True, exist_ok=True)
     row: dict = {"system": system, "kind": kind, "timers": timers, "routes": {}, "proxy": {}, "development": True}
-    backend, backend_out = start_backend(build, run)
+    library = system in comp.LIBRARIES
+    backend, backend_out = (None, None) if library else start_backend(build, run)
     front = None
     problems: list[str] = []
     try:
-        front = comp.start(system, kind, PORT, BACKEND, [14], run / "front", timers)
+        front = comp.start(system, kind, PORT, BACKEND, [14], run / "front", timers,
+                           harness=comp.harness_dir(build) if library else None)
         base = blocks.take(16)
         try:
             for p in PROTOS:
@@ -147,7 +159,7 @@ def check(build: Path, system: str, kind: str, timers: str, raw: Path, blocks: w
             limit = FALLBACK_TIMER_S[timers][system] + FALLBACK_LATE_S
             row["fallback"] = silent_until_greeting(PORT, limit)
             row["fallback"]["limit_s"] = limit
-            if system in JUDGE_FALLBACK and not row["fallback"]["greeting"]:
+            if system in JUDGE_FALLBACK[timers] and not row["fallback"]["greeting"]:
                 problems.append(f"fallback: {row['fallback']['detail']}")
         row["front_alive"] = front.proc.poll() is None
         if not row["front_alive"]:
@@ -157,7 +169,8 @@ def check(build: Path, system: str, kind: str, timers: str, raw: Path, blocks: w
     finally:
         if front is not None:
             row["front_exit"] = comp.stop(front)
-        window.stop_process(backend, backend_out)
+        if backend is not None:
+            window.stop_process(backend, backend_out)
     row["problems"] = problems
     row["ok"] = not problems
     return row
@@ -168,7 +181,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--systems", default=",".join(comp.ORDER))
+    ap.add_argument("--systems", default=",".join(comp.ORDER + comp.LIBRARIES))
     ap.add_argument("--timers", default=",".join(comp.TIMERS))
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
     a = ap.parse_args(argv)

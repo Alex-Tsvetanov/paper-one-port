@@ -446,9 +446,104 @@ class B3Relay(unittest.TestCase):
 
     def test_systems(self):
         self.assertEqual(b3.SYSTEMS[:2], ("ophold", window.ONE_PORT_RELAY))
-        self.assertEqual(set(b3.SYSTEMS[2:]), {"nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev"})
+        self.assertEqual(set(b3.RELAY_SYSTEMS[1:]), {"nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev"})
+        self.assertEqual(b3.INPROC_SYSTEMS, ("one-port-inproc", "netty", "jetty", "cmux", "hyper-util"))
+        self.assertEqual(set(b3.SYSTEMS), {"ophold"} | set(b3.RELAY_SYSTEMS) | set(b3.INPROC_SYSTEMS))
+        # Section 6.2: hyper-util serves no TLS; every other in-process system is probed on TLS too.
+        self.assertEqual({s for s, p in b3.INPROC_PROBES.items() if "tls" not in p}, {"hyper-util"})
+        self.assertEqual(set(b3.COLLECT_LEAD_S), {"caddy-l4", "netty", "jetty", "cmux"})  # WL7's runtimes with a collector
         with self.assertRaises(ValueError):
             b3.run(Path("."), Path("."), "j", "silent", 1, Path("."), system="traefik")
+
+
+class B3InProcess(unittest.TestCase):
+    """b3.py's parts for an in-process system: the HTTP/1.1 probe and the response reader against
+    stand-ins, the collector checks, and on Linux the cmux harness's signal step and jcmd's step
+    against stand-in processes."""
+
+    def serve_http(self, chunks: list[bytes]) -> tuple[int, threading.Thread, dict]:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        seen: dict = {}
+
+        def one() -> None:
+            c, _ = srv.accept()
+            seen["got"] = c.recv(4096)
+            for ch in chunks:
+                c.sendall(ch)
+                time.sleep(0.01)
+            try:
+                seen["after"] = c.recv(16)  # the client's reset (keep-alive: the server does not close)
+            except ConnectionResetError:
+                seen["after"] = "reset"
+            c.close()
+            srv.close()
+
+        th = threading.Thread(target=one, daemon=True)
+        th.start()
+        return srv.getsockname()[1], th, seen
+
+    def test_http1_probe(self):
+        port, th, seen = self.serve_http([b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n", b"\r\nHello, ", b"World!"])
+        r = b3.http1_probe(port)
+        th.join(5)
+        self.assertTrue(r["ok"], r)
+        self.assertTrue(seen["got"].startswith(b"GET / HTTP/1.1\r\n"))
+        self.assertNotIn(b"close", seen["got"].lower())  # keep-alive: the client, not the server, ends it
+        self.assertEqual(seen["after"], "reset")
+
+    def test_http1_probe_wrong_reply(self):
+        port, th, _ = self.serve_http([b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"])
+        self.assertFalse(b3.http1_probe(port)["ok"])
+        th.join(5)
+
+    def test_response_ok(self):
+        self.assertTrue(b3.response_ok(b"HTTP/1.1 200 OK\r\ncontent-length: 13\r\n\r\nHello, World!"))
+        self.assertFalse(b3.response_ok(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nHello"))
+        self.assertFalse(b3.response_ok(b"HTTP/1.0 200 OK\r\n\r\nHello, World!"))
+
+    def test_collector_ok(self):
+        self.assertTrue(b3.collector_ok({"status": 200}))
+        self.assertFalse(b3.collector_ok({"status": None, "error": "x"}))
+        self.assertTrue(b3.collector_ok({"ok": True, "heap_inuse": 1}))
+        self.assertFalse(b3.collector_ok({"ok": False}))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "signals and /proc")
+    def test_go_collect(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "stdout.log"
+            code = ("import json, signal, sys, time\n"
+                    "def h(s, f):\n"
+                    "    print('cmux: collector ' + json.dumps({'heap_inuse': 4096, 'num_gc': 1}), flush=True)\n"
+                    "signal.signal(signal.SIGUSR1, h)\n"
+                    "print('ready', flush=True)\n"
+                    "time.sleep(30)\n")
+            with open(log, "w") as f:
+                p = subprocess.Popen([sys.executable, "-c", code], stdout=f)
+            try:
+                deadline = time.monotonic() + 10
+                while "ready" not in log.read_text() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                r = b3.go_collect(p.pid, log)
+                self.assertTrue(r["ok"], r)
+                self.assertEqual(r["heap_inuse"], 4096)
+                self.assertTrue(b3.go_collect(p.pid, log)["ok"])  # a second step finds its own new line
+            finally:
+                p.kill()
+                p.wait()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "taskset and a shell script")
+    def test_jvm_collect(self):
+        with tempfile.TemporaryDirectory() as d:
+            jcmd = Path(d) / "jcmd"
+            jcmd.write_text('#!/bin/sh\necho "$1: $2"\n[ "$2" = GC.heap_info ] && echo " garbage-first heap   total 247808K, used 1024K"\nexit 0\n')
+            jcmd.chmod(0o755)
+            r = b3.jvm_collect(4242, jcmd)
+            self.assertTrue(r["ok"], r)
+            self.assertIn("garbage-first heap", r["heap_info"])
+            jcmd.write_text("#!/bin/sh\nexit 1\n")
+            self.assertFalse(b3.jvm_collect(4242, jcmd)["ok"])
 
 
 PERF_SUMMARY = """

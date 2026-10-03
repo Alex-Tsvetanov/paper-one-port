@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""The proxies of hypotheses.md section 2.3 (M3 and B3) as the window runner starts them on L.
+"""The competitors of hypotheses.md section 2.3 as the window runner starts them on L: the proxies
+(M3 and B3) and, since M4b-2, the in-process libraries' harnesses (B3 and the hard cases).
 
-Each system has its configurations in bench/competitors/<name>/ (m3 and b3, Appendix B), its
+Each proxy has its configurations in bench/competitors/<name>/ (m3, b3 and cases, Appendix B), its
 binary under ~/opt (bench/competitors/install.sh, the pins in bench/cmake/pins.cmake), and here
-its command line. `render` fills a configuration's fields written between @ signs; `start` starts the system
+its command line. Each library has a first-party harness in bench/competitors/<name>/, built per
+checkout into <build>/harness (build_harnesses.sh), and two configurations, cases and b3
+(Appendix B), each a file of the harness's arguments (one argument and its value per line, `#`
+comments); the JVM harnesses take the flags of jvm.args before their class path. `render` fills a configuration's fields written between @ signs; `start` starts the system
 fresh under taskset on the front core, in a session of its own (so its whole process group,
 nginx's master and worker included, is stopped by one signal), with the soft open-file limit
 raised to the hard one (WL7's limits), writes its pid file, and waits until its port accepts a
@@ -39,11 +43,12 @@ TIMER_S = {"m3": 3, "b3": 60, "cases": 3, "cases-fallback": 3}
 # defaults": TIMERS.
 KINDS = ("m3", "b3", "cases", "cases-fallback")
 CASES_KINDS = ("cases", "cases-fallback")
-FALLBACK_SYSTEMS = ("haproxy", "envoy", "sslh-ev")
+FALLBACK_SYSTEMS = ("haproxy", "envoy", "sslh-ev", "cmux")
 # The systems whose cases configuration has the listener that requires the PROXY header: sslh
 # reads it only when built with libproxyprotocol, which the pinned build lacks (M4b-1), and
-# Appendix B names no PROXY for sslh.
-PROXY_SYSTEMS = ("nginx", "haproxy", "envoy", "caddy-l4")
+# Appendix B names no PROXY for sslh. Among the libraries Netty (HAProxyMessageDecoder) and Jetty
+# (ProxyConnectionFactory, inside its detector, so the header is optional there) read it.
+PROXY_SYSTEMS = ("nginx", "haproxy", "envoy", "caddy-l4", "netty", "jetty")
 TIMERS = ("matched", "default")
 # A line of a cases file that begins with the field MATCHED is a comment at the system's defaults,
 # and one that begins with FALLBACK is a comment in the kind without a fallback.
@@ -55,6 +60,10 @@ PROXY_PORT_OFFSET = 1
 STUB_OFFSET = {"http1": 0, "h2c": 1, "tls": 2, "mqtt": 3, "ssh": 4, "smtp": 5}
 TOKEN = re.compile(r"@[A-Z][A-Z0-9_]*@")
 READY_S = 20.0
+JVM_ARGS = HERE / "jvm.args"
+# The libraries' kinds: no M3 configuration (Appendix B: "Each library harness has two, cases and
+# B3").
+LIBRARY_KINDS = ("cases", "cases-fallback", "b3")
 
 
 def pin(name: str, pins: Path = REPO / "bench" / "cmake" / "pins.cmake") -> str:
@@ -64,22 +73,58 @@ def pin(name: str, pins: Path = REPO / "bench" / "cmake" / "pins.cmake") -> str:
     return m.group(1)
 
 
+def args_lines(text: str) -> list[str]:
+    """A rendered argument file: each line that is neither blank nor a comment is split on white
+    space into arguments (an argument and its value, or a flag alone)."""
+    out: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            out += s.split()
+    return out
+
+
+def jvm_args(path: Path = JVM_ARGS) -> list[str]:
+    """The JVM's flags of jvm.args, one per line."""
+    return [ln.strip() for ln in path.read_text().splitlines() if ln.strip() and not ln.strip().startswith("#")]
+
+
+def harness_dir(build: Path) -> Path:
+    """Where build_harnesses.sh puts the harnesses of a checkout's build: beside the C++ build."""
+    return build / "harness"
+
+
 @dataclass(frozen=True)
 class System:
     name: str
     version_pin: str
     files: dict[str, str]  # kind -> configuration file name in bench/competitors/<name>/
-    binary: str            # under OPT, with {v} the version
+    binary: str            # a proxy's under OPT, with {v} the version; a library's harness under <build>/harness
+    library: bool = False
+    main_class: str = ""   # the JVM harnesses' class
 
-    def binary_path(self) -> Path:
+    def binary_path(self, harness: Path | None = None) -> Path:
+        if self.library:
+            if harness is None:
+                raise ValueError(f"{self.name} is a library: its harness is built per checkout (build_harnesses.sh)")
+            return harness / self.binary
         return OPT / self.binary.format(v=pin(self.version_pin))
 
     def template(self, kind: str) -> Path:
         if kind == "cases-fallback" and self.name not in FALLBACK_SYSTEMS:
             raise ValueError(f"{self.name} has no fallback (Appendix B; design/competitor-survey.md), so no cases-fallback")
+        if self.library and kind not in LIBRARY_KINDS:
+            raise ValueError(f"{self.name} is a library: no {kind} configuration (Appendix B: cases and B3)")
         return HERE / self.name / self.files["cases" if kind in CASES_KINDS else kind]
 
-    def command(self, config: Path, run_dir: Path) -> list[str]:
+    def command(self, config: Path, run_dir: Path, harness: Path | None = None) -> list[str]:
+        if self.library:
+            args = args_lines(config.read_text())
+            if self.main_class:  # Netty and Jetty: the JVM, its flags, the harness and the pinned jars
+                java = OPT / f"jdk-{pin('ONEPORT_JDK_VERSION')}" / "bin" / "java"
+                lib = OPT / f"{self.name}-{pin(self.version_pin)}" / "lib"
+                return [str(java)] + jvm_args() + ["-cp", f"{self.binary_path(harness)}:{lib}/*", self.main_class] + args
+            return [str(self.binary_path(harness))] + args
         b = str(self.binary_path())
         if self.name == "nginx":
             # -p: the prefix for the paths nginx resolves itself; -e: its error log before the
@@ -103,9 +148,17 @@ SYSTEMS: dict[str, System] = {s.name: s for s in (
     System("caddy-l4", "ONEPORT_CADDY_L4_VERSION", {"m3": "m3.Caddyfile", "b3": "b3.Caddyfile", "cases": "cases.Caddyfile"},
            "caddy-l4-{v}/caddy"),
     System("sslh-ev", "ONEPORT_SSLH_VERSION", {"m3": "m3.cfg", "b3": "b3.cfg", "cases": "cases.cfg"}, "sslh-{v}/bin/sslh-ev"),
+    System("netty", "ONEPORT_NETTY_VERSION", {"b3": "b3.args", "cases": "cases.args"}, "netty/harness.jar", True, "oneport.NettyHarness"),
+    System("jetty", "ONEPORT_JETTY_VERSION", {"b3": "b3.args", "cases": "cases.args"}, "jetty/harness.jar", True, "oneport.JettyHarness"),
+    System("cmux", "ONEPORT_CMUX_VERSION", {"b3": "b3.args", "cases": "cases.args"}, "cmux/oneport-cmux", True),
+    System("hyper-util", "ONEPORT_HYPER_UTIL_VERSION", {"b3": "b3.args", "cases": "cases.args"}, "hyper-util/oneport-hyper-util", True),
 )}
 # Section 6.3's order (M3: nginx, HAProxy, Envoy, caddy-l4, sslh-ev).
 ORDER = ("nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev")
+# The in-process libraries, in section 2.3's order; the server runs in-process against them in B3
+# (section 5.2).
+LIBRARIES = ("netty", "jetty", "cmux", "hyper-util")
+JVM_SYSTEMS = ("netty", "jetty")
 
 
 def cpu_mask(cpu: int, ncpus: int = 16) -> str:
@@ -134,6 +187,8 @@ def fields(kind: str, port: int, stub_port: int, cpu: int, run_dir: Path, timers
         "ADMIN_PORT": str(port + 50),
         "N_PEND": str(N_PEND),
         "N_PEND_X2": str(2 * N_PEND),
+        "TIMER_MS": str(TIMER_S[kind] * 1000),
+        "REPO": str(REPO),
     }
     if kind in CASES_KINDS:
         out["PORT_PROXY"] = str(port + PROXY_PORT_OFFSET)
@@ -208,13 +263,15 @@ class Running:
     command: list[str] = field(default_factory=list)
 
 
-def start(system: str, kind: str, port: int, stub_port: int, cpus: list[int], run_dir: Path, timers: str = "matched") -> Running:
-    """Starts a system fresh on `cpus` (the front core) and waits for its port."""
+def start(system: str, kind: str, port: int, stub_port: int, cpus: list[int], run_dir: Path, timers: str = "matched",
+          harness: Path | None = None) -> Running:
+    """Starts a system fresh on `cpus` (the front core) and waits for its port. A library's harness
+    is found in `harness` (harness_dir of the build); its stub_port is unused (it serves in-process)."""
     s = SYSTEMS[system]
     run_dir.mkdir(parents=True, exist_ok=True)
     config = run_dir / f"{kind}.{s.template(kind).name.split('.', 1)[1]}"
     config.write_text(render(system, kind, port, stub_port, cpus[0], run_dir, timers))
-    cmd = ["taskset", "-c", ",".join(map(str, cpus))] + s.command(config, run_dir)
+    cmd = ["taskset", "-c", ",".join(map(str, cpus))] + s.command(config, run_dir, harness)
     env = dict(os.environ)
     if system == "caddy-l4":
         # Caddy keeps its autosave and data under the XDG directories; the run's directory holds them.

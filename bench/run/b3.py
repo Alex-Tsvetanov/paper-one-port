@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """One window in WL7's layout (hypotheses.md, section 3, WL7; section 7): the ophold window that
-K_BASE is made of, and a B3 window of a relay system, a proxy of section 2.3 in its B3
-configuration (bench/competitors, Appendix B) or the server's one-port relay with its timers at
-60 s (section 1), in front of the stub (M4b-1).
+K_BASE is made of, a B3 window of a relay system, a proxy of section 2.3 in its B3 configuration
+(bench/competitors, Appendix B) or the server's one-port relay with its timers at 60 s (section 1),
+in front of the stub (M4b-1), and a B3 window of an in-process system (M4b-2), a library's harness
+in its B3 configuration or the server in one-port mode with in-process dispatch and its timers at
+60 s (section 5.2: "in-process against the libraries"), with no stub.
 
 Phases, from WL7 (each a design choice of the frozen text):
   - before t = 0: fresh processes (the holder, or the relay system's front, on CPU 14; a relay
@@ -33,8 +35,18 @@ counts the whole host's sockets, so nothing else may open TCP connections on L d
 (an ssh session to L included). Functional windows only before the code freeze:
 B3's timing runs later (section 8, step 7).
 
-    b3.py --build DIR --out DIR --job NAME [--system ophold|one-port-relay|nginx|...]
-          [--case silent|partial-hello] [--n 10000]
+An in-process system (M4b-2). U sums VmRSS over its process group; Kq and the established count
+read its accepted sockets on its port. The probe is one exchange of each protocol it serves among
+B3's (HTTP/1.1 with keep-alive; and a TLS 1.3 handshake then HTTP/1.1, where it terminates TLS),
+each client closing by reset (WL7). The collector steps of WL7, a second ahead of each reading
+(COLLECT_LEAD_S), the baseline included: the JVM harnesses get `jcmd <pid> GC.run` then
+`jcmd <pid> GC.heap_info` (the pinned JDK's jcmd, on CPUs 0 and 1, through the attach mechanism's
+Unix socket, so no TCP connection); the cmux harness gets SIGUSR1, on which it calls
+debug.FreeOSMemory and prints HeapInuse. The harnesses come from <build>/harness
+(bench/competitors/build_harnesses.sh).
+
+    b3.py --build DIR --out DIR --job NAME [--system ophold|one-port-relay|one-port-inproc|nginx|...|netty|...]
+          [--case silent|partial-hello] [--n 10000] [--backend epoll|io_uring]
 """
 from __future__ import annotations
 
@@ -72,13 +84,25 @@ OPHOLD_PORT = 21000  # a design choice of M3, below the ephemeral range
 TW_WAIT_MAX_S = 70.0
 # A relay system (design choices of M4b-1): the front on B3_PORT, off the ephemeral range and apart
 # from ophold's and the hand-off windows' ports; its stub STUB_OFFSET above; caddy-l4's admin
-# endpoint 50 above (competitors.fields). The collector's request goes COLLECT_LEAD_S before a
-# sample, so that the collection it runs has ended when the sample is read.
+# endpoint 50 above (competitors.fields). The collector's step goes COLLECT_LEAD_S before a
+# sample, so that the collection it runs has ended when the sample is read; the JVM's two jcmd
+# calls start a JVM each, so they get 3 s (design choices of M4b-2).
 B3_PORT = 21100
 STUB_OFFSET = 10
-COLLECT_LEAD_S = 1.0
+COLLECT_LEAD_S = {"caddy-l4": 1.0, "netty": 3.0, "jetty": 3.0, "cmux": 1.0}
+JCMD_TIMEOUT_S = 60.0
+GO_COLLECT_TIMEOUT_S = 10.0
 SERVER = window.ONE_PORT_RELAY
-SYSTEMS = ("ophold", SERVER) + comp.ORDER
+# The server's in-process arm of B3 against the libraries (section 5.2).
+SERVER_INPROC = "one-port-inproc"
+RELAY_SYSTEMS = (SERVER,) + comp.ORDER
+INPROC_SYSTEMS = (SERVER_INPROC,) + comp.LIBRARIES
+SYSTEMS = ("ophold",) + RELAY_SYSTEMS + INPROC_SYSTEMS
+# Section 6.2: hyper-util serves no TLS, so the probe of an in-process system checks TLS only where
+# the system terminates it.
+INPROC_PROBES = {SERVER_INPROC: ("http1", "tls"), "netty": ("http1", "tls"), "jetty": ("http1", "tls"),
+                 "cmux": ("http1", "tls"), "hyper-util": ("http1",)}
+REQUEST = b"GET / HTTP/1.1\r\nHost: oneport.test\r\n\r\n"
 STUB_BODY = b"Hello, World!"  # the TLS stub's reply (bench/server/apps.hpp, kStubBody)
 PROBE_TIMEOUT_S = 5.0
 HEAP_TIMEOUT_S = 30.0
@@ -221,6 +245,12 @@ def exchange_probe(port: int, hello: bytes, timeout: float = PROBE_TIMEOUT_S) ->
     return {"ok": ok, "detail": "the stub's body, then EOF" if ok else f"got {got!r}", "s": time.monotonic() - t0}
 
 
+def collector_ok(c: dict) -> bool:
+    """A collector step that worked: caddy-l4's heap profile answered 200; jcmd's and the cmux
+    harness's steps say ok."""
+    return c.get("status") == 200 if "status" in c else bool(c.get("ok"))
+
+
 def heap_profile(admin_port: int) -> dict:
     """caddy-l4: a heap profile with gc=1 at the admin endpoint (WL7; Caddy's profiling docs), which
     runs a collection first; the profile is discarded, its size kept. The request keeps its
@@ -299,13 +329,13 @@ class RelaySystem:
     """A relay system of B3 on CPU 14 in front of the stub on CPUs 10 and 12: a proxy in its B3
     configuration, or the server's one-port relay with every timer at 60 s (section 1)."""
 
-    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str):
+    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll"):
         import handoff  # the hand-off runner's stub and front (section 4.1's placement)
         self.system = system
         self.port = port
         self.stub, self.stub_out = handoff.start_stub(build, port + STUB_OFFSET, raw, tag)
         try:
-            self.front = handoff.Front(system, build, port, port + STUB_OFFSET, raw, tag, "b3")
+            self.front = handoff.Front(system, build, port, port + STUB_OFFSET, raw, tag, "b3", backend)
         except Exception:
             window.stop_process(self.stub, self.stub_out)
             raise
@@ -333,16 +363,191 @@ class RelaySystem:
                 "stub_counters": window.parse_counters(stub_lines)}
 
 
-def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, system: str = "ophold") -> dict:
+def read_http_response(read) -> bytes:
+    """Reads one HTTP/1.1 response by its Content-Length through `read` (a recv-like callable)."""
+    got = b""
+    while b"\r\n\r\n" not in got:
+        chunk = read(4096)
+        if not chunk:
+            return got
+        got += chunk
+        if len(got) > 16384:
+            return got
+    head, _, body = got.partition(b"\r\n\r\n")
+    length = 0
+    for line in head.split(b"\r\n")[1:]:
+        k, _, v = line.partition(b":")
+        if k.strip().lower() == b"content-length":
+            length = int(v.strip() or b"0")
+    while len(body) < length:
+        chunk = read(4096)
+        if not chunk:
+            break
+        body += chunk
+    return head + b"\r\n\r\n" + body
+
+
+def response_ok(resp: bytes) -> bool:
+    """The server's reply (section 2.1): 200 with the 13-byte body."""
+    head, _, body = resp.partition(b"\r\n\r\n")
+    return head.startswith(b"HTTP/1.1 200") and body == STUB_BODY
+
+
+def http1_probe(port: int, timeout: float = PROBE_TIMEOUT_S) -> dict:
+    """One HTTP/1.1 exchange with keep-alive, the client closing by reset (WL7)."""
+    t0 = time.monotonic()
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+    except OSError as e:
+        return {"proto": "http1", "ok": False, "detail": f"connect: {e!r}", "s": time.monotonic() - t0}
+    try:
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        s.sendall(REQUEST)
+        resp = read_http_response(s.recv)
+    except OSError as e:
+        reset_close(s)
+        return {"proto": "http1", "ok": False, "detail": f"exchange: {e!r}", "s": time.monotonic() - t0}
+    reset_close(s)
+    ok = response_ok(resp)
+    return {"proto": "http1", "ok": ok, "detail": "200 with the 13-byte body" if ok else f"got {resp[:80]!r}",
+            "s": time.monotonic() - t0}
+
+
+def tls_probe(port: int, cert: Path, timeout: float = PROBE_TIMEOUT_S) -> dict:
+    """A TLS 1.3 handshake with SNI oneport.test, the test certificate verified, ALPN http/1.1 and
+    the group X25519 (section 2.1's settings, as far as Python's ssl module sets them), then one
+    HTTP/1.1 exchange; the client closes by reset without close_notify (WL7)."""
+    import ssl
+    t0 = time.monotonic()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ctx.maximum_version = ssl.TLSVersion.TLSv1_3
+    ctx.load_verify_locations(cafile=str(cert))
+    ctx.set_alpn_protocols(["http/1.1"])
+    ctx.set_ecdh_curve("X25519")
+    try:
+        raw = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+    except OSError as e:
+        return {"proto": "tls", "ok": False, "detail": f"connect: {e!r}", "s": time.monotonic() - t0}
+    raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    try:
+        s = ctx.wrap_socket(raw, server_hostname="oneport.test")
+        s.sendall(REQUEST)
+        resp = read_http_response(s.recv)
+        info = {"version": s.version(), "cipher": (s.cipher() or ("",))[0], "alpn": s.selected_alpn_protocol()}
+    except (OSError, ssl.SSLError) as e:
+        reset_close(raw)
+        return {"proto": "tls", "ok": False, "detail": f"exchange: {e!r}", "s": time.monotonic() - t0}
+    reset_close(raw)
+    ok = response_ok(resp)
+    return {"proto": "tls", "ok": ok, "detail": ("200 with the 13-byte body" if ok else f"got {resp[:80]!r}"), "tls": info,
+            "s": time.monotonic() - t0}
+
+
+def jvm_collect(pid: int, jcmd: Path, timeout: float = JCMD_TIMEOUT_S) -> dict:
+    """WL7's step for the JVM systems: `jcmd <pid> GC.run`, then `GC.heap_info`, reported."""
+    t0 = time.monotonic()
+    out: dict = {"ok": False}
+    try:
+        run_ = subprocess.run(["taskset", "-c", "0,1", str(jcmd), str(pid), "GC.run"], capture_output=True, text=True, timeout=timeout)
+        info = subprocess.run(["taskset", "-c", "0,1", str(jcmd), str(pid), "GC.heap_info"], capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        out["error"] = repr(e)
+        out["s"] = time.monotonic() - t0
+        return out
+    out.update(ok=run_.returncode == 0 and info.returncode == 0, gc_run_exit=run_.returncode, heap_info_exit=info.returncode,
+               heap_info=info.stdout.strip()[-2000:], s=time.monotonic() - t0)
+    return out
+
+
+def go_collect(pid: int, stdout_log: Path, timeout: float = GO_COLLECT_TIMEOUT_S) -> dict:
+    """WL7's step for the cmux harness: SIGUSR1, on which it calls debug.FreeOSMemory and prints
+    one line with HeapInuse to its standard output (bench/competitors/cmux/main.go)."""
+    t0 = time.monotonic()
+    before = stdout_log.read_text(errors="replace").count("cmux: collector ")
+    os.kill(pid, signal.SIGUSR1)
+    while time.monotonic() - t0 < timeout:
+        lines = [ln for ln in stdout_log.read_text(errors="replace").splitlines() if ln.startswith("cmux: collector ")]
+        if len(lines) > before:
+            stats = json.loads(lines[-1][len("cmux: collector "):])
+            return {"ok": True, "stats": stats, "heap_inuse": stats.get("heap_inuse"), "s": time.monotonic() - t0}
+        time.sleep(0.02)
+    return {"ok": False, "error": "no collector line", "s": time.monotonic() - t0}
+
+
+class InProcessSystem:
+    """An in-process system of B3 on CPU 14 (section 5.2; M4b-2): a library's harness in its B3
+    configuration, or the server in one-port mode with in-process dispatch, its default detection
+    mode (replay) and every timer at 60 s (section 1). No stub."""
+
+    def __init__(self, build: Path, system: str, port: int, raw: Path, tag: str, backend: str = "epoll"):
+        self.system = system
+        self.port = port
+        self.build = build
+        self.running = None
+        self.out = None
+        if system == SERVER_INPROC:
+            cmd = [str(build / "bench" / "server" / "oneport"), "--mode", "one-port", "--detect", "replay", "--dispatch", "inproc",
+                   "--backend", backend, "--port", str(port), "--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "60000"]
+            self.proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, SYSTEM_CPUS))] + cmd, stdout=subprocess.PIPE,
+                                         stderr=open(raw / f"{tag}.server.err", "wb"), start_new_session=True, cwd=raw,
+                                         preexec_fn=comp.raise_nofile)
+            (raw / f"{tag}.server.pid").write_text(f"{self.proc.pid}\n")
+            self.out = window.Lines(self.proc)
+            if not self.out.until(lambda ln: ln.startswith("oneport: connection state"), 15.0):
+                window.stop_process(self.proc, self.out)
+                raise window.WindowError(f"the server did not start: {self.out.lines[-3:]}")
+            self.command = cmd
+        else:
+            self.running = comp.start(system, "b3", port, 0, SYSTEM_CPUS, raw / f"{tag}.front", harness=comp.harness_dir(build))
+            self.proc = self.running.proc
+            self.command = self.running.command
+
+    def pids(self) -> list[int]:
+        return comp.group_pids(self.proc.pid)
+
+    def probe(self, build: Path) -> dict:
+        cert = HERE.parent.parent / "tests" / "fixtures" / "tls" / "test-cert.pem"
+        results = [http1_probe(self.port) if p == "http1" else tls_probe(self.port, cert) for p in INPROC_PROBES[self.system]]
+        ok = all(r["ok"] for r in results)
+        return {"ok": ok, "detail": "; ".join(f"{r['proto']}: {r['detail']}" for r in results), "exchanges": results}
+
+    def before_reading(self) -> dict | None:
+        if self.system in comp.JVM_SYSTEMS:
+            jcmd = comp.OPT / f"jdk-{comp.pin('ONEPORT_JDK_VERSION')}" / "bin" / "jcmd"
+            return jvm_collect(self.proc.pid, jcmd)
+        if self.system == "cmux":
+            return go_collect(self.proc.pid, self.running.run_dir / "stdout.log")
+        return None
+
+    def alive(self) -> bool:
+        return self.proc.poll() is None
+
+    def stop(self) -> dict:
+        alive = self.alive()
+        if self.running is not None:
+            code = comp.stop(self.running)
+            return {"exit": code, "alive_at_stop": alive, "server_counters": None}
+        code, lines = window.stop_process(self.proc, self.out)
+        return {"exit": code, "alive_at_stop": alive, "server_counters": window.parse_counters(lines)}
+
+
+def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, system: str = "ophold",
+        backend: str = "epoll") -> dict:
     if system not in SYSTEMS:
         raise ValueError(f"system {system!r}, not one of {SYSTEMS}")
     out.mkdir(parents=True, exist_ok=True)
-    relay = system != "ophold"
-    port = B3_PORT if relay else OPHOLD_PORT
-    tag = f"{job}-{system}-{case}"
-    row: dict = {"job": job, "kind": "b3" if relay else "ophold", "system": system, "case": case, "n_pend": n, "development": True,
+    relay = system in RELAY_SYSTEMS
+    inproc = system in INPROC_SYSTEMS
+    port = B3_PORT if system != "ophold" else OPHOLD_PORT
+    server_arm = system in (SERVER, SERVER_INPROC)
+    tag = f"{job}-{system}-{case}" + (f"-{backend}" if server_arm else "")
+    row: dict = {"job": job, "kind": "b3" if system != "ophold" else "ophold", "system": system, "case": case, "n_pend": n,
+                 "development": True, "placement": "relay" if relay else "in-process" if inproc else "holder",
                  "system_cpus": SYSTEM_CPUS, "opcase_cpus": OPCASE_CPUS, "port": port, "tag": tag,
                  "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    if server_arm:
+        row["backend"] = backend
     if relay:
         row["stub_port"] = port + STUB_OFFSET
     row["gap_wait_s"] = wait_after_other_windows(blocks_file)
@@ -350,11 +555,16 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
     row["time_wait_wait_s"], row["time_wait_before"] = wait_time_wait_zero()
     row["fingerprint"] = window.pin_fingerprint()
     ns0 = window.nstat()
-    sysm = RelaySystem(build, system, port, out, tag) if relay else Holder(build, port, n)
+    if relay:
+        sysm = RelaySystem(build, system, port, out, tag, backend)
+    elif inproc:
+        sysm = InProcessSystem(build, system, port, out, tag, backend)
+    else:
+        sysm = Holder(build, port, n)
     row["command"] = sysm.command
     reasons: list[str] = []
     collector: list[dict | None] = []
-    lead = COLLECT_LEAD_S if relay and system == "caddy-l4" else 0.0
+    lead = COLLECT_LEAD_S.get(system, 0.0)
     sampler: MemorySampler | None = None
     try:
         row["probe"] = sysm.probe(build)
@@ -409,8 +619,11 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
         if sampler is not None and "memory_sampler" not in row:
             row["memory_sampler"] = sampler.stop()
         stopped = sysm.stop()
+    if lead:
+        row["collector"] = collector
+        if any(c is None or not collector_ok(c) for c in collector):
+            reasons.append(f"{system}'s collector step failed")
     if relay:
-        row["collector"] = collector if system == "caddy-l4" else None
         row["front_stop"] = {k: stopped[k] for k in ("exit", "alive_at_stop", "stub_exit")}
         row["front_counters"] = stopped.get("front_counters")
         row["stub_counters"] = stopped.get("stub_counters")
@@ -418,8 +631,11 @@ def run(build: Path, out: Path, job: str, case: str, n: int, blocks_file: Path, 
             reasons.append(f"{system} exited during the window")
         if stopped.get("stub_exit") != 0:
             reasons.append(f"stub exit {stopped.get('stub_exit')}")
-        if system == "caddy-l4" and any(c is None or c.get("status") != 200 for c in collector):
-            reasons.append("caddy-l4's heap profile request failed")
+    elif inproc:
+        row["system_stop"] = {k: stopped[k] for k in ("exit", "alive_at_stop")}
+        row["server_counters"] = stopped.get("server_counters")
+        if not row.get("alive_after_samples", False):
+            reasons.append(f"{system} exited during the window")
     else:
         row["ophold_lines"] = stopped.get("lines")
     ns1 = window.nstat()
@@ -445,14 +661,18 @@ def main(argv=None) -> int:
     ap.add_argument("--case", default="silent", choices=("silent", "partial-hello"))
     ap.add_argument("--n", type=int, default=fp.N_PEND)
     ap.add_argument("--blocks", type=Path, default=Path.home() / "lab" / "p3" / "src-blocks.json")
+    ap.add_argument("--backend", default="epoll", choices=("epoll", "io_uring"), help="the server's backend (its two arms)")
     a = ap.parse_args(argv)
     if a.system in comp.ORDER and not comp.SYSTEMS[a.system].binary_path().exists():
         raise SystemExit(f"{a.system}: no binary at {comp.SYSTEMS[a.system].binary_path()} (bench/competitors/install.sh)")
-    row = run(a.build, a.out, a.job, a.case, a.n, a.blocks, a.system)
+    if a.system in comp.LIBRARIES and not comp.SYSTEMS[a.system].binary_path(comp.harness_dir(a.build)).exists():
+        raise SystemExit(f"{a.system}: no harness at {comp.SYSTEMS[a.system].binary_path(comp.harness_dir(a.build))} "
+                         "(bench/competitors/build_harnesses.sh)")
+    row = run(a.build, a.out, a.job, a.case, a.n, a.blocks, a.system, a.backend)
     with open(a.out / "windows.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     f2 = row["footprint"]["sample2"]
-    print(f"{a.system} {a.case}: valid={row['valid']} {'; '.join(row['invalid_reasons'])}")
+    print(f"{a.system} {a.case}{' ' + a.backend if 'backend' in row else ''}: valid={row['valid']} {'; '.join(row['invalid_reasons'])}")
     print(f"  U {f2['U']:.1f}  Kq {f2['Kq']:.1f}  Ks {f2['Ks']:.1f}  W {f2['W']:.1f} bytes per pending connection; "
           f"established {f2['established']}; skb growth {f2['skb_growth']}; shared cache growth {f2['shared_growth']}")
     return 0
