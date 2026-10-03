@@ -3747,6 +3747,43 @@ fa1877066a006d8c29381aff88a54e84f760a034ca8b3bfee6bf2aa33885cb88, beside it in a
 members; made under the lab lock); build trees, source clones, the sanitizer harness builds, the
 discovery directory and the check builds are left out.
 
+## M5 exit criteria (set by the coordinator before M5)
+
+Written before any engineering of M5. M5 ends when all five hold, or when criterion 5 stops it.
+
+1. **Untimed counter deltas, one-port against dedicated**, checked with section 10's untimed counter
+   checks (`bench/run/systrace.py`), never with windows. Replay mode: 0 extra system calls and 0
+   extra user-space copies per connection. Peek mode: exactly the MSG_PEEK (or poll) operations the
+   design adds, and nothing else. This holds for every protocol, backend and dispatch.
+2. **B3 in relay against each of the five proxies**, both cases, both backends: the server's W at
+   least 1.25 times below the proxy's (W_proxy / W_srv at least 1.25), in development windows. The
+   frozen bound is 1.10; 1.25 is headroom.
+3. **M3, the relay against nginx and against HAProxy**: ratio (server / proxy) at least 1.05 in at
+   least three development sessions each. Otherwise record that the margin is thin, and let the
+   frozen narrowing order speak.
+4. **The suite green under all four sanitizers** (Debug, ASan+UBSan, TSan, MSan) after every change.
+   Every engineering timing journaled as development.
+5. **A cap of two engineering rounds.** If a criterion is still unmet after round two, M5 stops,
+   this file records the gap, and the paper narrows per the frozen order (section 12: M3, then B3,
+   then the cost family per backend).
+
+Note on criterion 2, written by M5 before any engineering (development data and a bound derived
+from it, not a result). In every B3 window so far (b3dev1, b3thp1, b3lib2), every system's Ks lies
+between 6,771.1 and 7,778.3 bytes per pending connection, most of it the kernel's two loopback
+socket ends that `K_BASE` will measure; the server's relay had Ks 7,215.1 (silent) and 7,102.5
+(partial ClientHello), and sslh-ev had W 7,644.0 and 7,657.5 with U 399.8 and 524.3 (b3dev1). The
+server's W is at least its own Ks, which no change to the server can bring below a bare held
+socket's. Even at the lowest Ks any system has shown and U = Kq = 0, W_sslh / W_srv would be at
+most 7,657.5 / 6,771.1 = 1.13; at the relay's own Ks it is at most 7,657.5 / 7,102.5 = 1.08, and
+with the server's connection state (U about 400 bytes in the silent case) it stays near 1.0. So
+criterion 2 is out of reach against sslh-ev by construction, and so is the frozen 1.10 unless the
+server's Ks and U together fell below 6,961 bytes (7,657.5 / 1.10), under every Ks the relay has
+shown. M5's rounds go to the other four proxies.
+There, in those windows, the server's relay on epoll was ahead of nginx by 11,971.0 / 7,622.2 = 1.57
+(silent) and 13,378.5 / 11,773.1 = 1.14 (partial), and of HAProxy by 1.32 and 1.22 (b3thp1 for the
+proxies under THP at `madvise`, b3dev1 for the relay under `always`, so not the same day); the
+relay on io_uring had not run in B3.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
