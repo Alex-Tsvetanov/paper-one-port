@@ -102,7 +102,8 @@ cmux_harness() {
 }
 
 hyper_util_harness() {
-    local dir target=x86_64-unknown-linux-gnu env=() flags=(build --release --locked --target "$target")
+    local dir target=x86_64-unknown-linux-gnu env=() flags=()
+    flags=(build --release --locked --target "$target")
     dir="$out/hyper-util"
     rm -rf "$dir"
     mkdir -p "$dir"
