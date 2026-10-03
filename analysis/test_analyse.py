@@ -46,8 +46,8 @@ import stats as S  # noqa: E402
 import synth as SY  # noqa: E402
 
 SEEDS = {n: 5000 + 7 * i for i, n in enumerate(C.SEED_NAMES)}
-RULE_E = {"default": {"epoll": "replay", "io_uring": "replay", "IOCP": "replay"}, "relay_copy": "user-space",
-          "iocp_receive": "zero-byte"}
+RULE_E = {"default": {"epoll": "replay", "io_uring": "replay", "IOCP": "replay"},
+          "relay_copy": {"epoll": "user-space", "io_uring": "user-space"}, "iocp_receive": "zero-byte"}
 RESOLVED = ["C1.L.epoll.http1", "C1.L.epoll.h2c", "C1.L.epoll.tls", "C1.L.epoll.mqtt", "C1.L.io_uring.http1",
             "C2.L.epoll.http1", "C2.L.epoll.h2c", "C3.L.epoll.http1", "C3.L.epoll.h2c"]
 
@@ -441,3 +441,15 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def test_rule_e_relay_copy_per_backend():
+    """Rule E makes "three choices per backend" (section 8): the relay copy is one per backend
+    that relays, epoll and io_uring (M7c); a single value, a missing backend, or IOCP refuse."""
+    assert AN.check_rule_e(dict(RULE_E)) == RULE_E
+    mixed = dict(RULE_E, relay_copy={"epoll": "splice", "io_uring": "user-space"})
+    assert AN.check_rule_e(mixed)["relay_copy"]["epoll"] == "splice"
+    for bad in ("user-space", {"epoll": "user-space"}, {"epoll": "user-space", "io_uring": "user-space", "IOCP": "user-space"},
+                {"epoll": "copy", "io_uring": "user-space"}):
+        with pytest.raises(AN.AnalysisRefused):
+            AN.check_rule_e(dict(RULE_E, relay_copy=bad))

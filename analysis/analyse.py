@@ -70,16 +70,24 @@ def fnum(x) -> float | None:
 # ---------------------------------------------------------------- inputs
 
 
+RELAY_BACKENDS = ("epoll", "io_uring")  # section 2.1: "Relay (Linux only)"
+
+
 def check_rule_e(rule_e: dict) -> dict:
-    """Rule E's choices (section 8, 9.3): the default detection mode per backend, the relay copy
-    and the IOCP receive form (the zero-byte form, the coordinator's decision of 2026-10-03)."""
+    """Rule E's choices (section 8, 9.3): "Three choices per backend": the default detection mode
+    per backend, the relay copy per backend that relays (epoll and io_uring; section 2.1, "Relay
+    (Linux only)"), and the IOCP receive form (the zero-byte form, the coordinator's decision of
+    2026-10-03). M7c: relay_copy is per backend, {"epoll": ..., "io_uring": ...}; it was one value."""
     if sorted(rule_e) != sorted(RULE_E_KEYS):
         raise AnalysisRefused(f"rule E: keys {sorted(rule_e)}, not {sorted(RULE_E_KEYS)}")
     d = rule_e["default"]
-    if sorted(d) != sorted(C.COST_BACKENDS) or any(v not in ("replay", "peek") for v in d.values()):
+    if not isinstance(d, dict) or sorted(d) != sorted(C.COST_BACKENDS) or any(v not in ("replay", "peek") for v in d.values()):
         raise AnalysisRefused(f"rule E: default detection modes {d}")
-    if rule_e["relay_copy"] not in ("user-space", "splice") or rule_e["iocp_receive"] not in ("zero-byte", "posted"):
-        raise AnalysisRefused("rule E: relay_copy or iocp_receive")
+    rc = rule_e["relay_copy"]
+    if not isinstance(rc, dict) or sorted(rc) != sorted(RELAY_BACKENDS) or any(v not in ("user-space", "splice") for v in rc.values()):
+        raise AnalysisRefused(f"rule E: relay_copy {rc!r}, not one of user-space and splice for each of {RELAY_BACKENDS}")
+    if rule_e["iocp_receive"] not in ("zero-byte", "posted"):
+        raise AnalysisRefused("rule E: iocp_receive")
     return rule_e
 
 
