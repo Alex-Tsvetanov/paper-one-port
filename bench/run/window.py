@@ -373,7 +373,27 @@ def pin_fingerprint() -> dict:
     fp["notrack"] = notrack_state()
     fp["clock_floor"] = clock_floor_state()
     fp["thp"] = thp_state()
+    fp["priority"] = priority_state()
     return fp
+
+
+def priority_state(pid: int | None = None) -> dict:
+    """A process's nice value and timer slack (M7c: a job launched from zsh in the background runs
+    at nice 5, and at nice above 0 the kernel's slack on a timed epoll wait is 0.5% of the time left,
+    not 0.1%; bench/run/lab_job.sh refuses such a job). The runner's own by default; its children
+    (the server, the generators) inherit both."""
+    path = Path(f"/proc/{pid}") if pid else Path("/proc/self")
+    out: dict = {"pid": pid}
+    try:
+        stat = (path / "stat").read_text()
+        out["nice"] = int(stat[stat.rindex(")") + 2:].split()[16])  # field 19 of /proc/<pid>/stat
+    except (OSError, ValueError, IndexError):
+        out["nice"] = None
+    try:
+        out["timerslack_ns"] = int((path / "timerslack_ns").read_text())
+    except (OSError, ValueError):
+        out["timerslack_ns"] = None
+    return out
 
 
 # ---------------------------------------------------------------- source-address blocks

@@ -144,9 +144,11 @@ def timer_part(build: Path, backend: str, runs: int, done: set, raw: Path, emit,
                       "invalid_reasons": [f"the server failed to start: {e!r}"]})
             return
         port = ports[window.LISTENER["http1"]]
+        prio = window.priority_state(srv.pid)  # the server's nice and timer slack (M7c)
         offset = 0
         for run in todo:
-            row = {"part": "timer", "backend": backend, "mode": "dedicated", "run": run, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+            row = {"part": "timer", "backend": backend, "mode": "dedicated", "run": run, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                   "server_priority": prio}
             reasons = []
             if srv.poll() is not None:
                 reasons.append(f"the server exited ({srv.returncode})")

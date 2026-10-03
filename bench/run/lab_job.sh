@@ -16,6 +16,15 @@
 # records it in DIR/NAME.notrack.json (Alex's approval of 2026-10-03; design/status.md); it refuses
 # to run the job if a NOTRACK rule is already present.
 #   setsid nohup bash bench/run/lab_job.sh ~/lab/p3/m3-aa aa-1 python3 bench/run/aa.py ... &
+# Launched from L's login shell, zsh, that line runs at nice 5: zsh lowers the priority of every
+# background job (its BG_NICE option, on by default). Found in M7c: at nice above 0 the kernel
+# gives a timed wait of epoll a slack of 0.5% of the time left instead of 0.1% (fs/select.c,
+# select_estimate_accuracy, used by epoll_pwait2), so the pilot's timer part saw T_hdr handled
+# about 15 ms late on epoll; and every process of the job competes at a lower priority than the
+# host's own. A lab job runs at nice 0: this script refuses a job at any other (exit 92), unless
+# ONEPORT_ALLOW_NICE=1. Launch it from bash, for example
+#   bash -c '(setsid nohup bash bench/run/lab_job.sh DIR NAME COMMAND ... > /dev/null 2>&1 &)'
+# or from zsh after `setopt NO_BG_NICE`.
 set -u
 dir=$1
 name=$2
@@ -25,6 +34,13 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 lablock=${ONEPORT_LABLOCK:-$HOME/lab/Papers/lab/bin/lablock}
 echo $$ > "$dir/$name.pid"
 date -Is > "$dir/$name.start"
+nice_now=$(ps -o ni= -p $$ | tr -d ' ')
+if [ "$nice_now" != 0 ] && [ "${ONEPORT_ALLOW_NICE:-0}" != 1 ]; then
+  echo "lab_job: this job runs at nice $nice_now; a lab job runs at nice 0, so it does not run (zsh runs" \
+    "background jobs at nice 5: launch from bash, or setopt NO_BG_NICE; ONEPORT_ALLOW_NICE=1 runs it anyway)" > "$dir/$name.log"
+  printf '{"exit": %d, "end": "%s", "nice": %s}\n' 92 "$(date -Is)" "$nice_now" > "$dir/$name.done"
+  exit 92
+fi
 # Before the lock, so that a queued job does not fail hours later: NOTRACK needs a kernel module,
 # and a kernel whose module tree is gone (upgraded without a reboot) can load none. notrack.sh, in
 # the lock, still decides; this only refuses early what it would refuse.
