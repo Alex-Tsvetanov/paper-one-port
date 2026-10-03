@@ -22,7 +22,8 @@ An idle pass of the same arm first (start, attach, IDLE_S with no load, stop) me
 start-up offset per check. A wait in progress when perf attaches or stops can fall on either side,
 which WAIT_SLACK allows for the loop's wait calls. Beside perf trace, `perf stat` counts the entry
 tracepoints of the same system calls (counters, no ring buffer), so a shortfall of perf trace
-itself shows as stat_minus_trace. The load (design choices of M4b-1): churn and open loop at
+itself shows as stat_minus_trace. A row's `agrees` is section 10's check (against perf trace -s);
+`agrees_with_perf_stat` is the same check against perf stat's counts. The load (design choices of M4b-1): churn and open loop at
 TRACE_RATE exchanges per second for TRACE_MS after a TRACE_WARM_MS warm-up, open loop;
 keep-alive with TRACE_KA_CONNS connections for TRACE_KA_MS. perf trace's "LOST" lines are
 recorded, and a lost event fails the check.
@@ -133,6 +134,7 @@ def check_counters(counters: dict, calls: dict[str, dict[str, int]], backend: st
             st = [stat.get(s) for s in ss]
             row["stat"] = None if any(v is None for v in st) else sum(st)
             row["stat_minus_trace"] = None if row["stat"] is None else row["stat"] - seen
+            row["stat_agrees"] = row["stat"] is not None and abs(row["stat"] - (mine - off)) <= tol
         out.append(row)
     return out
 
@@ -248,6 +250,10 @@ def idle_pass(build: Path, mode: str, backend: str, raw: Path, tag: str) -> dict
 
 
 def finish_checks(row: dict, g: dict | None, extra: list[str]) -> dict:
+    """`agrees`: section 10's check, the counters against perf trace -s. `agrees_with_perf_stat`:
+    the same counters against perf stat's count of the entry tracepoints (found in M4b-1: on L perf
+    trace -s fell short of perf stat by up to 0.4% of a call's count with no lost event reported,
+    also with a larger ring buffer, while perf stat matched the counters exactly)."""
     reasons = [f"{c['check']}: perf {c['perf']}, counters {c['server']} less {c['startup_offset']} at start-up"
                for c in row.get("checks", []) if not c["agrees"]] + extra
     if row.get("perf_lost"):
@@ -255,6 +261,7 @@ def finish_checks(row: dict, g: dict | None, extra: list[str]) -> dict:
     if not (g or {}).get("ok"):
         reasons.append("opgen failed")
     row["agrees"] = not reasons
+    row["agrees_with_perf_stat"] = all(c.get("stat_agrees") for c in row.get("checks", [])) if row.get("checks") else None
     row["problems"] = reasons
     return row
 
@@ -391,7 +398,8 @@ def main(argv=None) -> int:
     for r in rows:
         name = r.get("cell", r.get("system"))
         lost = {c["check"]: c["stat_minus_trace"] for c in r.get("checks", []) if c.get("stat_minus_trace")}
-        print(f"{r['kind']} {name} {r.get('mode', r.get('proto'))}: agrees={r['agrees']} {'; '.join(r['problems'])}"
+        print(f"{r['kind']} {name} {r.get('mode', r.get('proto'))}: agrees={r['agrees']} "
+              f"agrees_with_perf_stat={r['agrees_with_perf_stat']} {'; '.join(r['problems'])}"
               + (f" [perf stat minus perf trace: {lost}]" if lost else ""))
     return 0
 

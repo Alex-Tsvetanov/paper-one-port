@@ -513,7 +513,11 @@ class Trace(unittest.TestCase):
         calls["epoll_ctl"] = {"calls": 100, "errors": 0}
         by = {c["check"]: c for c in systrace.check_counters(counters, calls, "epoll", 1, offsets, {"epoll_ctl": 100, "recvfrom": 330})}
         self.assertTrue(by["epoll_ctl"]["agrees"])  # 106 less 6 at start-up
+        self.assertTrue(by["epoll_ctl"]["stat_agrees"])
         self.assertEqual(by["recv"]["stat_minus_trace"], 10)
+        self.assertFalse(by["recv"]["stat_agrees"])  # 330 against 320
+        row = systrace.finish_checks({"checks": list(by.values())}, {"ok": True}, [])
+        self.assertFalse(row["agrees_with_perf_stat"])
         self.assertIsNone(by["accept"]["stat"])  # no stat count for accept4 here
 
     def test_load_has_no_time(self):
