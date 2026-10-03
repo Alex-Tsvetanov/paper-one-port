@@ -257,18 +257,33 @@ namespace oneport::test
 		};
 
 		/// A loopback port nothing listens on: bound once by the kernel's choice, then closed.
-		std::uint16_t refused_port()
+		/// A loopback port that refuses every connect: bound and not listening, so a SYN to it gets a
+		/// reset, and kept bound for the holder's life, so no other test can be given that port. (A
+		/// port bound and closed again could be handed to a concurrent test's listener, which then
+		/// accepted this test's connects: seen on L in M4a, gen.failures beside
+		/// server.kernel_uring_recv_select.)
+		struct RefusedPort
 		{
-			const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-			sockaddr_in a{};
-			a.sin_family = AF_INET;
-			a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-			::bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a));
-			socklen_t n = sizeof(a);
-			::getsockname(fd, reinterpret_cast<sockaddr*>(&a), &n);
-			::close(fd);
-			return ntohs(a.sin_port);
-		}
+			int fd = -1;
+			std::uint16_t port = 0;
+			RefusedPort()
+			{
+				fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				sockaddr_in a{};
+				a.sin_family = AF_INET;
+				a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+				if (fd < 0 || ::bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0) return;
+				socklen_t n = sizeof(a);
+				::getsockname(fd, reinterpret_cast<sockaddr*>(&a), &n);
+				port = ntohs(a.sin_port);
+			}
+			~RefusedPort()
+			{
+				if (fd >= 0) ::close(fd);
+			}
+			RefusedPort(const RefusedPort&) = delete;
+			RefusedPort& operator=(const RefusedPort&) = delete;
+		};
 
 		Result source_block()
 		{
@@ -295,7 +310,9 @@ namespace oneport::test
 		{
 			// A port that refuses: every exchange fails at connect.
 			{
-				og::Options o = short_window(og::Proto::mqtt, og::Load::churn, refused_port());
+				const RefusedPort refused;
+				CHECK(refused.port != 0, "a bound loopback port");
+				og::Options o = short_window(og::Proto::mqtt, og::Load::churn, refused.port);
 				o.warmup = 0ms;
 				o.duration = 200ms;
 				const og::Result r = og::run(o, nullptr);
