@@ -20,6 +20,7 @@ import re
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -452,16 +453,29 @@ class HandoffRow(unittest.TestCase):
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux only")
+def port_shift(build: Path) -> int:
+    """A port offset per build tree, a multiple of 400 below 6400, so two suites run at once (M5's
+    checks run two sanitizer builds together) do not bind each other's ports; every port stays
+    below the ephemeral range."""
+    return 400 * (zlib.crc32(str(build.resolve()).encode()) % 16)
+
+
 class Integration(unittest.TestCase):
     """Real processes on this host: the server's relay as the front, the stub behind it."""
 
     def setUp(self):
         if BUILD is None:
             self.skipTest("no --build")
+        self.shift = port_shift(BUILD)
 
     def test_probe_of_the_servers_relay(self):
-        with tempfile.TemporaryDirectory() as d:
-            res = probe.run(probe.SERVER, "m3", BUILD, Path(d))
+        saved = dict(probe.PORTS)
+        probe.PORTS.update({k: v + self.shift for k, v in saved.items()})
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                res = probe.run(probe.SERVER, "m3", BUILD, Path(d))
+        finally:
+            probe.PORTS.update(saved)
         self.assertTrue(res["checks"]["routes"]["ok"], res["checks"]["routes"])
         self.assertEqual(res["checks"]["routes"]["front_counters"].get("routed_by_sni"), 1)
         for case in ("silent", "partial"):
@@ -477,7 +491,7 @@ class Integration(unittest.TestCase):
                 blocks = window.SourceBlocks(Path(d) / "blocks.json")
                 for proto in handoff.M3_PROTOS:
                     cfg = {"build": BUILD, "proto": proto, "k_src": 4, "cell": f"m3.{proto}.test", "arms": {"A": handoff.SERVER},
-                           "ports": {"A": 23500}}
+                           "ports": {"A": 23500 + self.shift}}
                     session = {"job": "test", "id": f"test-{proto}", "mhz": 1.0}
                     row = handoff.run_window(cfg, session, "A", 0, blocks, Path(d) / "raw")
                     reasons = row.get("invalid_reasons", [])

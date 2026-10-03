@@ -708,6 +708,25 @@ class CounterDelta(unittest.TestCase):
         self.assertEqual(fp.reading_dict(r)["slab_all"], {"io_kiocb": 4096, "eventpoll_epi": 8192})
 
 
+def wait_for_child(pid: int, comm: str, timeout: float = 20.0) -> bool:
+    """Whether a child of `pid` named `comm` (the wrapper's job) appears within `timeout` s."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for d in Path("/proc").iterdir():
+            if not d.name.isdigit():
+                continue
+            try:
+                stat = (d / "stat").read_text()
+            except OSError:
+                continue
+            name = stat[stat.index("(") + 1:stat.rindex(")")]
+            ppid = int(stat[stat.rindex(")") + 2:].split()[1])
+            if ppid == pid and name == comm:
+                return True
+        time.sleep(0.05)
+    return False
+
+
 CLOCKFLOOR = HERE / "clockfloor.sh"
 LOW, HIGH = 1_102_866, 3_201_000  # L's scaling_min_freq and scaling_max_freq on kernel 7.2.6
 
@@ -787,6 +806,7 @@ class ClockFloor(unittest.TestCase):
             while time.monotonic() < deadline and not (rec.exists() and '"set_at": "' in rec.read_text()):
                 time.sleep(0.05)
             self.assertEqual(floor_of(root, 0), HIGH)
+            self.assertTrue(wait_for_child(p.pid, "sleep"), "the job did not start")
             os.killpg(p.pid, signal.SIGTERM)  # as a job is stopped: TERM to its process group
             self.assertEqual(p.wait(timeout=20), 143)
             self.assertEqual((floor_of(root, 0), floor_of(root, 1)), (LOW, LOW))
@@ -919,6 +939,7 @@ class Thp(unittest.TestCase):
             while time.monotonic() < deadline and not (rec.exists() and '"set_at": "' in rec.read_text()):
                 time.sleep(0.05)
             self.assertEqual(thp_word(root, "enabled"), "madvise")
+            self.assertTrue(wait_for_child(p.pid, "sleep"), "the job did not start")
             os.killpg(p.pid, signal.SIGTERM)  # as a job is stopped: TERM to its process group
             self.assertEqual(p.wait(timeout=20), 143)
             self.assertEqual(thp_word(root, "enabled"), "always")
