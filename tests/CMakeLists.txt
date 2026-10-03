@@ -208,6 +208,10 @@ if(Python3_FOUND)
     # The window runner's readers and rules (bench/run), on samples recorded on L.
     add_test(NAME run.test_runner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_runner.py)
     set_tests_properties(run.test_runner PROPERTIES TIMEOUT 120 LABELS run)
+    # The W window runner's parsers and rules (M6b), on samples recorded on W; on Windows also W's
+    # readings, a pinned start and the lab lock (bench/run/test_wrunner.py).
+    add_test(NAME run.test_wrunner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_wrunner.py)
+    set_tests_properties(run.test_wrunner PROPERTIES TIMEOUT 120 LABELS run)
     # The competitors' configurations, the probe's judgement and the hand-off rows (M4a); on Linux
     # also the probe of the server's relay and one short hand-off window per M3 protocol, with
     # this build's oneport and opgen (bench/competitors/test_competitors.py).
