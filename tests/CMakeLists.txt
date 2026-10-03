@@ -84,7 +84,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # opgen's loads and protocols against the server (hypotheses.md, section 11: the records
         # cover opgen, opcase and ophold).
         foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub
-                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe)
+                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe
+                      gen.hold)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
             set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "gen;${_backend}")
         endforeach()

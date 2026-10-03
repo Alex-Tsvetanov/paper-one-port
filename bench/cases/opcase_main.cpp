@@ -17,13 +17,22 @@
 //     answers nothing, such as ophold).
 //   opcase case --port N [--proxy-port N] --hc K [--variant PREFIX] [--replicates R] [timers, gaps]
 //     the hard cases of Appendix A against any system by port, one JSON line per run (M5;
-//     bench/cases/run_cases.cpp).
+//     bench/cases/run_cases.cpp); `opcase case --list` prints each variant's frozen expectation.
+//   opcase hold --ports P[,P...] --n N [--reopen on|off] [--src-base A.B.C.D --k-src K]
+//     the mixed-protocol cell's silent background (section 10; bench/cases/hold.hpp): holds N
+//     silent connections, round robin over the ports, a connection the peer closes opened again at
+//     once to the same port, until SIGTERM or SIGINT. Prints "HOLD <held> <ns>" once all N are
+//     held (CLOCK_MONOTONIC), then, at the stop, every connection closed by reset, a JSON line of
+//     counts.
 #include "fixtures.hpp"
+#include "hold.hpp"
 #include "run_cases.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <charconv>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -103,8 +112,74 @@ namespace
 		             "usage: opcase open --port N --case silent|partial-hello [--n 10000] [--batch 25] [--pace-ms 25]\n"
 		             "                   [--close-at-ms 30000] [--src-base A.B.C.D --k-src K]\n"
 		             "       opcase probe-reset --port N\n"
-		             "       opcase case --port N [--proxy-port N] --hc K [--variant PREFIX] [--replicates R] ...\n");
+		             "       opcase case --port N [--proxy-port N] --hc K [--variant PREFIX | --id ID] [--replicates R] ...\n"
+		             "       opcase case --list [--hc K] ...\n"
+		             "       opcase hold --ports P[,P...] --n N [--reopen on|off] [--src-base A.B.C.D --k-src K]\n");
 		return 2;
+	}
+
+	std::atomic<bool> g_hold_stop{false};
+
+	void hold_on_signal(int) { g_hold_stop.store(true, std::memory_order_relaxed); }
+
+	/// `opcase hold ...`: the silent background (hold.hpp).
+	int hold_main(int argc, char** argv)
+	{
+		oneport::opcase::HoldOptions o;
+		bool have_n = false;
+		for (int i = 2; i + 1 < argc; i += 2)
+		{
+			const std::string_view a = argv[i];
+			std::string_view v = argv[i + 1];
+			bool ok = true;
+			if (a == "--ports")
+			{
+				while (ok && !v.empty())
+				{
+					const std::size_t comma = v.find(',');
+					unsigned port = 0;
+					ok = number(v.substr(0, comma), port) && port > 0 && port < 65536;
+					if (ok) o.ports.push_back(static_cast<std::uint16_t>(port));
+					v = comma == std::string_view::npos ? std::string_view{} : v.substr(comma + 1);
+				}
+			}
+			else if (a == "--n")
+			{
+				ok = number(v, o.n) && o.n > 0;
+				have_n = ok;
+			}
+			else if (a == "--reopen")
+			{
+				ok = v == "on" || v == "off";
+				o.reopen = v == "on";
+			}
+			else if (a == "--k-src") ok = number(v, o.k_src) && o.k_src > 0;
+			else if (a == "--src-base")
+			{
+				const auto b = dotted(v);
+				ok = b && (*b >> 24) == 127 && *b > 0x7F000001u;
+				if (ok) o.src_base = *b;
+			}
+			else ok = false;
+			if (!ok) return usage();
+		}
+		if ((argc - 2) % 2 != 0 || o.ports.empty() || !have_n || (o.src_base == 0) != (o.k_src == 0)) return usage();
+		if (o.k_src > 0 && static_cast<std::uint64_t>(o.src_base) + o.k_src - 1 >= 0x7FFFFFFFu) return usage();
+		rlimit lim{};
+		if (getrlimit(RLIMIT_NOFILE, &lim) == 0 && lim.rlim_cur < lim.rlim_max)
+		{
+			lim.rlim_cur = lim.rlim_max;
+			setrlimit(RLIMIT_NOFILE, &lim);
+		}
+		std::signal(SIGTERM, hold_on_signal);
+		std::signal(SIGINT, hold_on_signal);
+		const oneport::opcase::HoldResult r = oneport::opcase::hold(o, g_hold_stop, [](const oneport::opcase::HoldResult& at) {
+			std::printf("HOLD %u %lld\n", at.held_at_ready, static_cast<long long>(at.ready_ns));
+			std::fflush(stdout);
+		});
+		std::printf("%s\n", oneport::opcase::hold_json(o, r).c_str());
+		std::fflush(stdout);
+		return r.ok ? 0 : 1;
 	}
 
 	sockaddr_in loopback(std::uint16_t port)
@@ -138,6 +213,7 @@ int main(int argc, char** argv)
 	if (argc < 2) return usage();
 	const std::string_view cmd = argv[1];
 	if (cmd == "case") return oneport::opcase::run_cases(argc, argv);
+	if (cmd == "hold") return hold_main(argc, argv);
 	unsigned port = 0;
 	std::string kase;
 	std::uint32_t n = 10000;

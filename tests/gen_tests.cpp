@@ -10,6 +10,8 @@
 //   - gen.probe.<backend>: the probe of each protocol;
 //   - gen.source_block: every connection's source address lies in the block;
 //   - gen.failures: a refused port counts connect failures, a silent server counts timeouts;
+//   - gen.hold.<backend>: the mixed-protocol cell's silent background (opcase's holder) against
+//     one-port mode, whose T_dec closes it and the holder opens it again, and against dedicated ports;
 //   - gen.binaries: the opgen, opcase and ophold programs against the oneport program.
 // Functional and untimed: no rate is asserted.
 #include "test_support.hpp"
@@ -22,7 +24,9 @@
 
 #if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
 
+#include "apps.hpp"
 #include "harness.hpp"
+#include "hold.hpp"
 
 #include <array>
 #include <atomic>
@@ -210,6 +214,84 @@ namespace oneport::test
 			CHECK(r.ttfb.n == r.due_completed && r.issue_lag.n == r.due_completed && r.ttfb_connect.n == r.due_completed, "one sample per exchange");
 			CHECK(r.ttfb.median >= r.ttfb_connect.median, "TTFB from the due time is at least TTFB from connect");
 			if (auto bad = srv.stop_and_check()) return bad;
+			return std::nullopt;
+		}
+
+		/// Runs opcase's holder (bench/cases/hold.hpp) for `run_for`, then stops it.
+		opcase::HoldResult hold_for(const opcase::HoldOptions& o, std::chrono::milliseconds run_for)
+		{
+			std::atomic<bool> stop{false};
+			std::atomic<bool> ready{false};
+			opcase::HoldResult r;
+			std::thread t([&] { r = opcase::hold(o, stop, [&](const opcase::HoldResult&) { ready.store(true); }); });
+			std::this_thread::sleep_for(run_for);
+			stop.store(true);
+			t.join();
+			std::this_thread::sleep_for(150ms);  // the server observes the holder's resets before it stops
+			return r;
+		}
+
+		/// The mixed-protocol cell's silent background (section 10): the holder keeps its count by
+		/// one policy in both modes. Against one-port mode, whose T_dec closes a silent connection
+		/// (1 f), every closed connection is opened again at once; with the policy off, none is;
+		/// against a dedicated port no connection is closed, and a port that speaks at accept (SSH)
+		/// has its line read and discarded.
+		Result hold()
+		{
+			{
+				ServerArgs a;
+				a.mode = Mode::one_port;
+				a.t_dec = 200ms;
+				Running srv(a);
+				opcase::HoldOptions o;
+				o.ports = {srv.port()};
+				o.n = 6;
+				o.src_base = 0x7F000E01u;  // 127.0.14.1
+				o.k_src = 2;
+				const opcase::HoldResult r = hold_for(o, 900ms);
+				CHECK(r.ok, "hold: " << r.error);
+				CHECK(r.ready_ns > 0 && r.held_at_ready == 6, "never held all 6 (" << r.held_at_ready << ")");
+				CHECK(r.connect_failures == 0, r.connect_failures << " connects failed");
+				CHECK(r.closed_by_peer >= 6, "T_dec closed only " << r.closed_by_peer << " held connections in 900 ms");
+				CHECK(r.reopened == r.closed_by_peer && r.connects == 6 + r.reopened, "reopened " << r.reopened << " of " << r.closed_by_peer
+				                                                                                 << " closed, " << r.connects << " connects");
+				CHECK(r.bytes_received == 0, "a one-port server sent " << r.bytes_received << " bytes to a silent client");
+				if (auto bad = srv.stop_and_check()) return bad;
+				const server::Counters c = srv.server->totals();
+				CHECK(c.accepted == r.connects, "accepted " << c.accepted << " of " << r.connects << " connects");
+				CHECK(c.outcomes[static_cast<std::size_t>(server::Outcome::silent)] == r.closed_by_peer,
+				      "silent outcomes " << c.outcomes[static_cast<std::size_t>(server::Outcome::silent)] << ", closes seen " << r.closed_by_peer);
+			}
+			{
+				ServerArgs a;
+				a.mode = Mode::one_port;
+				a.t_dec = 200ms;
+				Running srv(a);
+				opcase::HoldOptions o;
+				o.ports = {srv.port()};
+				o.n = 4;
+				o.reopen = false;
+				const opcase::HoldResult r = hold_for(o, 600ms);
+				CHECK(r.ok && r.held_at_ready == 4, "the control never held its 4");
+				CHECK(r.closed_by_peer == 4 && r.reopened == 0 && r.connects == 4 && r.held_at_stop == 0,
+				      "without the policy: closed " << r.closed_by_peer << ", reopened " << r.reopened << ", held at the stop " << r.held_at_stop);
+				if (auto bad = srv.stop_and_check()) return bad;
+			}
+			{
+				ServerArgs a;
+				a.mode = Mode::dedicated;
+				a.t_dec = 200ms;
+				Running srv(a);
+				opcase::HoldOptions o;
+				o.ports = {srv.port_of(detect::Proto::http1), srv.port_of(detect::Proto::ssh)};
+				o.n = 4;
+				const opcase::HoldResult r = hold_for(o, 600ms);
+				CHECK(r.ok && r.held_at_ready == 4 && r.held_min == 4 && r.held_at_stop == 4, "dedicated: held " << r.held_at_ready << ", at least "
+				                                                                                                 << r.held_min << ", at the stop " << r.held_at_stop);
+				CHECK(r.closed_by_peer == 0 && r.reopened == 0 && r.connects == 4, "dedicated: closed " << r.closed_by_peer << ", connects " << r.connects);
+				CHECK(r.bytes_received == 2 * apps::kSshBanner.size(), "the SSH port's lines: " << r.bytes_received << " bytes");
+				if (auto bad = srv.stop_and_check()) return bad;
+			}
 			return std::nullopt;
 		}
 
@@ -484,6 +566,31 @@ namespace oneport::test
 				const long held = hold.value_after("ophold: held ");
 				CHECK(hold.wait() == 0 && (held == 100 || held == 101), kase << ": ophold held " << held << ", not the 100 (and the reset probe)");
 			}
+			// opcase hold against the oneport program in one-port mode: T_dec closes each silent
+			// connection and the holder opens it again; SIGTERM ends it with a line of counts.
+			Process onep;
+			CHECK(onep.start({oneport, "--mode", "one-port", "--detect", "replay", "--dispatch", "inproc", "--backend", "epoll", "--t-dec-ms", "200"}),
+			      "spawn oneport in one-port mode");
+			const long oport = onep.value_after("oneport: listening one-port 127.0.0.1:");
+			CHECK(oport > 0, "oneport printed no one-port listening line");
+			Process bg;
+			CHECK(bg.start({opcase, "hold", "--ports", std::to_string(oport), "--n", "3", "--src-base", "127.0.15.1", "--k-src", "2"}), "spawn opcase hold");
+			CHECK(bg.value_after("HOLD ") == 3, "opcase hold never held its 3");
+			std::this_thread::sleep_for(700ms);
+			CHECK(bg.stop() == 0, "opcase hold's exit");
+			const long reopened = bg.value_after("\"reopened\": ");
+			CHECK(reopened >= 3, "opcase hold reopened " << reopened << " connections in 700 ms at T_dec = 200 ms");
+			CHECK(bg.text.find("\"connect_failures\": 0") != std::string::npos, "opcase hold: a connect failed");
+			std::this_thread::sleep_for(150ms);
+			CHECK(onep.stop() == 0, "oneport's exit");
+			// opcase case --list: the constants, then each variant's frozen expectation.
+			Process list;
+			CHECK(list.start({opcase, "case", "--list", "--hc", "12"}), "spawn opcase case --list");
+			CHECK(list.wait() == 0, "opcase case --list's exit");
+			CHECK(list.text.find("{\"constants\": {\"response200_hex\": ") == 0, "no constants line first");
+			CHECK(list.text.find("\"id\": \"HC12\"") != std::string::npos && list.text.find("\"when\": \"t_hdr\"") != std::string::npos &&
+			          list.text.find("\"expect\": \"proxy_timeout\"") != std::string::npos,
+			      "HC12's expectation is not listed: " << list.text.substr(0, 400));
 			return std::nullopt;
 		}
 
@@ -515,6 +622,7 @@ namespace oneport::test
 				r["gen.keepalive." + std::string(og::name(p)) + s] = on([p] { return one_load(p, og::Load::keepalive); });
 			}
 			r["gen.open_loop" + s] = on(open_loop);
+			r["gen.hold" + s] = on(hold);
 			r["gen.probe" + s] = on(probe);
 		}
 		r["gen.source_block"] = source_block;
