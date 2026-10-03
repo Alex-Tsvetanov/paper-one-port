@@ -467,3 +467,20 @@ Debug and ASan on W, at 76d05c8). Left, when the coordinator resumes M6b:
 
 The frequency test ran with wfreq.py and wpower.py as committed in c215778, and with wsys.py before
 the job's stop event was added to it (the functions the test used are unchanged).
+
+## M6b resumed (2026-10-03, from 23:05 +0300)
+
+### The frequency retest, as planned before it ran
+
+Alex's addition, approved and passed on by the coordinator: retest the counter with a control that
+surely moves the clock, once, right before the W A/A job and never during it. Its design is the
+revision of design/w-procedure.md section 4 dated 2026-10-03: the same phases on CPU 10 (idle and
+load under the lab plan), then the load under a second test plan "oneport W cap50" (the lab plan
+with the minimum and maximum processor state at 50%), created once by `wpower.py create-cap` and
+switched to inside the lab plan's session, so the session's end and its guard restore Alex's plan;
+both counters and the spinner's work rate recorded in every phase; the quiet check first. Pass:
+under the lab plan every load sample within 2% of the load mean, and under the cap the counter's
+load mean more than 2% from the lab plan's. Beside the rule: work falling by more than 2% with the
+counter still means a blind counter; neither moving means an inconclusive test. The A/A job runs as
+briefed whatever the outcome (FREQ_RULE off, the counter in every row); the outcome is a reading
+for the coordinator.

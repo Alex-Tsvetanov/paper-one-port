@@ -112,6 +112,34 @@ mean differs from the boost-off load mean by more than 2%, so the counter shows 
 frequency at all. If it does not pass, W windows are validated without the frequency rule and
 the paper says so (section 9.1).
 
+### Revision of 2026-10-03 (Alex's addition, approved; written before the retest ran)
+
+The first test (status-m6b.md, "The frequency check") did not pass: under Alex's plan, with boost
+Aggressive, neither the counter nor the spinner's work moved, so boost mode did not move W's clock
+in that test. The retest uses a control that surely moves the clock. Steps 1 and 2 stay as above.
+Step 3 becomes:
+
+3. Control: the same load under a second test plan, "oneport W cap50": the lab plan of section 2
+   duplicated, with the maximum processor state capped at 50% and the minimum processor state at
+   the cap (50%), created once (`wpower.py create-cap`) and switched to inside the lab plan's
+   session, so the session's end and its guard set Alex's plan back, also on failure. No command
+   is elevated.
+
+Recorded in every phase: both counters (`% Processor Performance` and `Actual Frequency` of CPU 10)
+and, in each load phase, the spinner's work rate (its iterations per second).
+
+Pass: under the lab plan every load sample of the counter lies within 2% of the load mean, and under
+the capped plan the counter's load mean differs from the lab plan's load mean by more than 2%.
+
+Read beside the rule, not part of it: if the work rate falls by more than 2% under the cap and the
+counter does not move, the counter is blind; if neither moves, the cap did not move the clock and
+the test is inconclusive. Both mean the fallback of section 9.1 stands.
+
+The quiet check of section 5 runs first and is recorded. The retest runs once, right before the W
+A/A job and never during it, and changes nothing in that job: its runner's frequency rule stays off
+and the counter is recorded in every row. Whether the rule applies to the confirmatory windows is
+decided in the revision log before the code freeze.
+
 Before and after each window: a sampler on core 0 reads the counter of the server's CPU and of
 each generator CPU at 1 s through the window (WMI `Win32_PerfFormattedData_Counters_ProcessorInformation`,
 whose names are not localized). Invalid, by analogy with L's rule: the server CPU's mean over the
