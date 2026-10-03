@@ -349,7 +349,13 @@ def secondary(by_cell: dict[str, list[RW.Session]], r_c: int, rng: np.random.Gen
 
 
 def k_base_of(rows: list[dict]) -> dict:
+    """WL7 and 9.3: K_BASE is the median of ophold's Ks over 16 windows (bench/run/footprint.py's
+    k_base). More than 16 valid ophold windows refuse the input, as more than R valid sessions do:
+    the design runs exactly 16, and k_base would take the first 16 in file order."""
     hold = [r for r in rows if r.get("kind") == "ophold"]
+    n_valid = sum(1 for r in hold if r.get("valid"))
+    if n_valid > FP.K_BASE_WINDOWS:
+        raise AnalysisRefused(f"{n_valid} valid ophold windows, more than the {FP.K_BASE_WINDOWS} of WL7")
     try:
         return {"K_BASE": FP.k_base(hold), "ophold_windows": len(hold), "why": None}
     except ValueError as e:

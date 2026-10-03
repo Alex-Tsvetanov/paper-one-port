@@ -12,7 +12,9 @@ here is a result: every number below comes from synthetic data or from Appendix 
 - 9700c0c `analyse.py`, `macros.py`, the end-to-end test and the registry tests.
 - 4302d6d the outputs name the analysis commit and list their inputs in order; the pilot entry's
   N_SIM and each C3 cell's rate are checked.
-- This file, in the commit after them.
+- cee7b24 this file.
+- The commit after it: a driver fault's row in a section 10 cell no longer refuses the input;
+  more than 16 valid ophold windows do; this file updated.
 
 ## What `analysis/` holds
 
@@ -34,17 +36,21 @@ functions are copied from it unchanged.
 
 ## Tests
 
-`python -m pytest analysis` on W (Python 3.14.5, numpy 2.5.0): 66 passed, 2 skipped.
+`python -m pytest analysis` on W (Python 3.14.5, numpy 2.5.0): 68 passed, 2 skipped (the SciPy
+cross-check and the slow Appendix A test). The suite must run on the pinned interpreter: the
+end-to-end tests start the command-line tools with the same Python, and those refuse any numpy
+but 2.5.0.
 
 | File | Tests | What they check against |
 |---|---|---|
 | `test_stats.py` | 36 (1 skipped without SciPy) | 4.5's sign-test grid at R_C = 11 to 31 and its rounded "one more" values; the allowed count at every R from 11 to 32 (steps only at 11, 15, 18, 22, 25, 28, 31); proposal 5.6's fractions and R = 32; R = 16's values; an independent tail sum for n = 0 to 32; ties and missing values against; one out on each side at R = 15 still passes. Holm on the textbook example (Holm 1979, p = 0.01, 0.04, 0.03, 0.005 at 0.05) and on 4.5's "k <= 11" and "k <= 2" for m = 18 and 20. The BCa equal to `appendix_a_r_rule.bca_p` and `passes` draw for draw at R = 11 to 31; equal to an inline textbook BCa (Efron and Tibshirani 1993, ch. 14); 4.3's "passes at alpha exactly when the interval lies inside the margin" over 300 random cells at alpha, alpha/36 and alpha/7; clusters resampled whole; the degenerate map; q = 10.306959006625288 and s_U / s = 1.2063695181246945 (status.md's recorded output). |
 | `test_pilot.py` | 15 (1 slow, opt-in) | The rule on hand-made pass counts (a cell whose power is not monotone in R: R_C = 18 where the cells' own R_c are 15 and 11); 0.80 exact; the joint power as a product; the streams of 4.6 step 3; the simulation equal to the confirmatory function; worker count without effect; G, GAP_SPLIT and lambda on hand-made rows; the refusals; Appendix A's 24 pilots (their sd as status.md records them); a whole synthetic pilot; the command line byte for byte at 1 and 2 workers, and never under `results/`. |
 | `test_cells.py` | 7 | The orders of 6.1, 6.2, 6.3 and of `SEED_BOOT_S`; the seeds file; a letters-only macro word for every cell; no en or em dash in `analysis/` or this file. |
-| `test_analyse.py` | 10 | The whole pipeline through the three command-line tools on synthetic rows (below). |
+| `test_analyse.py` | 12 | The whole pipeline through the three command-line tools on synthetic rows (below); a driver fault's row in a section 10 cell, with and without its bullet; K_BASE from exactly 16 ophold windows. |
 
 With SciPy: in a scratch virtual environment made offline from uv's cache (SciPy 1.17.1, numpy
-2.4.6, nothing downloaded), `test_stats.py` passes 36 of 36, so `scipy.stats.bootstrap(method="BCa")`
+2.4.6, nothing downloaded), `test_stats.py` alone passes 36 of 36 (the rest of the suite needs
+numpy 2.5.0, above), so `scipy.stats.bootstrap(method="BCa")`
 gives the same bootstrap distribution and bounds within one order statistic (SciPy interpolates
 linearly).
 
@@ -60,8 +66,8 @@ others lie where the deciding candidate's power is within 1.7 standard errors (0
 
 The streams differ from the script's (the script draws per job, the frozen rule per (SEED_SIM, c,
 j) and (SEED_SIM, c, j, R)), so this is Monte Carlo noise, not a difference of rule. The four cells
-the appendix leaves unresolved are unresolved here too. The whole pilot (36 cells) should take
-about three minutes at 11 workers on W.
+the appendix leaves unresolved are unresolved here too. The time of a whole 36-cell pilot was not
+measured.
 
 ## The end-to-end test's known answers
 
@@ -216,8 +222,11 @@ Each is a choice the frozen text leaves open, made here.
 10. In the simulation a run's BCa is computed only when its sign test passes. The result is the
     same, since a run passes only if both do and each BCa draws from its own stream.
 11. A refused row refuses the whole input (no filtering); a cell with more than R valid sessions,
-    a session of another shape than X Y Y X, or one arm with two roles refuses it too; a session
-    with fewer than four windows is invalid.
+    more than 16 valid ophold windows (bench/run/footprint.py's k_base would take the first 16 in
+    file order), a session of another shape than X Y Y X, or one arm with two roles refuses it
+    too; a session with fewer than four windows is invalid. A driver fault's row (invalid, without
+    the fields of its cell) takes its cell from its session, in every family, section 10's
+    included.
 12. The pins: numpy 2.5.0 on Python 3.14 (Appendix A's versions), enforced by the command lines.
 13. The seeds are read from a JSON file of the 14 names; the code holds no seed value.
 14. The row formats of the timer and split parts, and the rows of the runners not yet written
@@ -243,9 +252,9 @@ Each is a choice the frozen text leaves open, made here.
 1. Review and merge `m7-analysis` into main. The merge commit is the candidate ANALYSIS_COMMIT
    (section 9.1: "the commit of analysis/ that runs 4.6 and the confirmatory analysis, with its
    tests"). From then on nothing under `analysis/` changes; a change is a later change.
-2. On the merged tree, on Python 3.14.5 with numpy 2.5.0: `python -m pytest analysis` (66 pass,
-   2 skip), and once `ONEPORT_SLOW=1 python -m pytest analysis/test_pilot.py -k appendix` (about
-   two minutes at 11 workers). Optionally the SciPy cross-check in an environment with SciPy.
+2. On the merged tree, on Python 3.14.5 with numpy 2.5.0: `python -m pytest analysis` (68 pass,
+   2 skip), and once `ONEPORT_SLOW=1 python -m pytest analysis/test_pilot.py -k appendix` (112 s
+   at 11 workers on W, measured here). Optionally `test_stats.py` alone where SciPy is installed.
 3. Log ANALYSIS_COMMIT in the revision log with the readings and design choices above (section 8
    step 2 asks for it before the code freeze, and section 9.1 names it).
 4. The seeds entry (checklist item 5): fix the 14 seeds, and commit beside the entry a JSON file

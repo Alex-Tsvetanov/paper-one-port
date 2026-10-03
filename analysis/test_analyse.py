@@ -404,6 +404,37 @@ def test_one_port_against_dedicated_shape_errors():
         RW.assemble(rows, lambda r: RW.row_info(r, RULE_E), AN.roles_for)
 
 
+def test_fault_rows_of_secondary_cells():
+    """A driver fault's row with family "S" and its bullet, or with no bullet, takes its cell from
+    its session; its session is invalid; nothing is refused."""
+    rng = np.random.default_rng(3)
+    info = lambda r: RW.row_info(r, RULE_E)  # noqa: E731
+    for keep in ({"family": "S", "bullet": "ssh"}, {"family": "S"}, {}):
+        rows = SY.cost_session(rng, "s", "ssh-f", hyp="C1", proto="ssh", backend="epoll", ratio=1.0, family="S",
+                               extra={"bullet": "ssh"})
+        rows[2] = {**SY.fault_row("s", "ssh-f", rows[2]["arm"], 2, "churn.ssh.epoll"), **keep}
+        (s,) = RW.assemble(rows, info, AN.roles_for)
+        assert s.cell == "S.ssh.C1.L.epoll" and not s.valid
+    for bullet, field in (("two-cores", "variant"), ("iocp-forms", "variant"), ("m-ttfb", "hyp"), ("tls-variants", "variant")):
+        assert RW.row_info({"family": "S", "bullet": bullet, "valid": False}, RULE_E) == (f"S.{bullet}", RW.Info())
+        with pytest.raises(RW.RowError, match=field):
+            RW.row_info({"family": "S", "bullet": bullet, "valid": True, "workload": "churn", "proto": "http1",
+                         "backend": "epoll", "mode": "dedicated"}, RULE_E)
+    with pytest.raises(RW.RowError, match="bullet"):
+        RW.row_info({"family": "S", "valid": True}, RULE_E)
+
+
+def test_k_base_needs_exactly_sixteen_ophold_windows():
+    pilot = {"R_C": 11, "resolved": [], "m_C": 0}
+    rows16 = [SY.ophold_window("ophold", k, 6000.0 + k) for k in range(16)]
+    s = AN.analyse(rows16, pilot=pilot, rule_e=RULE_E, seeds=SEEDS)
+    assert s["k_base"]["K_BASE"] == pytest.approx(6007.5)
+    with pytest.raises(AN.AnalysisRefused, match="more than the 16"):
+        AN.analyse(rows16 + [SY.ophold_window("ophold", 16, 9000.0)], pilot=pilot, rule_e=RULE_E, seeds=SEEDS)
+    s = AN.analyse(rows16[:15], pilot=pilot, rule_e=RULE_E, seeds=SEEDS)
+    assert s["k_base"]["K_BASE"] is None and "16" in s["k_base"]["why"]
+
+
 def main() -> int:
     return pytest.main([__file__, "-q"])
 

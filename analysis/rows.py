@@ -233,6 +233,73 @@ def info_b3_other(row: dict, rule_e: dict) -> Info:
                 "default" if detect == rule_e["default"][backend] else "other")
 
 
+SECONDARY_BULLETS = ("ssh", "mixed", "tls-variants", "two-cores", "relay-io_uring", "iocp-forms", "m-ttfb", "b3-other-mode")
+
+
+def _field_or_fault(row: dict, key: str, allowed: tuple):
+    """A field the cell needs; None from an invalid row that lacks it (a driver fault's row, which
+    takes its cell from its session); an error from a valid row that lacks it."""
+    if key not in row and not row.get("valid"):
+        return None
+    return _need(row, key, allowed)
+
+
+def info_secondary(row: dict, rule_e: dict) -> tuple[str | None, Info]:
+    """Section 10's cells (family "S"), by bullet."""
+    bullet = _field_or_fault(row, "bullet", SECONDARY_BULLETS)
+    if bullet is None:
+        return None, Info()
+    kind = f"S.{bullet}"
+    if bullet == "ssh":
+        return kind, info_cost_like(row, rule_e, protos=("ssh",))
+    if bullet == "mixed":
+        return kind, info_cost_like(row, rule_e)
+    if bullet == "tls-variants":
+        inf = info_cost_like(row, rule_e)
+        v = _field_or_fault(row, "variant", C.TLS_VARIANTS)
+        if v is None or not inf.fields:
+            return kind, Info()
+        inf.fields["variant"] = v
+        return kind, inf
+    if bullet == "two-cores":
+        v = _field_or_fault(row, "variant", C.TWO_CORE_VARIANTS)
+        inf = info_cost_like(row, rule_e)
+        if v is None or not inf.fields:
+            return kind, Info()
+        inf.fields["variant"] = v
+        if v == "reuseport":
+            inf.role = row.get("listener")
+            if inf.role is not None and inf.role not in ("reuseport", "shared"):
+                raise RowError(f"{where(row)}: listener {inf.role!r}")
+        return kind, inf
+    if bullet == "relay-io_uring":
+        return kind, info_relay(row, "io_uring")
+    if bullet == "iocp-forms":
+        form = _field_or_fault(row, "variant", C.IOCP_FORMS)
+        if form is None:
+            return kind, Info()
+        if form == "acceptex-buffer":
+            acc = row.get("iocp_accept")
+            if acc not in (None, "buffer", "no-buffer"):
+                raise RowError(f"{where(row)}: iocp_accept {acc!r}")
+            role = None if acc is None else ("variant" if acc == "buffer" else "default")
+        else:
+            rec = row.get("iocp_receive")
+            if rec not in (None, "zero-byte", "posted"):
+                raise RowError(f"{where(row)}: iocp_receive {rec!r}")
+            role = None if rec is None else ("default" if rec == rule_e["iocp_receive"] else "variant")
+        return kind, Info({"variant": form}, role)
+    if bullet == "m-ttfb":
+        hyp = _field_or_fault(row, "hyp", ("M1", "M3"))
+        if hyp is None:
+            return kind, Info()
+        inf = info_m1(row, rule_e, "open") if hyp == "M1" else info_relay(row, "epoll")
+        if inf.fields:
+            inf.fields["hyp"] = hyp
+        return kind, inf
+    return kind, info_b3_other(row, rule_e)
+
+
 def row_info(row: dict, rule_e: dict) -> tuple[str | None, Info]:
     """(the family or bullet key, what the row says). Fault rows give an empty Info."""
     fam = row.get("family")
@@ -249,43 +316,7 @@ def row_info(row: dict, rule_e: dict) -> tuple[str | None, Info]:
     if fam == "M3":
         return "M3", info_relay(row, "epoll")
     if fam == "S":
-        bullet = _need(row, "bullet", ("ssh", "mixed", "tls-variants", "two-cores", "relay-io_uring", "iocp-forms",
-                                        "m-ttfb", "b3-other-mode"))
-        if bullet == "ssh":
-            return "S.ssh", info_cost_like(row, rule_e, protos=("ssh",))
-        if bullet in ("mixed", "tls-variants"):
-            inf = info_cost_like(row, rule_e)
-            if inf.fields and bullet == "tls-variants":
-                inf.fields["variant"] = _need(row, "variant", C.TLS_VARIANTS)
-            return f"S.{bullet}", inf
-        if bullet == "two-cores":
-            inf = info_cost_like(row, rule_e)
-            v = _need(row, "variant", C.TWO_CORE_VARIANTS)
-            if inf.fields:
-                inf.fields["variant"] = v
-            if v == "reuseport":
-                inf.role = row.get("listener")
-                if inf.role is not None and inf.role not in ("reuseport", "shared"):
-                    raise RowError(f"{where(row)}: listener {inf.role!r}")
-            return "S.two-cores", inf
-        if bullet == "relay-io_uring":
-            return "S.relay-io_uring", info_relay(row, "io_uring")
-        if bullet == "iocp-forms":
-            form = _need(row, "variant", C.IOCP_FORMS)
-            if form == "acceptex-buffer":
-                acc = row.get("iocp_accept")
-                role = None if acc is None else {"buffer": "variant", "no-buffer": "default"}[acc]
-            else:
-                rec = row.get("iocp_receive")
-                role = None if rec is None else ("default" if rec == rule_e["iocp_receive"] else "variant")
-            return "S.iocp-forms", Info({"variant": form}, role)
-        if bullet == "m-ttfb":
-            hyp = _need(row, "hyp", ("M1", "M3"))
-            inf = info_m1(row, rule_e, "open") if hyp == "M1" else info_relay(row, "epoll")
-            if inf.fields:
-                inf.fields["hyp"] = hyp
-            return "S.m-ttfb", inf
-        return "S.b3-other-mode", info_b3_other(row, rule_e)
+        return info_secondary(row, rule_e)
     if fam is None and row.get("kind") == "ophold":
         return "ophold", Info()
     if fam is None and not row.get("valid"):
