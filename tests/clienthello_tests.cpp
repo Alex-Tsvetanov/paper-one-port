@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace oneport::test
 {
@@ -68,12 +69,48 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// scan() decides as reassemble() does, without the copy (M5): on every prefix of the
+		/// recorded ClientHello, of its two-record form (the handshake header whole in the first
+		/// record, and split across the two), of a ClientHello longer than B_CH, and of input that is
+		/// not TLS or not a ClientHello.
+		Result clienthello_scan()
+		{
+			const Bytes r = opcase::recorded_client_hello();
+			std::vector<Bytes> inputs{r, opcase::fragment_client_hello(r, 40), opcase::fragment_client_hello(r, 2), text("GET / HTTP/1.1\r\n\r\n")};
+			Bytes not_hello = r;
+			not_hello[5] = std::byte{0x02};  // a ServerHello's type
+			inputs.push_back(not_hello);
+			Bytes too_long = r;
+			too_long[6] = std::byte{0x01};  // the handshake length's top byte: 65536 more than B_CH allows
+			inputs.push_back(too_long);
+			std::array<std::byte, detect::kBCh> buf{};
+			std::size_t compared = 0;
+			for (const Bytes& in : inputs)
+			{
+				for (std::size_t n = 0; n <= in.size(); ++n)
+				{
+					const std::span<const std::byte> w = std::span<const std::byte>(in).first(n);
+					const clienthello::Reassembled a = clienthello::reassemble(w, buf);
+					const clienthello::Reassembled s = clienthello::scan(w);
+					CHECK(a.verdict == s.verdict && a.msg_len == s.msg_len && a.wire_len == s.wire_len && a.records == s.records && a.need == s.need,
+					      "scan and reassemble differ on " << n << " of " << in.size() << " bytes");
+					++compared;
+				}
+			}
+			CHECK(clienthello::scan(r).verdict == clienthello::Verdict::yes && clienthello::scan(not_hello).verdict == clienthello::Verdict::no &&
+			          clienthello::scan(too_long).verdict == clienthello::Verdict::no,
+			      "the whole inputs");
+			CHECK(compared > 3 * r.size(), compared << " prefixes compared");
+			return std::nullopt;
+		}
+
 	}  // namespace
 
 	void register_clienthello_tests(Registry& r)
 	{
 		r["clienthello.recorded"] = recorded_client_hello;
 		r["clienthello.fragments"] = clienthello_fragments;
+		r["clienthello.scan"] = clienthello_scan;
 	}
 
 }  // namespace oneport::test

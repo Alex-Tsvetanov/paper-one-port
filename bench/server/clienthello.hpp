@@ -74,6 +74,47 @@ namespace oneport::clienthello
 		}
 	}
 
+	/// What reassemble() decides on `wire`, without copying the fragments: a whole ClientHello
+	/// (yes, with msg_len, wire_len and records), none possible (no), or more record bytes needed
+	/// (more, with need). The in-process TLS handler asks it whether the ClientHello is complete
+	/// before it makes OpenSSL's state (M5). Only the handshake header's 4 bytes are kept, across
+	/// records if they span two.
+	constexpr Reassembled scan(std::span<const std::byte> wire) noexcept
+	{
+		Reassembled r;
+		std::size_t pos = 0;
+		std::size_t got = 0;
+		std::array<std::uint8_t, 4> head{};
+		for (;;)
+		{
+			if (got >= 4)
+			{
+				if (head[0] != 0x01) return {Verdict::no, 0, 0, r.records};
+				const std::size_t need = 4 + ((std::size_t{head[1]} << 16) | (std::size_t{head[2]} << 8) | head[3]);
+				if (need > detect::kBCh) return {Verdict::no, 0, 0, r.records};
+				if (got >= need) return {Verdict::yes, static_cast<std::uint32_t>(need), static_cast<std::uint32_t>(pos), r.records};
+			}
+			if (wire.size() - pos < 5)
+			{
+				r.need = static_cast<std::uint32_t>(pos + 5);
+				return r;
+			}
+			if (u8(wire[pos]) != 0x16 || u8(wire[pos + 1]) != 0x03) return {Verdict::no, 0, 0, r.records};
+			const std::size_t len = (std::size_t{u8(wire[pos + 3])} << 8) | u8(wire[pos + 4]);
+			if (len == 0 || len > 16384) return {Verdict::no, 0, 0, r.records};  // RFC 8446 s5.1
+			if (wire.size() - pos - 5 < len)
+			{
+				r.need = static_cast<std::uint32_t>(pos + 5 + len);
+				return r;
+			}
+			if (got + len > detect::kBCh) return {Verdict::no, 0, 0, r.records};
+			for (std::size_t i = 0; i < len && got + i < head.size(); ++i) head[got + i] = u8(wire[pos + 5 + i]);
+			got += len;
+			pos += 5 + len;
+			++r.records;
+		}
+	}
+
 	/// Where a field lies in the message.
 	struct Field
 	{

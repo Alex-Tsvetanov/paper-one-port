@@ -687,8 +687,13 @@ namespace oneport::server::detail
 
 		/// One step of a TLS connection: the received bytes into OpenSSL, the handshake, the
 		/// decrypted bytes through the application handler, its output through OpenSSL. The
-		/// bytes to send are left in wire_.
+		/// bytes to send are left in wire_. OpenSSL's state is made only once the ClientHello is
+		/// complete in the handler's buffer, or cannot be completed there (M5).
 		apps::Next tls_step(Conn* c);
+
+		/// Makes the connection's OpenSSL state: SSL_new on the server's context and the worker's
+		/// BIO, in accept state. False if OpenSSL could not.
+		bool tls_new(Conn* c);
 
 		/// After the handshake: decrypt, run the application handler, encrypt.
 		apps::Next tls_app(Conn* c);

@@ -115,6 +115,7 @@ namespace oneport::server
 		route_rejected += o.route_rejected;
 		route_timeouts += o.route_timeouts;
 		relay_connect_errors += o.relay_connect_errors;
+		tls_states += o.tls_states;
 		conns_open += o.conns_open;
 		buffers_allocated += o.buffers_allocated;
 		buffers_outstanding += o.buffers_outstanding;
@@ -201,6 +202,7 @@ namespace oneport::server
 		line("route_rejected", c.route_rejected);
 		line("route_timeouts", c.route_timeouts);
 		line("relay_connect_errors", c.relay_connect_errors);
+		line("tls_states", c.tls_states);
 		line("conns_open", c.conns_open);
 		line("buffers_allocated", c.buffers_allocated);
 		line("buffers_outstanding", c.buffers_outstanding);

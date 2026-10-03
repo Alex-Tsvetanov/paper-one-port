@@ -142,6 +142,9 @@ namespace oneport::server
 		std::uint64_t route_rejected = 0;        // pass-through: no route for the ClientHello, or not a ClientHello
 		std::uint64_t route_timeouts = 0;        // pass-through: the ClientHello still incomplete at T_dec (design/status.md, M3)
 		std::uint64_t relay_connect_errors = 0;  // the backend refused or failed the connect
+		// TLS in the server: OpenSSL states made (SSL_new), each once its ClientHello was complete in
+		// the handler's buffer or could not complete there (M5).
+		std::uint64_t tls_states = 0;
 		// State at the end (after stop()).
 		std::uint64_t conns_open = 0;
 		std::uint64_t buffers_allocated = 0;

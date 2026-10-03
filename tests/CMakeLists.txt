@@ -30,7 +30,7 @@ set(ONEPORT_PURE_TESTS
     detect.ssh_h2c detect.proxy_v1 detect.proxy_v2 detect.budgets
     http.valid http.grammar http.bad_request http.incomplete http.responses
     apps.smtp_lines apps.smtp_partial_and_limits apps.mqtt_connect_ping_disconnect apps.mqtt_streams_payload
-    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments
+    apps.mqtt_refusals apps.ssh_line apps.http_room clienthello.recorded clienthello.fragments clienthello.scan
     gen.options gen.quantiles gen.h2_status)
 foreach(_test IN LISTS ONEPORT_PURE_TESTS)
     add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
@@ -53,7 +53,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         server.two_workers.reuseport_peek server.flag_matrix server.stop_with_pending)
     # The handlers of I26 over sockets: TLS (I24), h2c, MQTT, SSH, SMTP, and output backpressure.
     set(ONEPORT_HANDLER_TESTS
-        handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
+        handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.tls_deferred handlers.h2c_streams
         handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
     # Relay dispatch, pass-through and stub mode (proposal I17, I18).
     set(ONEPORT_RELAY_TESTS

@@ -196,6 +196,39 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// OpenSSL's state comes with the whole ClientHello (M5), in each mode: half the recorded
+		/// ClientHello and then a reset never gets one; the ClientHello in two writes gets one with
+		/// the second, and the server's flight follows; half and then the peer's end gets one at the
+		/// end (OpenSSL sees what it saw before) and is closed; a handshake record that is not a
+		/// ClientHello gets one at once and OpenSSL's alert.
+		Result tls_deferred()
+		{
+			const Bytes rec = opcase::recorded_client_hello();
+			const Bytes half = opcase::slice(rec, 0, 5 + (rec.size() - 5) / 2);
+			Bytes other = rec;
+			other[5] = std::byte{0x02};  // a ServerHello's type in the handshake header
+			for (const Arm& a : kArms)
+			{
+				ServerArgs args;
+				args.mode = a.mode;
+				args.detect = a.detect;
+				Running srv(args);
+				const std::uint16_t port = port_for(srv, a, detect::Proto::tls);
+				auto t = run_and_wait(srv, Script{}.write(half).gap(200ms).reset(), port);
+				CHECK(t.received.empty(), a.name << ": half a ClientHello got " << t.received.size() << " bytes");
+				t = run_and_wait(srv, Script{}.split(rec, {half.size()}, 50ms).gap(300ms).reset(), port);
+				CHECK(!t.received.empty() && std::to_integer<int>(t.received[0]) == 0x16, a.name << ": no ServerHello after the second half");
+				t = run_and_wait(srv, Script{}.write(half).gap(100ms).shutdown_write().await_close(), port);
+				CHECK(t.received.empty() && (t.eof || t.reset), a.name << ": half and the peer's end: " << t.received.size() << " bytes, or no close");
+				t = run_and_wait(srv, Script{}.write(other).await_close(), port);
+				CHECK(!t.received.empty() && std::to_integer<int>(t.received[0]) == 0x15 && (t.eof || t.reset), a.name << ": no alert for a record that is no ClientHello");
+				if (auto bad = srv.stop_and_check()) return a.name + ": " + *bad;
+				const server::Counters c = srv.server->totals();
+				CHECK(c.tls_states == 3, a.name << ": " << c.tls_states << " OpenSSL states for 4 connections, 3 expected");
+			}
+			return std::nullopt;
+		}
+
 		/// ALPN h2: the h2 handler behind TLS, the same exchange in each mode.
 		Result tls_h2()
 		{
@@ -607,6 +640,7 @@ namespace oneport::test
 			r["handlers.tls_exchange" + s] = on(tls_exchange);
 			r["handlers.tls_h2" + s] = on(tls_h2);
 			r["handlers.tls_refusals" + s] = on(tls_refusals);
+			r["handlers.tls_deferred" + s] = on(tls_deferred);
 			r["handlers.h2c_streams" + s] = on(h2c_streams);
 			r["handlers.mqtt_session" + s] = on(mqtt_session);
 			r["handlers.ssh_banner_timing" + s] = on(ssh_banner_timing);
