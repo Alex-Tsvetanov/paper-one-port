@@ -117,9 +117,21 @@ def evidence(rows: list[dict], cells: list[SS.Cell]) -> dict:
     return out
 
 
+def choice_of(ev: dict, backend: str, choice: str, development: bool, notes: dict) -> str:
+    """The evidence's choice; in development mode, where the sessions did not run, the proposed
+    default, and the notes say so. A frozen decision needs every choice's sessions."""
+    got = (ev.get(backend) or {}).get(choice)
+    if got is not None:
+        return got["choice"]
+    if not development:
+        raise runlib.InputRefused(f"rule E: no {choice} sessions on {backend} in the evidence")
+    notes[f"{backend}.{choice}"] = "development: these sessions did not run, so the proposed default stands in"
+    return CHOICES[choice][0]
+
+
 def decide(ev_l: dict, ev_w: dict | None, development: bool) -> tuple[dict, dict]:
-    notes = {}
-    default = {b: ev_l[b]["detect"]["choice"] for b in runlib.COST_BACKENDS_L}
+    notes: dict = {}
+    default = {b: choice_of(ev_l, b, "detect", development, notes) for b in runlib.COST_BACKENDS_L}
     if ev_w is not None:
         default["IOCP"] = ev_w["IOCP"]["detect"]["choice"]
     elif development:
@@ -127,7 +139,8 @@ def decide(ev_l: dict, ev_w: dict | None, development: bool) -> tuple[dict, dict
         notes["IOCP"] = "development: W's sessions did not run, so the proposed default (replay) stands in"
     else:
         raise runlib.InputRefused("rule E's IOCP detection mode comes from W's evidence (--evidence-w)")
-    r = {"default": default, "relay_copy": {b: ev_l[b]["relay"]["choice"] for b in runlib.COST_BACKENDS_L}, "iocp_receive": "zero-byte"}
+    r = {"default": default, "relay_copy": {b: choice_of(ev_l, b, "relay", development, notes) for b in runlib.COST_BACKENDS_L},
+         "iocp_receive": "zero-byte"}
     return runlib.check_rule_e(r), notes
 
 

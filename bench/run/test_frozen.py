@@ -525,6 +525,12 @@ class Rules(unittest.TestCase):
         with self.assertRaises(runlib.InputRefused):
             rule_e.decide(ev, None, development=False)
         self.assertEqual(AN.check_rule_e(rule), rule)
+        part = {b: {"relay": e["relay"]} for b, e in ev.items()}  # only the relay sessions ran
+        rule2, notes2 = rule_e.decide(part, None, development=True)
+        self.assertEqual(rule2["default"]["epoll"], "replay")
+        self.assertIn("epoll.detect", notes2)
+        with self.assertRaises(runlib.InputRefused):
+            rule_e.decide(part, {"IOCP": {"detect": {"choice": "replay"}}}, development=False)
 
     def test_m2_rate_and_section_10_rates(self):
         cells = m_run.m_cells(6, RULE_E, None, part="m2-rate")
