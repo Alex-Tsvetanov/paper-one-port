@@ -186,6 +186,11 @@ def hexb(s: str | None) -> bytes:
     return bytes.fromhex(s or "")
 
 
+def printable(b: bytes, limit: int = 80) -> str:
+    """The first line of a reply, its bytes outside printable ASCII shown as dots."""
+    return "".join(chr(c) if 32 <= c < 127 else "." for c in b.split(b"\r\n", 1)[0][:limit])
+
+
 def same_tls(t: dict, d: dict) -> str | None:
     if not t.get("tls") or not d.get("tls"):
         return "a TLS exchange has no TLS result"
@@ -451,6 +456,7 @@ def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, cl
     if g_ms is None and hc7:
         raise runlib.InputRefused("G_L is not in the pilot entry's output")
     prior = {(r["entry"], r["id"], r["replicate"]) for r in a.rows_prior if r.get("kind") == "hardcase"}
+    (a.out / "raw").mkdir(parents=True, exist_ok=True)
     table: dict = {}
     for entry in a.entries:
         backend, detect, dispatch = entry.split(".")
@@ -541,6 +547,7 @@ def part_competitors(a: argparse.Namespace, pilot: dict, emit) -> None:
     if gap is None:
         raise runlib.InputRefused("GAP_SPLIT is not in the pilot entry's output")
     raw = a.out / "raw"
+    raw.mkdir(parents=True, exist_ok=True)
     prior = {(r["system"], r["cases_kind"], r["timers"], r["id"], r["replicate"]) for r in a.rows_prior if r.get("kind") == "competitor-case"}
     ref_entry = Entry(a.build, "epoll", "replay", "inproc", "user-space", raw, f"{a.job}-reference")
     try:
@@ -585,7 +592,7 @@ def part_competitors(a: argparse.Namespace, pilot: dict, emit) -> None:
                                     else:
                                         got = hexb(t.get("received_hex"))
                                         row.update(observed=True, connected=t.get("connected"), received_bytes=len(got),
-                                                   first_line=got.split(b"\r\n", 1)[0][:80].decode("latin-1"),
+                                                   first_line=printable(got),
                                                    eof=t.get("eof"), reset=t.get("reset"), timed_out=t.get("timed_out"),
                                                    end_ms=(int(t["end_ns"]) - int(t["before_connect_ns"])) / 1e6 if t.get("end_ns") else None,
                                                    first_byte_ms=(int(t["first_byte_ns"]) - int(t["before_connect_ns"])) / 1e6 if t.get("first_byte_ns") else None,

@@ -640,6 +640,10 @@ class Judge(unittest.TestCase):
         res = HR.judge(v, resumed, [report(proto="TLS", at=6)], relay, dict(t), "replay", True, {"TLS": 26202}, K)
         self.assertTrue(res["b1"])
 
+    def test_printable_first_line(self):
+        self.assertEqual(HR.printable(b"HTTP/1.1 200 OK\r\nx"), "HTTP/1.1 200 OK")
+        self.assertEqual(HR.printable(bytes([0x16, 0x03, 0x03, 0x41])), "...A")
+
     def test_competitor_coverage(self):
         self.assertEqual(HR.covered("nginx", "plain"), "cases")
         self.assertIsNone(HR.covered("nginx", "SMTP fallback"))

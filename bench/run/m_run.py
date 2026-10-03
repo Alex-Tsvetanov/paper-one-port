@@ -54,7 +54,7 @@ INPROC_PORTS = {"A": 20000, "B": 20100}  # aa.py's blocks (design choices of M3)
 OTHER = {"replay": "peek", "peek": "replay"}
 
 
-def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str = "cells") -> list[SS.Cell]:
+def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str = "cells", m2_sessions: int = M2_RATE_SESSIONS) -> list[SS.Cell]:
     out = []
     for c in C.m_cells():
         if c.host != "L":
@@ -74,7 +74,7 @@ def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str =
                  "detect": d, "run": {"system": handoff.SERVER_INPROC}}
             b = {"family": fam, "proto": c.proto, "backend": c.backend, "dispatch": "relay", "system": handoff.SERVER, "detect": d,
                  "relay_copy": rc, "run": {"system": handoff.SERVER}}
-            out.append(SS.Cell(c.id, M2_RATE_SESSIONS if part == "m2-rate" else r, {"A": a, "B": b},
+            out.append(SS.Cell(c.id, m2_sessions if part == "m2-rate" else r, {"A": a, "B": b},
                                shared={"kind": "handoff", "proto": c.proto, "backend": c.backend, "detect": d, "relay_copy": rc,
                                        "backend_kind": "dedicated", "rate": rate, "overflow_invalidates": True,
                                        "m2_metric": part == "cells"}))
@@ -157,6 +157,9 @@ def main(argv=None) -> int:
                 raise runlib.InputRefused(f"the m2-rate part on the frozen binary needs --{flag.replace('_', '-')}")
         if not a.gate:
             raise runlib.InputRefused("the m2-rate part on the frozen binary needs --gate")
+        for flag in ("dev_r", "max_sessions", "only"):
+            if getattr(a, flag) is not None:
+                raise runlib.InputRefused(f"--{flag.replace('_', '-')} is for development runs only")
     else:
         runlib.check_mode_args(a)
     a.out.mkdir(parents=True, exist_ok=True)
@@ -171,7 +174,7 @@ def main(argv=None) -> int:
             m2_rates = {c.id: a.dev_m2_rate for c in C.m_cells() if c.hyp == "M2"}
         elif not a.development:
             raise runlib.InputRefused("a frozen M run reads M2's rates (--m2-rates)")
-    cells = runlib.only_cells(a, m_cells(a.dev_r or R_M, rule_e, m2_rates, a.part))
+    cells = runlib.only_cells(a, m_cells(a.dev_r or R_M, rule_e, m2_rates, a.part, a.dev_r or M2_RATE_SESSIONS))
     prov = runlib.job_provenance(a.build, a.tools, a.out, a.job)
     clearance = None
     if not a.development:
