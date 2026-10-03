@@ -93,7 +93,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
              $<TARGET_FILE:opcase_bin> $<TARGET_FILE:ophold>)
     set_tests_properties(gen.binaries PROPERTIES TIMEOUT 300 LABELS gen)
     # Once: the kernel behaviour the peek paths rest on, the TLS context, and what is not served.
-    foreach(_test server.kernel_rcvlowat_et server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.not_served)
+    foreach(_test server.kernel_rcvlowat_et server.kernel_nodelay_inherited server.kernel_rcvlowat_uring server.kernel_uring_recv_select server.not_served)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
         set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS server)
     endforeach()

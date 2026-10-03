@@ -32,6 +32,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -295,6 +296,20 @@ namespace oneport::server
 			}
 		}
 		for (const int fd : m.fds.front()) m.ports.push_back(bound_port(fd));
+		if (m.shared.relay)
+		{
+			// Relay dispatch: TCP_NODELAY on each relaying (one-port) listener, once at start; the
+			// sockets it accepts inherit it (pinned: server.kernel_nodelay_inherited), so a relayed
+			// client socket needs no setsockopt of its own (M5). Not set in in-process dispatch.
+			const int one = 1;
+			for (const auto& fds : m.fds)
+			{
+				for (std::size_t i = 0; i < fds.size(); ++i)
+				{
+					if (m.specs[i].detects && ::setsockopt(fds[i], IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) != 0) throw_errno("setsockopt (TCP_NODELAY)");
+				}
+			}
+		}
 		for (std::uint32_t w = 0; w < nworkers; ++w) m.workers.push_back(std::make_unique<Worker>(w, m.shared, m.specs, m.fds[w]));
 		for (std::uint32_t w = 0; w < nworkers; ++w)
 		{

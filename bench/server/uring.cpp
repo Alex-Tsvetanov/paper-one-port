@@ -459,12 +459,11 @@ namespace oneport::server::detail
 		}
 		if (c->stage == Stage::route && c->relay && !c->relay->hello.empty())
 		{
-			// Pass-through: the ClientHello's records outgrew the receive buffer and are read into
-			// its own storage.
+			// Pass-through: the incomplete ClientHello waits in its own storage, sized to what the
+			// reassembly needs next (relay.cpp), and the receive goes there.
 			if ((c->posted & bit(Op::recv)) != 0) return;
 			Relay& r = *c->relay;
-			const std::size_t want = std::min<std::size_t>(kHelloWireMax, std::max<std::size_t>(r.hello.size(), r.hello_len + kRecvBuf));
-			r.hello.resize(want);
+			hello_room(c, r.hello_need);
 			if (r.hello_len >= r.hello.size()) return;  // at kHelloWireMax: try_route has decided by then
 			ur_->recv(c->fd, r.hello.data() + r.hello_len, static_cast<std::uint32_t>(r.hello.size() - r.hello_len), ud(c, Op::recv));
 			c->recv_into = Into::hello;

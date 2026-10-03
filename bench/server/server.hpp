@@ -123,7 +123,8 @@ namespace oneport::server
 		std::uint64_t bytes_sent = 0;
 		/// Payload bytes the server's own code moved from one user-space place to another
 		/// (design/status.md, M2b, the rule of I29): a receive buffer's compaction, output copied
-		/// into or appended behind a connection's queue, a ClientHello moved to a larger buffer.
+		/// into or appended behind a connection's queue, a pass-through ClientHello moved out of the
+		/// receive buffer into storage of its own, or that storage's bytes moved when it grows.
 		std::uint64_t bytes_copied = 0;
 		std::uint64_t bytes_spliced = 0;  // relay with splice: moved inside the kernel, counted by neither of the above
 		// Wakeups of connections during detection (the PROXY header included).
@@ -227,10 +228,14 @@ namespace oneport::server
 		std::uint16_t backend_port = 0;
 		std::uint64_t route_pass = 0;
 		/// Pass-through: the ClientHello's message length (its 4-byte header included) and the
-		/// records that carried it, and the most payload bytes held while it was incomplete.
+		/// records that carried it, and the most payload bytes held while it was incomplete; in
+		/// replay, the largest size of its storage while it was incomplete, and whether a receive
+		/// buffer was held then (M5: none is).
 		std::uint32_t hello_len = 0;
 		std::uint32_t hello_records = 0;
 		std::uint32_t held_max = 0;
+		std::uint32_t hello_room_max = 0;
+		bool buffer_waiting = false;
 	};
 
 	/// Test instrumentation, null in the binary. Each hook runs on the worker thread.

@@ -7,10 +7,13 @@
 // backend port of its class (the backend's listeners follow --relay-port in the order of I20),
 // writes the bytes replay read, then copies both ways. TLS is never terminated: the front reads
 // the ClientHello's records itself, reassembled up to B_CH message bytes with
-// bench/server/clienthello.hpp, and routes by its SNI and ALPN (pass-through). In replay the
-// records are held as received, in the receive buffer or, once they outgrow it, in storage of
-// their own (a copy in user space, counted); in peek they stay in the socket, and SO_RCVLOWAT
-// waits for the bytes the reassembly needs next; T_dec bounds the wait. The route table (a design choice of M2b, the one
+// bench/server/clienthello.hpp, and routes by its SNI and ALPN (pass-through). In replay a
+// ClientHello whole in the first read is routed from the receive buffer; one still incomplete
+// after a read moves into storage of its own, sized to the record bytes the reassembly needs next
+// (a copy in user space, counted), the receive buffer goes back to the pool, and the next reads go
+// into the storage (M5: a pending connection then holds the records it has, not a receive buffer);
+// in peek they stay in the socket, and SO_RCVLOWAT waits for the bytes the reassembly needs next;
+// T_dec bounds the wait. The route table (a design choice of M2b, the one
 // name and the two protocols the frozen settings serve): SNI oneport.test, with no ALPN or an
 // ALPN list that offers http/1.1 or h2, goes to the backend's TLS port; any other ClientHello,
 // or a record stream that is not one, is closed (counted route_rejected).
@@ -23,7 +26,16 @@
 //   - The PROXY header is consumed by the front (I9) and not passed on: the backend runs with
 //     --proxy off, and the source the server records is the front's.
 //   - TCP_NODELAY on both relayed sockets, as nginx's stream module sets by default
-//     (tcp_nodelay on, for client and proxied connections), so a write is passed on at once.
+//     (tcp_nodelay on, for client and proxied connections), so a write is passed on at once. The
+//     client's socket inherits it from the relaying listener, set once at start (M5); the backend's
+//     is set before its connect.
+//   - System calls the copy does not need are not made (M5): a connect whose end epoll reports with
+//     EPOLLOUT and no error is not asked for SO_ERROR; a side is read when the copy starts only if
+//     it may hold bytes (Relay::up_ready, down_ready); a read that returns less than its room
+//     after an event that reported the source's half-close (EPOLLRDHUP) has reached the end, which
+//     no second read is made to see (TCP delivers the FIN after every byte before it); and the
+//     direction that ends last is closed by close(), whose FIN passes its end on, without a
+//     shutdown() first.
 //   - T_dec bounds pass-through's wait for the whole ClientHello: the route is the decision
 //     there, so T_dec stays armed from accept (or the PROXY header's end) until the route is
 //     chosen; a ClientHello still incomplete at T_dec is closed and counted route_timeouts
@@ -78,6 +90,9 @@ namespace oneport::server::detail
 		r.proto = p;
 		r.splice = shared_.splice;
 		c->proto = p;
+		// The client's side may hold bytes the relay has not read: a peek left them queued, a read
+		// filled the buffer, the peer's end was seen, or nothing was read yet (T_fb).
+		r.up_ready = entry != Entry::replay || c->last_read_full || c->eof_seen || c->observe_pass == pass_;
 		if (p != Proto::tls)
 		{
 			relay_connect(c, Route::by_class);
@@ -88,7 +103,8 @@ namespace oneport::server::detail
 		r.route = Route::by_sni;
 		if (entry == Entry::peek)
 		{
-			route_readable(c, c->observe_pass == pass_);  // the bytes are in the socket
+			r.up_ready = true;  // the bytes are in the socket
+			route_readable(c, c->observe_pass == pass_);
 			return;
 		}
 		// Replay: the bytes are in the receive buffer.
@@ -127,8 +143,10 @@ namespace oneport::server::detail
 		ReadResult rr;
 		for (;;)
 		{
-			const std::size_t want = std::min<std::size_t>(kHelloWireMax, std::max<std::size_t>(r.hello.size(), r.hello_len + kRecvBuf));
-			r.hello.resize(want);
+			// The storage holds what the reassembly needs next; a read that fills it may leave more
+			// queued, which edge-triggered readiness will not report again, so the reassembly is
+			// asked for its next need before the next read.
+			hello_room(c, r.hello_need);
 			const std::size_t room = r.hello.size() - r.hello_len;
 			if (room == 0) break;
 			const ssize_t n = ::recv(c->fd, r.hello.data() + r.hello_len, room, 0);
@@ -141,6 +159,11 @@ namespace oneport::server::detail
 				c->bytes_received += static_cast<std::uint64_t>(n);
 				c->last_read_pass = pass_;
 				if (static_cast<std::size_t>(n) < room && !rdhup) break;
+				if (static_cast<std::size_t>(n) == room && !hello_needs_more(c))
+				{
+					r.up_ready = true;  // more may be queued behind the ClientHello
+					break;
+				}
 				continue;
 			}
 			if (n == 0)
@@ -205,16 +228,40 @@ namespace oneport::server::detail
 			set_lowat(c, a.need);  // the records the reassembly needs next
 			return true;
 		}
-		// Replay: records that the receive buffer cannot hold move to storage of their own.
-		if (r.hello.empty() && c->buf != nullptr && a.need > kRecvBuf - c->beg)
+		// Replay: the ClientHello waits in storage of its own, sized to the record bytes the
+		// reassembly needs next, and the receive buffer goes back to the pool.
+		r.hello_need = std::min<std::uint32_t>(a.need, kHelloWireMax);
+		if (r.hello.empty() && c->buf != nullptr && c->len > c->beg)
 		{
 			const std::uint32_t n = c->len - c->beg;
+			r.hello.reserve(r.hello_need);
 			r.hello.assign(c->buf->data.data() + c->beg, c->buf->data.data() + c->len);
 			r.hello_len = n;
-			c_.bytes_copied += n;  // a ClientHello moved to a larger buffer: a copy in user space (I29)
+			c_.bytes_copied += n;  // a ClientHello moved out of the receive buffer: a copy in user space (I29)
 			c->beg = c->len;
 			drop_empty_buffer(c);
 		}
+		if (c->buf != nullptr) r.buffer_waiting = true;
+		hello_room(c, r.hello_need);
+		return true;
+	}
+
+	void Worker::hello_room(Conn* c, std::uint32_t need)
+	{
+		Relay& r = *c->relay;
+		const std::size_t want = std::min<std::size_t>(kHelloWireMax, std::max<std::size_t>(need, r.hello_len));
+		if (want > r.hello.capacity() && r.hello_len > 0) c_.bytes_copied += r.hello_len;  // the storage grows: its bytes move (I29)
+		r.hello.resize(want);
+		r.hello_room_max = std::max(r.hello_room_max, static_cast<std::uint32_t>(r.hello.capacity()));
+	}
+
+	bool Worker::hello_needs_more(Conn* c)
+	{
+		Relay& r = *c->relay;
+		hello_msg_.resize(detect::kBCh);
+		const clienthello::Reassembled a = clienthello::reassemble(std::span<const std::byte>(r.hello.data(), r.hello_len), hello_msg_);
+		if (a.verdict != clienthello::Verdict::more || r.hello_len >= kHelloWireMax) return false;
+		r.hello_need = std::min<std::uint32_t>(a.need, kHelloWireMax);
 		return true;
 	}
 
@@ -242,6 +289,9 @@ namespace oneport::server::detail
 			return;
 		}
 		r.fd = fd;
+		const int one = 1;
+		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));  // the client's socket inherits it from the listener
+		++c_.setsockopt_calls;
 		++c_.connect_calls;
 		if (uring())
 		{
@@ -262,6 +312,7 @@ namespace oneport::server::detail
 		++c_.epoll_ctl_calls;
 		if (::connect(fd, reinterpret_cast<const sockaddr*>(&to), sizeof(to)) == 0)
 		{
+			r.down_ready = true;  // not seen through epoll: read it
 			relay_connected(c, 0);
 			return;
 		}
@@ -283,10 +334,6 @@ namespace oneport::server::detail
 		++c_.relayed;
 		if (r.route == Route::by_sni) ++c_.routed_by_sni;
 		relay_report(c, r.route);
-		const int one = 1;
-		::setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-		::setsockopt(r.fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-		c_.setsockopt_calls += 2;
 		if (r.splice)
 		{
 			for (Dir* d : {&r.up, &r.down})
@@ -309,9 +356,10 @@ namespace oneport::server::detail
 			if (alive()) relay_next_uring(c, false);
 			return;
 		}
-		// Epoll is edge-triggered: whatever is queued on either side is read now.
-		if (!relay_pump(c, true)) return;
-		if (alive()) relay_pump(c, false);
+		// Epoll is edge-triggered: a side that may hold bytes is read now; the bytes replay holds
+		// are sent in any case.
+		if (r.up_ready ? !relay_pump(c, true) : !send_held(c, true)) return;
+		if (alive() && r.down_ready) relay_pump(c, false);
 	}
 
 	void Worker::relay_report(const Conn* c, Route route)
@@ -329,6 +377,8 @@ namespace oneport::server::detail
 		rep.hello_len = r.hello_msg;
 		rep.hello_records = r.hello_records;
 		rep.held_max = r.held_max;
+		rep.hello_room_max = r.hello_room_max;
+		rep.buffer_waiting = r.buffer_waiting;
 		shared_.hooks.relayed(shared_.hooks.ctx, rep);
 	}
 
@@ -445,11 +495,18 @@ namespace oneport::server::detail
 	{
 		Relay& r = *c->relay;
 		Dir& d = up ? r.up : r.down;
+		const Dir& other = up ? r.down : r.up;
 		if (!d.shut)
 		{
+			d.shut = true;
+			if (other.shut)
+			{
+				// Both directions have ended: close() sends this side's FIN, so no shutdown() first.
+				close_conn(c);
+				return false;
+			}
 			::shutdown(up ? r.fd : c->fd, SHUT_WR);
 			++c_.shutdown_calls;
-			d.shut = true;
 		}
 		if (r.up.shut && r.down.shut)
 		{
@@ -473,14 +530,24 @@ namespace oneport::server::detail
 		if (backend && !r.connected)
 		{
 			if ((events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) == 0) return;
+			// EPOLLOUT without an error is a connect that ended well; only a failed one is asked
+			// for its error (M5).
 			int error = 0;
-			socklen_t n = sizeof(error);
-			if (::getsockopt(r.fd, SOL_SOCKET, SO_ERROR, &error, &n) != 0) error = errno;
-			if (error == 0 && (events & (EPOLLERR | EPOLLHUP)) != 0) error = ECONNREFUSED;
+			if ((events & (EPOLLERR | EPOLLHUP)) != 0)
+			{
+				socklen_t n = sizeof(error);
+				if (::getsockopt(r.fd, SOL_SOCKET, SO_ERROR, &error, &n) != 0) error = errno;
+				if (error == 0) error = ECONNREFUSED;
+			}
+			r.down_ready = (events & (EPOLLIN | EPOLLRDHUP)) != 0;
 			relay_connected(c, error);
 			return;
 		}
-		if (!r.connected) return;
+		if (!r.connected)
+		{
+			r.up_ready = true;  // the client's readiness while the connect is pending: read it at the start
+			return;
+		}
 		const std::uint64_t id = c->id;
 		const bool in = (events & (EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) != 0;
 		const bool out = (events & EPOLLOUT) != 0;
@@ -490,15 +557,16 @@ namespace oneport::server::detail
 		{
 			if (!relay_pump(c, dst_up)) return;
 		}
-		if (in && c->id == id && c->fd >= 0) relay_pump(c, !backend);
+		// A reported half-close with no error (a reset raises EPOLLERR) lets a short read end the source.
+		if (in && c->id == id && c->fd >= 0) relay_pump(c, !backend, (events & EPOLLRDHUP) != 0 && (events & EPOLLERR) == 0);
 	}
 
-	bool Worker::relay_pump(Conn* c, bool up)
+	bool Worker::relay_pump(Conn* c, bool up, bool src_rdhup)
 	{
-		return c->relay->splice ? pump_splice(c, up) : pump_user(c, up);
+		return c->relay->splice ? pump_splice(c, up) : pump_user(c, up, src_rdhup);
 	}
 
-	bool Worker::pump_user(Conn* c, bool up)
+	bool Worker::pump_user(Conn* c, bool up, bool src_rdhup)
 	{
 		Relay& r = *c->relay;
 		Dir& d = up ? r.up : r.down;
@@ -517,13 +585,16 @@ namespace oneport::server::detail
 				beg = 0;
 				len = 0;
 			}
-			const ssize_t n = ::recv(src, buf->data.data() + len, kRelayBuf - len, 0);
+			const std::uint32_t room = kRelayBuf - len;
+			const ssize_t n = ::recv(src, buf->data.data() + len, room, 0);
 			++c_.recv_calls;
 			if (n > 0)
 			{
 				len += static_cast<std::uint32_t>(n);
 				c_.bytes_received += static_cast<std::uint64_t>(n);
 				if (up) c->bytes_received += static_cast<std::uint64_t>(n);
+				// After a reported half-close, a short read has taken every byte before the FIN.
+				if (src_rdhup && static_cast<std::uint32_t>(n) < room) d.eof = true;
 				continue;
 			}
 			const int e = errno;

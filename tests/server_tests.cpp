@@ -231,6 +231,38 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// The kernel behaviour the relay's listener rests on (M5), pinned on L's kernel: a socket
+		/// accepted from a listener with TCP_NODELAY has it set, and one from a listener without it
+		/// has not. Pinned through accept4; io_uring's accept hands out the same child socket the
+		/// kernel made at the handshake.
+		Result kernel_nodelay_inherited()
+		{
+			for (const bool set : {true, false})
+			{
+				const int l = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				sockaddr_in addr{};
+				addr.sin_family = AF_INET;
+				addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+				CHECK(::bind(l, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0 && ::listen(l, 1) == 0, "listen");
+				const int one = 1;
+				if (set) CHECK(::setsockopt(l, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0, "TCP_NODELAY on the listener");
+				socklen_t n = sizeof(addr);
+				::getsockname(l, reinterpret_cast<sockaddr*>(&addr), &n);
+				const int c = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+				CHECK(::connect(c, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "connect");
+				const int s = ::accept4(l, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+				CHECK(s >= 0, "accept");
+				int v = -1;
+				socklen_t vn = sizeof(v);
+				CHECK(::getsockopt(s, IPPROTO_TCP, TCP_NODELAY, &v, &vn) == 0, "getsockopt");
+				CHECK((v != 0) == set, "the accepted socket's TCP_NODELAY is " << v << " from a listener " << (set ? "with" : "without") << " it");
+				::close(s);
+				::close(c);
+				::close(l);
+			}
+			return std::nullopt;
+		}
+
 		/// A connected pair over loopback: the client `c` (blocking, TCP_NODELAY) and the server's
 		/// accepted socket `s` (non-blocking). Closes all three on scope exit.
 		struct Pair
@@ -716,6 +748,7 @@ namespace oneport::test
 			r["server.binary_smoke" + s] = on(binary_smoke);
 		}
 		r["server.kernel_rcvlowat_et"] = kernel_rcvlowat_et;
+		r["server.kernel_nodelay_inherited"] = kernel_nodelay_inherited;
 		r["server.kernel_rcvlowat_uring"] = kernel_rcvlowat_uring;
 		r["server.kernel_uring_recv_select"] = kernel_uring_recv_select;
 		r["server.not_served"] = not_served;

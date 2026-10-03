@@ -333,7 +333,9 @@ namespace oneport::test
 				CHECK(c.splice_calls == 0 && c.bytes_spliced == 0, "the user-space relay spliced");
 				CHECK(c.bytes_received > 2097152 + want && c.bytes_sent > 2097152 + want, "the boundary counters miss the relayed bytes");
 			}
-			CHECK(c.shutdown_calls >= 2 * (relayed - 1), c.shutdown_calls << " half-closes passed on");
+			// One half-close by shutdown() per connection that ended in order; the direction that ends
+			// last is closed by close(), whose FIN passes its end on (M5).
+			CHECK(c.shutdown_calls >= relayed - 1, c.shutdown_calls << " half-closes passed on");
 			return std::nullopt;
 		}
 
@@ -382,6 +384,11 @@ namespace oneport::test
 				CHECK(relays[0].hello_len == msg && relays[0].hello_records == records,
 				      what << ": reassembled " << relays[0].hello_len << " bytes in " << relays[0].hello_records << " records");
 				CHECK(relays[0].held_max <= replay_room * (msg + 5 * records), what << ": held " << relays[0].held_max << " bytes (B2 d)");
+				// M5: an incomplete ClientHello waits in storage sized to the records it needs, and
+				// no receive buffer is held meanwhile; peek holds neither.
+				CHECK(!relays[0].buffer_waiting, what << ": a receive buffer was held while the ClientHello was incomplete");
+				CHECK(relays[0].hello_room_max <= replay_room * (msg + 5 * records),
+				      what << ": its storage reached " << relays[0].hello_room_max << " bytes while it was incomplete");
 				CHECK(t.received == body && t.eof, what << ": the stub's 13 bytes and its close did not come back (" << t.received.size() << " bytes)");
 				return std::nullopt;
 			};
@@ -446,6 +453,11 @@ namespace oneport::test
 			      "the partial ClientHello was not classified TLS at byte 6");
 			if (auto bad = one_route(relays, server::Route::timed_out, 0, "half a ClientHello")) return bad;
 			CHECK(relays[0].held_max <= (detect == Detect::replay ? half.size() : 0), "held " << relays[0].held_max << " bytes (B2 d)");
+			// M5: the half ClientHello waits in storage sized to its record (5 + ell bytes), with no
+			// receive buffer held; in peek it stays in the socket.
+			CHECK(!relays[0].buffer_waiting, "a receive buffer was held while the ClientHello was incomplete");
+			CHECK(relays[0].hello_room_max == (detect == Detect::replay ? rec.size() : 0),
+			      "the ClientHello's storage reached " << relays[0].hello_room_max << " bytes, its record is " << rec.size());
 			CHECK(t.received.empty() && (t.eof || t.reset) && t.end, "a reply, or no close");
 			CHECK(*t.end - t.before_connect >= r.front.args.t_dec, "closed " << std::chrono::duration_cast<std::chrono::milliseconds>(*t.end - t.before_connect).count()
 			                                                              << " ms after connect, before T_dec");
