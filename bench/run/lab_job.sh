@@ -7,9 +7,12 @@
 # done file, not the process table. The lock's path: ONEPORT_LABLOCK, else L's Papers checkout,
 # ~/lab/Papers/lab/bin/lablock (read-only use; its content equals the Papers repo's lab/bin/lablock).
 #
-# Inside the lock, notrack.sh (beside this script) turns connection tracking off for loopback for
-# the job's length and records it in DIR/NAME.notrack.json (Alex's approval of 2026-10-03;
-# design/status.md); it refuses to run the job if a NOTRACK rule is already present.
+# Inside the lock, clockfloor.sh (beside this script) raises every CPU's scaling_min_freq to its
+# scaling_max_freq for the job's length and sets each back at its end, recorded in
+# DIR/NAME.clock.json (the coordinator's decision of 2026-10-03; design/status.md, M4b-1); inside
+# it, notrack.sh turns connection tracking off for loopback for the job's length and records it in
+# DIR/NAME.notrack.json (Alex's approval of 2026-10-03; design/status.md); it refuses to run the
+# job if a NOTRACK rule is already present.
 #   setsid nohup bash bench/run/lab_job.sh ~/lab/p3/m3-aa aa-1 python3 bench/run/aa.py ... &
 set -u
 dir=$1
@@ -30,19 +33,24 @@ if [ "${ONEPORT_NOTRACK:-on}" != off ] && [ ! -d "/lib/modules/$(uname -r)" ]; t
   exit 93
 fi
 # A job stopped by a signal to its process group (kill -TERM -- -PID, PID from the pid file) still
-# gets its done file. Bash runs the trap once the lock's process has ended; notrack.sh, which holds
-# the lock's descriptor until its teardown ends, may still be removing its rules then, so the done
-# file waits (at most 60 s) for the record to name the removal. Tested on L, 2026-10-03 (M4a).
+# gets its done file. Bash runs the trap once the lock's process has ended; notrack.sh and
+# clockfloor.sh, which hold the lock's descriptor until their teardowns end, may still be removing
+# their rules or setting the floors back then, so the done file waits (at most 60 s in all) for each
+# record to name its teardown. Tested on L, 2026-10-03 (M4a; the floor's in M4b-1).
 sig=""
 trap 'sig=TERM' TERM
 trap 'sig=INT' INT
 trap 'sig=HUP' HUP
-"$lablock" bash "$here/notrack.sh" "$dir/$name.notrack.json" "$@" > "$dir/$name.log" 2>&1
+"$lablock" bash "$here/clockfloor.sh" "$dir/$name.clock.json" \
+  bash "$here/notrack.sh" "$dir/$name.notrack.json" "$@" > "$dir/$name.log" 2>&1
 rc=$?
-if [ -n "$sig" ] && grep -q '"added_at": "' "$dir/$name.notrack.json" 2> /dev/null; then
+if [ -n "$sig" ]; then
   for _ in $(seq 600); do
-    grep -q '"removed_at": "' "$dir/$name.notrack.json" && break
-    sleep 0.1
+    if grep -q '"added_at": "' "$dir/$name.notrack.json" 2> /dev/null \
+       && ! grep -q '"removed_at": "' "$dir/$name.notrack.json"; then sleep 0.1; continue; fi
+    if grep -q '"set_at": "' "$dir/$name.clock.json" 2> /dev/null \
+       && ! grep -q '"restored_at": "' "$dir/$name.clock.json"; then sleep 0.1; continue; fi
+    break
   done
 fi
 printf '{"exit": %d, "end": "%s", "signal": %s}\n' "$rc" "$(date -Is)" "$([ -n "$sig" ] && echo "\"$sig\"" || echo null)" > "$dir/$name.done"

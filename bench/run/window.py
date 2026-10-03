@@ -273,6 +273,46 @@ def time_wait_count() -> int:
     return len([ln for ln in p.stdout.splitlines() if ln.strip()])
 
 
+CPU_ROOT = Path("/sys/devices/system/cpu")
+
+
+def read_floors(root: Path = CPU_ROOT) -> dict[str, dict[str, int | None]]:
+    """Every CPU's scaling_min_freq and scaling_max_freq now, in kHz (None where unreadable)."""
+    def kv(p: Path) -> int | None:
+        try:
+            return int(p.read_text().strip())
+        except (OSError, ValueError):
+            return None
+    out = {}
+    for d in sorted(root.glob("cpu[0-9]*/cpufreq"), key=lambda p: int(p.parent.name[3:])):
+        out[d.parent.name[3:]] = {"min_khz": kv(d / "scaling_min_freq"), "max_khz": kv(d / "scaling_max_freq")}
+    return out
+
+
+def clock_floor_fingerprint(now: dict[str, dict[str, int | None]], record: dict | None) -> dict:
+    """The session's record of the clock floor (bench/run/clockfloor.sh, the coordinator's decision
+    of 2026-10-03): each CPU's floor and ceiling now, whether every floor is at its ceiling, and the
+    floor each CPU had before the job, from the job's record (empty when the job has none)."""
+    rec = record or {}
+    before = {c: v.get("scaling_min_freq") for c, v in ((rec.get("before") or {}).get("cpus") or {}).items()}
+    held = bool(now) and all(v.get("min_khz") is not None and v.get("min_khz") == v.get("max_khz") for v in now.values())
+    return {"set_by_job": bool(rec.get("clock_floor")), "set_at": rec.get("set_at"), "held": held,
+            "before_min_khz": before, "now": now}
+
+
+def clock_floor_state() -> dict:
+    path = os.environ.get("ONEPORT_CLOCK_RECORD")
+    record = None
+    if path:
+        try:
+            record = json.loads(Path(path).read_text())
+        except (OSError, json.JSONDecodeError):
+            record = None
+    fp = clock_floor_fingerprint(read_floors(), record)
+    fp["record"] = path
+    return fp
+
+
 def pin_fingerprint() -> dict:
     p = subprocess.run(["bash", str(LAB_BIN / "pin.sh")], capture_output=True, text=True)
     try:
@@ -281,6 +321,7 @@ def pin_fingerprint() -> dict:
         raise WindowError(f"pin.sh printed no fingerprint: {p.stdout!r} {p.stderr!r}")
     fp["pin_exit"] = p.returncode
     fp["notrack"] = notrack_state()
+    fp["clock_floor"] = clock_floor_state()
     return fp
 
 

@@ -2,14 +2,19 @@
 """Tests of the window runner's pure parts (bench/run): WL7's parsers on samples recorded on L on
 2026-10-02 (bench/run/samples), the footprint and section 7's B3 rules on synthetic readings with
 known growth, the server's counter lines, nstat, the source-address blocks, the validity rules of
-a cost window, and the A/A spread. Prints counts only. Run: python3 bench/run/test_runner.py"""
+a cost window, the A/A spread, and the clock floor (clockfloor.sh on a copy of the cpufreq tree,
+on Linux). Prints counts only. Run: python3 bench/run/test_runner.py"""
 from __future__ import annotations
 
 import copy
 import json
 import math
+import os
+import signal
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -371,6 +376,119 @@ class Spread(unittest.TestCase):
     def test_margin_edges(self):
         sp = aa.spread([0.98, 1.02, 1.0])
         self.assertEqual(sp["outside_margin"], 2)  # a ratio at a bound counts against (section 4.3)
+
+
+CLOCKFLOOR = HERE / "clockfloor.sh"
+LOW, HIGH = 1_102_866, 3_201_000  # L's scaling_min_freq and scaling_max_freq on kernel 7.2.6
+
+
+def cpufreq_tree(root: Path, cpus: int = 2) -> None:
+    """A copy of the cpufreq files clockfloor.sh reads and writes, as L shows them."""
+    (root / "cpufreq").mkdir(parents=True)
+    (root / "cpufreq" / "boost").write_text("0\n")
+    for c in range(cpus):
+        d = root / f"cpu{c}" / "cpufreq"
+        d.mkdir(parents=True)
+        for name, v in (("scaling_min_freq", LOW), ("scaling_max_freq", HIGH), ("scaling_governor", "performance"),
+                        ("energy_performance_preference", "performance"), ("scaling_driver", "amd-pstate-epp")):
+            (d / name).write_text(f"{v}\n")
+
+
+def floor_of(root: Path, cpu: int) -> int:
+    return int((root / f"cpu{cpu}" / "cpufreq" / "scaling_min_freq").read_text())
+
+
+class ClockFloor(unittest.TestCase):
+    """clockfloor.sh on a copy of the cpufreq tree (CLOCKFLOOR_CPU_ROOT), writing directly, and the
+    session fingerprint's clock_floor (window.clock_floor_fingerprint)."""
+
+    def test_fingerprint(self):
+        record = {"clock_floor": True, "set_at": "2026-10-03T14:00:00+03:00",
+                  "before": {"cpus": {"0": {"scaling_min_freq": LOW}, "1": {"scaling_min_freq": LOW}}}}
+        now = {"0": {"min_khz": HIGH, "max_khz": HIGH}, "1": {"min_khz": HIGH, "max_khz": HIGH}}
+        fpr = window.clock_floor_fingerprint(now, record)
+        self.assertTrue(fpr["set_by_job"])
+        self.assertTrue(fpr["held"])
+        self.assertEqual(fpr["before_min_khz"], {"0": LOW, "1": LOW})
+        now["1"]["min_khz"] = LOW
+        self.assertFalse(window.clock_floor_fingerprint(now, record)["held"])
+        bare = window.clock_floor_fingerprint({}, None)
+        self.assertEqual((bare["set_by_job"], bare["held"], bare["before_min_khz"]), (False, False, {}))
+
+    def test_read_floors(self):
+        with tempfile.TemporaryDirectory() as d:
+            cpufreq_tree(Path(d), cpus=3)
+            got = window.read_floors(Path(d))
+        self.assertEqual(list(got), ["0", "1", "2"])
+        self.assertEqual(got["2"], {"min_khz": LOW, "max_khz": HIGH})
+
+    def run_floor(self, root: Path, record: Path, cmd: list[str], **env) -> subprocess.CompletedProcess:
+        e = dict(os.environ, CLOCKFLOOR_CPU_ROOT=str(root), CLOCKFLOOR_SUDO="", CLOCKFLOOR_MSR="off", **env)
+        return subprocess.run(["bash", str(CLOCKFLOOR), str(record)] + cmd, capture_output=True, text=True, env=e, timeout=60)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash and the cpufreq layout of L")
+    def test_floor_held_and_restored(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec, seen = Path(d) / "cpu", Path(d) / "job.clock.json", Path(d) / "seen"
+            cpufreq_tree(root)
+            p = self.run_floor(root, rec, ["bash", "-c", f'cat {root}/cpu*/cpufreq/scaling_min_freq > {seen}; '
+                                                          f'echo "$ONEPORT_CLOCK_RECORD" >> {seen}; exit 7'])
+            self.assertEqual(p.returncode, 7, p.stderr)
+            self.assertEqual(seen.read_text().split(), [str(HIGH), str(HIGH), str(rec)])
+            self.assertEqual((floor_of(root, 0), floor_of(root, 1)), (LOW, LOW))
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["clock_floor"], r["floor_held"], r["restored"], r["job_exit"]), (True, True, True, 7))
+            self.assertEqual(r["before"]["cpus"]["1"]["scaling_min_freq"], LOW)
+            self.assertEqual(r["set"]["cpus"]["1"]["scaling_min_freq"], HIGH)
+            self.assertEqual(r["after"]["cpus"]["1"]["scaling_min_freq"], LOW)
+            self.assertIsNone(r["before"]["cpus"]["0"]["cppc_request"])
+            self.assertIsNotNone(r["set_at"])
+            self.assertIsNotNone(r["restored_at"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash, signals and the cpufreq layout of L")
+    def test_signal_restores(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec = Path(d) / "cpu", Path(d) / "job.clock.json"
+            cpufreq_tree(root)
+            e = dict(os.environ, CLOCKFLOOR_CPU_ROOT=str(root), CLOCKFLOOR_SUDO="", CLOCKFLOOR_MSR="off")
+            p = subprocess.Popen(["bash", str(CLOCKFLOOR), str(rec), "sleep", "30"], env=e, start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not (rec.exists() and '"set_at": "' in rec.read_text()):
+                time.sleep(0.05)
+            self.assertEqual(floor_of(root, 0), HIGH)
+            os.killpg(p.pid, signal.SIGTERM)  # as a job is stopped: TERM to its process group
+            self.assertEqual(p.wait(timeout=20), 143)
+            self.assertEqual((floor_of(root, 0), floor_of(root, 1)), (LOW, LOW))
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["restored"], r["job_exit"]), (True, 143))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash and file modes")
+    def test_refusal_when_a_floor_cannot_be_set(self):
+        if os.geteuid() == 0:
+            self.skipTest("root writes a read-only file")
+        with tempfile.TemporaryDirectory() as d:
+            root, rec, ran = Path(d) / "cpu", Path(d) / "job.clock.json", Path(d) / "ran"
+            cpufreq_tree(root)
+            (root / "cpu1" / "cpufreq" / "scaling_min_freq").chmod(0o444)
+            p = self.run_floor(root, rec, ["touch", str(ran)])
+            self.assertEqual(p.returncode, 95, p.stderr)
+            self.assertFalse(ran.exists())
+            self.assertEqual(floor_of(root, 0), LOW)  # the one it did set, set back
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["floor_held"], r["restored"]), (False, True))
+            self.assertIn("does not run", r["reason"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "bash")
+    def test_off(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, rec = Path(d) / "cpu", Path(d) / "job.clock.json"
+            cpufreq_tree(root)
+            p = self.run_floor(root, rec, ["bash", "-c", "exit 3"], ONEPORT_CLOCK_FLOOR="off")
+            self.assertEqual(p.returncode, 3)
+            self.assertEqual(floor_of(root, 0), LOW)
+            r = json.loads(rec.read_text())
+            self.assertEqual((r["clock_floor"], r["reason"], r["job_exit"]), (False, "ONEPORT_CLOCK_FLOOR=off", 3))
 
 
 if __name__ == "__main__":
