@@ -12,8 +12,8 @@ has run.
 | M1 | epoll server with the detection table, the HTTP/1.1 handler and the 25-case generator as a deterministic test suite under every sanitizer | done, 2026-10-02 (below) |
 | M2a | h2c, TLS, PROXY, SSH, MQTT and SMTP handlers on epoll in-process; the pinned OpenSSL and nghttp2; the recorded ClientHello; every hard case full on epoll in-process | done, 2026-10-02 (below) |
 | M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | done, 2026-10-02 (below) |
-| M3 | Harness and A/A-noise engineering, in dedicated mode only | next |
-| M4 | Competitors | |
+| M3 | Harness and A/A-noise engineering, in dedicated mode only | done, 2026-10-03 (below) |
+| M4 | Competitors | next |
 | M5 | Iterate until it wins | |
 | M6 | Windows | |
 | M7 | Code freeze | |
@@ -1353,11 +1353,612 @@ afterwards, unchanged.)
 - Rule E's choices (default detection mode, relay copy): after the pilot entry; both options of
   each are flag values.
 
+## M3, 2026-10-03
+
+### Commits (papers/one-port)
+
+| Commit | Message |
+|---|---|
+| edf2e38 | fix: T_dec bounds pass-through's wait for the whole ClientHello (one still incomplete at T_dec is closed, route timed_out, counted route_timeouts, its detection outcome still classified), and setsockopt_calls counts every setsockopt on a connection's socket (the relay's SO_LINGER on a close by reset); test relay.pass_through_tdec on both backends in both detection modes |
+| 3f7b578 | test: handlers.output_backpressure reports the server's side of a failure (whether it saw the client's port, how detection ended, its counters, a worker error) and whether the client's descriptor still names its socket |
+| 058a578 | docs: hypotheses.md revision log, the readings fixed during engineering (M3), before the code freeze: T_dec bounds pass-through's wait (superseding item 4 of the M2b entry), every setsockopt counted, TTFB's first byte, the open loop's due time, keep-alive's requests, WL5 and WL4 as read, section 7's generator and MHz rules, and a note on L's connection tracking |
+| 370c88b | feat: opgen, the load generator (bench/gen): churn in closed and open loop and keep-alive for HTTP/1.1, h2c, TLS, MQTT, SSH and the TLS stub exchange, source-address blocks with IP_BIND_ADDRESS_NO_PORT, raw counts over the measured window classified after the workers join, exact TTFB quantiles, each worker's CPU time, and the probe |
+| d3a4833 | feat: opcase as a program (WL7's openings, 25 connections every 25 ms, silent or the partial recorded ClientHello, all closed by reset; and the reset probe) and ophold, the holder that accepts and never reads or polls |
+| 0a21e7c | test: opgen's loads and protocols against the server on both backends, the open loop's schedule count, the probe, the source block, connect failures and timeouts, and the opgen, opcase and ophold programs (gen.*) |
+| 0727dad | feat: the window runner (bench/run): one cost-cell window as section 4.1 lays it out in dedicated mode only, A/A sessions, WL7's readers and the ophold window, full provenance per row, the lab-job wrapper, the wait for an empty connection-tracking table, the K_SRC sweep, the journal line, and their tests on samples recorded on L |
+| cd7c61e | fix: opgen counts a connect that has not completed by the exchange's timeout (a SYN never answered) as a failed connect, as section 7's "any connect failed" reads, not as a timeout |
+| a9a3ff2 | feat: opgen --spin-us, and the window runner's open loop on one worker per physical core of the generator's CPUs (2, 4, ... 12) polling the last 200 us before each due time (the generator's median issue lag 65.6 us at first, 2.1 us now); the generator tests open few connections, since L tracks every connection for 120 s |
+| ef536a1 | refactor: drop opgen's spin constant, which Options::spin (--spin-us) replaces |
+| b9f5810 | feat: footprint.k_base, WL7's K_BASE as the median of Ks at sample 2 over 16 valid ophold windows (section 9.3), refused with fewer |
+| 1af8eab | feat: the window runner can start the server without address-space randomisation (setarch -R, a per-process setting; aa.py --server-no-aslr), recorded per row |
+| 446055b | docs: hypotheses.md revision log, K_SRC = 16 in the M3 entry (item 9): no connect failed at any block size tried, the server sets the rate from K = 4, four times that block, and a later failure before the freeze needs a new entry |
+| 0420da0 | fix: opgen stamps a TLS exchange's first byte when the socket read inside OpenSSL returns it (a callback on the socket BIO), as the plain path stamps it after recv, not at the epoll event that reported it; a later step of the same event could read the server's flight first and leave a completed exchange without a TTFB (gen.churn.tls.io_uring in the Debug suite of the four-suite check of 446055b) |
+| 21938c5 | test: handlers.output_backpressure builds its 200,000 requests before connecting; built after, they took the client about 150 ms of CPU at -O0, and under four suites at once it stayed silent past T_dec, which closed the connection as silent by design; a failure now prints how detection ended and how long after its connect the client first sent |
+
+Each code commit was built alone (a clone of the lab remote, Debug, clang 22.1.8, Ninja, no
+warning in any) and ran its own suite (`ctest -j 6`), one at a time under the lab lock (jobs post3
+and post4, `~/lab/p3/m3-aa/post_job.sh`; `~/lab/p3/m3-check/commits/<sha>/`): every suite passed,
+343 tests at edf2e38, 3f7b578, 370c88b and d3a4833, 372 at 0a21e7c, 373 from 0727dad to 21938c5.
+058a578 and 446055b change no code. Nothing is pushed to origin; the `lab` remote has every commit.
+
+### Step 0: M2b's three open items
+
+**1. Pass-through's wait for the whole ClientHello (M2b's reading 4): superseded, T_dec bounds it.**
+The frozen text supports reading pass-through's decision as complete only once the ClientHello is
+parsed and routed:
+- section 1, "Budgets": "A connection that exceeds a budget while undecided is rejected", and
+  B_CH is "bytes for a ClientHello reassembled in pass-through", a budget only this wait can
+  exceed, so the text holds the wait to be part of the undecided phase;
+- section 2.1 counts "in pass-through, the partial ClientHello" among the memory of a pending
+  connection;
+- section 1 sets every detection timer to 60 s in B3 "so that no pending connection expires before
+  the last sample", where the server runs in relay mode against partial ClientHellos;
+- Appendix B matches to the server's timers the proxies' timers that bound this same wait
+  (nginx `preread_timeout`, HAProxy `inspect-delay`, Envoy `listener_filters_timeout`).
+M2b's reading rested on 1(d) alone, which names the matcher's decision.
+
+Implemented in edf2e38: `dispatch()` leaves T_dec armed for a TLS connection on a relaying
+listener; `relay_connect()` disarms it when the route is chosen; `expire_dec()` on a connection
+still in the route stage records the timed event (closed), counts `route_timeouts`, reports the
+route `timed_out` and closes it, with no second detection outcome (it stays "classified", as M2b's
+item 3 counts a ClientHello longer than B_CH). The test `relay.pass_through_tdec.{replay,peek}`
+(both backends): WL7's partial-ClientHello opening (the record header and the first
+floor(206/2) = 103 bytes of the recorded ClientHello) then silence is classified TLS at byte 6,
+closed at T_dec with route `timed_out`, its timed event meets B2(a) and (b), the client sees the
+close no earlier than T_dec after its connect, nothing is held in peek, and the same ClientHello in
+two writes 30 ms apart is routed. Revision log of `hypotheses.md`, M3 entry, item 1 (058a578),
+superseding item 4 of the M2b entry. Consequence for B3 (M4 on): the server's B3 windows must run
+with `--t-dec-ms 60000` (and T_fb, T_hdr at 60 s), as section 1 asks, since its pending
+partial-ClientHello connections are now timer-bound; in-process TLS is unchanged.
+
+**2. `setsockopt_calls`.** The comment in `server.hpp` now names all three sources (each
+`SO_RCVLOWAT` set and reset; the two `TCP_NODELAY` of a relayed connection; the `SO_LINGER` of a
+side the relay closes by reset). The two `SO_LINGER` calls in `handlers.cpp` were not counted and
+now are, so the counter counts every `setsockopt` on a connection's socket (edf2e38). Revision log,
+M3 item 2: section 2.1 lists the operations by kind, and section 10 checks the counters against
+`perf trace -s`, which counts every call.
+
+**3. `handlers.output_backpressure`, "0 bytes".** Cause found: the test's client was silent for
+longer than T_dec, and the server closed it as designed. The test is fixed (21938c5); the server is
+unchanged.
+- Reproduction: the four suites of M2b's first attempt (its 3cd91c4 build trees, kept in
+  `~/lab/p3/m2b-check/final`) run at once, `ctest -j 8` each, under the lab lock. Over four series
+  (5, 3, 3 and 5 rounds, the second and third stopped at their first diagnosed failure; logs in
+  `~/lab/p3/m3-dev/repro/`) the test failed 8 times, and once more in the Debug suite of the
+  four-suite check of 446055b (below), always the same way: the first arm (one-port replay),
+  "0 bytes for 200000 responses" after about 0.4 s, on epoll and on io_uring, in Debug and MSan
+  builds. A full connection-tracking table alone did not cause it: `bench/run/ct_full_check.sh`
+  filled the table with one HTTP/1.1 burst (262,144 entries) and ran the test 6 times from the
+  burst on and 6 times after it drained, with no failure.
+- What the two ends showed (the diagnostic of 3f7b578, four failures): the server accepted one
+  connection, from the client's local port, and its detection ended "silent" with 0 bytes
+  received; the client wrote 524,288 bytes, then `send` failed with `EPIPE`, and its receive ended
+  at EOF. In the 446055b failure, the first with the inode check, the client's descriptor still
+  named the same socket at the end, so no descriptor was closed and reused.
+- The reading. Linux sets `EPIPE`, not `ECONNRESET`, on a socket reset in CLOSE_WAIT, so the client
+  had received the server's FIN before the reset. The server's close sends a FIN, not a reset, only
+  when nothing unread is queued. So the client had sent nothing when the server closed: "silent"
+  was T_dec (300 ms in the tests) expiring before any byte (`expire_dec()`, no fallback on that
+  listener), and the client's bytes then met a closed socket. The earlier text of this item said
+  the server saw "a half-close before any byte" and "a FIN that no write of the client preceded";
+  that was wrong: the client never half-closes, and the FIN was the server's.
+- Why the client was silent: its writer thread built all 200,000 requests (7.6 MB) after the
+  connect and before its first send. At `-O0` that takes 150 to 160 ms of CPU on L (a copy of the
+  loop, measured unloaded; `~/lab/p3/m3-dev/repro/buildtime/`), half of T_dec; four suites at
+  `ctest -j 8` each on L's 16 CPUs can stretch it past 300 ms. Only the first arm was ever seen
+  failing because a failed `CHECK` ends the test, so the later arms did not run; whether the first
+  arm, the first large allocation of a fresh process, is also slower under load was not isolated
+  (three builds in one process took the same time unloaded).
+- Demonstrated (job cpu1, `~/lab/p3/m3-dev/repro/cpu1/`, under the lab lock): the test pinned to one
+  CPU with two busy loops on the same CPU, so the writer thread gets about a third of it. The
+  446055b Debug binary failed 10 runs of 10 (5 per backend), each with the same signature
+  (silent, 0 bytes received, 524,288 bytes sent, `EPIPE`, EOF); the fixed binary passed 10 of 10.
+- The fix (21938c5): the test builds every request before the connect, and on a failure prints how
+  detection ended (by which timer, after how many wake-ups, how long after accept) and how long
+  after its connect the client first sent.
+
+### What M3 built
+
+**opgen, the load generator** (`bench/gen/`, proposal I30, I33; section 2.4). C++23 on the event loop
+of `bench/loop` (epoll) and the TLS settings of `bench/tls`; a library (`opgen_core`, which the
+tests run in-process) and the binary `opgen`. Files: `opgen.hpp` (options, report), `opgen.cpp`
+(the run and its classification), `options.cpp` (command line, JSON), `worker.{hpp,cpp}` (one
+worker per generator CPU), `parse.cpp` (the readers of the server's bytes), `exchange.{hpp,cpp}`
+(the exchanges' bytes).
+- Loads: churn in closed loop (WL1, C slots, each connect, one exchange, close), churn in open loop
+  (WL2, `--rate`: exchanges fall due on one global schedule n / rate from the run's start, thread k
+  taking n mod threads = k; each due exchange gets a new connection whether or not earlier ones
+  completed), keep-alive (WL3, C connections, one request in flight each).
+- Exchanges, WL1's table: HTTP/1.1 GET with `Connection: close`, read to the server's close; h2c
+  preface, empty SETTINGS and one HEADERS with END_STREAM in static-table fields (opcase's), read to
+  END_STREAM on stream 1, then GOAWAY and close; TLS with HTTP/1.1 (full handshake, SNI
+  oneport.test, ALPN http/1.1, the certificate verified, then GET with close, read to
+  close_notify); MQTT 3.1.1 CONNECT (HC1's), CONNACK, DISCONNECT, close; SSH identification line,
+  read the server's, then its close; the TLS stub exchange (the recorded ClientHello, read the 13
+  bytes to EOF). Keep-alive: HTTP/1.1 GET; h2 one stream at a time (stream 1, 3, 5 ...; the server's
+  SETTINGS acknowledged; WINDOW_UPDATE for the connection after 32,768 DATA bytes); MQTT PINGREQ
+  after one CONNECT; HTTP/1.1 over one TLS connection. Every response is checked (status 200,
+  `Content-Length: 13`, `Hello, World!`; `:status` 200 and the 13-byte body; CONNACK accepted;
+  PINGRESP; an `SSH-2.0-` line; the stub's body).
+- Counting: every exchange is recorded with its due time (open loop), its start just before
+  `connect`, the first byte the server sent, and its end, and how it ended. The main thread takes
+  `CLOCK_MONOTONIC` after the warm-up and after the window and prints `MEASURE_START <ns>` and
+  `MEASURE_END <ns>` at once; after the workers join it classifies the records by those two
+  readings: closed loop by end, open loop by due time. So a count never depends on when a worker
+  saw the phase change. The report holds raw counts over the measured wall time: completed, errors
+  by kind (connect, timeout, reset, early EOF, protocol, TLS), connect failures over the whole
+  run, the exchanges due in the window (counted from the schedule, so one never started counts
+  against the 99% rule) and how many of them completed, exact quantiles of TTFB, exchange time and
+  (open loop) the issue lag, and each worker's CPU time over the window
+  (`pthread_getcpuclockid`). No rate is computed from anything else.
+- Saturation: the report's `cpu.pct` is the workers' CPU time over (wall time x threads); the
+  window runner applies section 7's rule to the larger of it and the busy share of the generator's
+  CPUs from `/proc/stat` (lab/t1/t1.py's `gen_cpu_pct_rule`).
+- Source addresses (section 2.4): every connection binds base + (n mod K_SRC) with
+  `IP_BIND_ADDRESS_NO_PORT`; the block must lie in 127.0.0.2 to 127.255.255.254.
+- `--probe`: one exchange of the protocol, exit 0 if it completed (the window's probe).
+- Placement: `--cpus` pins one worker per CPU; the runner also starts it under `taskset`.
+
+**opcase as a program and ophold** (`bench/cases/opcase_main.cpp`, `bench/cases/ophold.cpp`).
+`opcase open` runs WL7's opening (N_PEND connections in batches of 25 every 25 ms, the silent or
+partial-ClientHello bytes, one write, `TCP_NODELAY`; all closed by reset at t = 30 s) and prints
+`T0`, `OPENED`, `CLOSED` and a JSON line of counts; `opcase probe-reset` is the probe that closes by
+reset. `ophold` listens with backlog N_PEND (it prints the backlog the kernel's somaxconn cap
+leaves), accepts in a blocking loop on the listener alone, and holds every descriptor unread and
+unpolled until SIGTERM.
+
+**The window runner** (`bench/run/`, Python 3, stdlib only):
+- `window.py`: one cost-cell window as section 4.1 lays it out: the conntrack wait (below), a
+  source block, the server started fresh on CPU 14 in dedicated mode (any other mode is refused:
+  `guard_mode`), its "listening" lines read, the probe (`opgen --probe`), then opgen on CPUs 2 to
+  13 (1 s warm-up, 5 s window, C = 64); at its markers the server's `utime + stime` and run time,
+  `/proc/stat` per CPU, `/proc/cpuinfo` MHz and `/proc/interrupts`; the server stopped with SIGTERM
+  and its counters read from what it prints; TIME-WAIT count and nstat at start and end. One JSON
+  row: metric (conn/s, req/s or median TTFB), CPU per exchange (WL4), counters per connection and
+  per request (WL5), the generator rule's inputs, interrupts on the server's CPU, its sibling and
+  the generator's CPUs, conntrack at start and end, and section 7's validity with reasons.
+- `aa.py`: A/A sessions (X Y Y X, X drawn per session from a recorded seed), both arms dedicated,
+  arm B's ports 100 above arm A's; churn and keep-alive sessions in one shuffled order, then the
+  open-loop sessions at RATE_FRAC x this job's churn median (or an earlier job's, `--rates`);
+  provenance once per job (below); the summary of session ratios per cell. Engineering options:
+  `--gen-threads`, `--spin-us`, `--server-no-aslr`. `ksrc_sweep.py`: single windows at several
+  block sizes.
+- `b3.py`: one window in WL7's layout for ophold (the frame of B3's windows): 60 s after the last
+  other window, ophold on CPU 14, the reset probe, the baseline, opcase's opening on CPUs 2 to 9,
+  readings at t = 20 s and 25 s, close by reset at 30 s, and section 7's B3 rules.
+- `footprint.py`: WL7's readers (below). `journal.py`: one lab-journal line per job.
+  `lab_job.sh`: one lab job under the lock, with pid, start, log and done files.
+  `ct_full_check.sh`: step 0's conntrack check.
+- Provenance in every row: the source and build directories, the commit and whether the tree is
+  dirty, build type, sanitizer, compiler and its version, the OpenSSL and nghttp2 prefixes, the
+  sha256 of the oneport and opgen binaries, of `bench/cmake/pins.cmake` and of `pin.sh`, the inputs
+  hash of oneport and opgen (`lab/bin/inputs_hash.py`, project mode, its own sha256 recorded), the
+  host fingerprint (`pin.sh`), the placement, the port, the source block, the seed, the lab job.
+
+**The lab lock and pin.sh.** The runner uses L's Papers checkout read-only:
+`~/lab/Papers/lab/bin/lablock` (its content equals the Papers repo's `lab/bin/lablock` at 1896ce5
+once CR is stripped) and `~/lab/Papers/lab/bin/pin.sh` (byte-identical, sha256
+c04c9eae91a336a643f0ea36e6a007ab013045175657c3c977706e42f501045b). L's checkout is at 6697a81,
+older than the project mode of `inputs_hash.py`, so that file is a copy from the Papers repo at
+1896ce5 in `~/lab/p3/tools/` (sha256
+f9d526641e3ba34311ff80e395644eb26305a3266ce35629e3a1c0c7409908e7). Nothing in `~/lab/Papers` was
+changed. Every job on L ran under the lock: the long ones through `lab_job.sh` (pid, start, log
+and done files), started with `setsid nohup` and polled by their done file; the short ones (builds,
+the two smoke sessions) in the foreground of an ssh session under `lablock`. Two queued jobs were
+stopped (to settle the open loop's design first) by their process group, taken from their pid
+files; no `pgrep -f` or `pkill -f`. `lablock` waits at most 4 h for the lock: a job queued behind
+a longer one gave up (exit 1, nothing run) and was started again.
+
+### The tests
+
+The suite on L grows from 339 to 373 CTest entries (clang 22.1.8, Debug, every entry run, all
+pass):
+- `relay.pass_through_tdec.{replay,peek}.{epoll,io_uring}` (4): step 0, item 1.
+- `gen.options`, `gen.quantiles` (pure, every platform): opgen's command line (every flag, and
+  the refusals: no port or protocol, SSH or the stub with keep-alive, an open loop with
+  keep-alive, a block holding 127.0.0.1 or 127.255.255.255 or outside 127.0.0.0/8, a backward CPU
+  range, --threads against --cpus, a flag twice, rate 0, an empty window, an unknown flag), the
+  dotted forms, and the exact quantiles (median of an even count, nearest-rank p99 and p99.9).
+- `gen.churn.{http1,h2c,tls,mqtt,ssh,tls-stub}.{epoll,io_uring}`,
+  `gen.keepalive.{http1,h2c,tls,mqtt}.{epoll,io_uring}`: each load and protocol for a short window
+  (0.02 s warm-up, 0.1 s window, 2 slots on 2 workers, so a test opens few connections) against an
+  in-process server in dedicated mode (stub mode for the stub
+  exchange): markers printed, exchanges completed, no error of any kind in the window or the
+  warm-up, a TTFB per exchange, the workers' CPU time; churn: the server accepted exactly the
+  connects opgen made; keep-alive: exactly C connections.
+- `gen.open_loop.{epoll,io_uring}`: 1,000 exchanges per second; the count due in the window equals
+  the schedule's (within one), every one completed, one TTFB, issue lag and connect-relative TTFB
+  per exchange, and TTFB from the due time at least TTFB from connect.
+- `gen.probe.{epoll,io_uring}`: the probe of each of the six protocols is one connection and
+  completes.
+- `gen.source_block`: against a recording listener, every source address is one of the block's
+  three.
+- `gen.failures`: a refused port counts connect failures only; a server that accepts and never
+  answers counts timeouts.
+- `gen.binaries`: the programs: opgen's probe and a short window against the oneport program (its
+  JSON report, no connect failure, markers), then for each case ophold holding opcase's 100
+  connections (the reset probe first), `OPENED 100`, `CLOSED 100`, 0 or 108 bytes per connection.
+- `run.test_runner` (Python, every platform; 24 checks): WL7's parsers on samples recorded on L on
+  2026-10-02 (`bench/run/samples/`: `/proc/slabinfo`, `/sys/kernel/slab` links, the merged cache's
+  attributes, `/proc/meminfo`, nstat), `ss -tm` on a loopback sample, the footprint of synthetic
+  readings with known growth, the settle rule at its 2% and 8 B edges, the TIME-WAIT, established,
+  co-tenant and unreadable-cache rules; the server's counter lines read by key (a later
+  non-numeric line such as M6's changes nothing); nstat; the conntrack drop counters;
+  `/proc/interrupts`; the source blocks and their 60 s rule; the refusal of one-port mode; the
+  generator's worker CPUs per workload; K_BASE's median over 16 valid ophold windows; a cost
+  window's metric, CPU per exchange, counters per connection and per request, and each of section
+  7's rules; the A/A spread and the margin's edges (a ratio at a bound counts against).
+
+On W (MSVC 19.51.36246.0, Build Tools 18, Ninja, Debug, out of tree; a full build at ef536a1 and an
+incremental one at 21938c5, the code commits between changing Python and Linux-only sources): no
+warning; 108 CTest entries, the 50 IOCP case entries skipped as pending
+M6, the other 58 pass (`gen.options`, `gen.quantiles` and `run.test_runner` among them). opgen's
+engine, opcase's program and ophold are Linux only until M6; opgen's command line and report build
+on W.
+
+### L's connection tracking: a host condition for every churn window (a decision for Alex)
+
+Found by the runner's second smoke session (2026-10-03, 00:2x): its first window ran clean
+(44,777 conn/s), the next three timed out, the probe included, and ssh from W to L timed out for
+about two minutes.
+- Docker is active on L, and its NAT rules (`table ip nat`, chains DOCKER, PREROUTING, OUTPUT,
+  POSTROUTING) load connection tracking, which then tracks every connection, loopback included
+  (read-only: `nft list ruleset`, `lsmod`, `/proc/sys/net/netfilter`).
+- The table holds 262,144 entries (`nf_conntrack_max`, `nf_conntrack_buckets`); each closed TCP
+  connection keeps its entry 120 s (`nf_conntrack_tcp_timeout_time_wait`).
+- One HTTP/1.1 churn window on epoll opens about 270,000 connections (1 s warm-up and 5 s at about
+  45,000 per second) and leaves about 166,000 entries at its end (median of aa1's 24 windows; 179,000
+  on io_uring at about 53,000 per second, aa3; an entry is reused when a client port is), an
+  open-loop window about 110,000, a keep-alive window at most 1,900. A second churn window started
+  at once fills the table, and the kernel then drops new SYNs ("nf_conntrack: table full, dropping
+  packet" in the kernel log; the drop counter of `/proc/net/stat/nf_conntrack`): smoke2's second
+  window had most of its connects time out. A burst that started with 109,684 entries already in
+  the table lost 64 exchanges near its end (`ct_full_check.sh`'s filler).
+- What the harness does (design choices of M3): before each window the runner waits until the
+  table holds at most 2,000 entries (`CT_START_MAX`), at most 180 s (`CT_WAIT_MAX_S`), and records
+  the count and the drop counters at the window's start and end. Every window then starts from an
+  empty table: the median wait before a churn or open-loop window was 122 s to 126 s (by job, aa1
+  to aa5), before a keep-alive window following another keep-alive window 0 s. No window run with
+  the wait lost a packet to the table (the drop counter unchanged in every row of every job).
+- The cost, for the time plan (proposal section 9, which decides nothing): about 125 s per churn or
+  open-loop window. C1 and C3 are 16 of L's 24 cost cells: at R_C = 11, 704 such windows, 24.4 h
+  added (88,000 s); at R_C = 31, 1,984 windows, 68.9 h. The pilot: 1,024 windows, 35.6 h. The
+  mechanism family on L (M1 and M3 churn, M2 open loop): 1,152 windows, 40.0 h. The cost reruns at
+  most: 6.7 h (R_C = 11) to 17.8 h (R_C = 31). Against the plan's L total of 44 h to 48 h.
+- Recorded, deciding nothing: tracking adds a per-packet cost to both arms alike; and
+  `tcp_max_tw_buckets` (65,536) is reached about 1.5 s into every HTTP/1.1 churn window, after
+  which the server's closes create no TIME-WAIT socket (`TcpExtTCPTimeWaitOverflow`, 140,916 per
+  window, median of aa1), so that transition lies inside every measured window; both are equal
+  across windows, since each starts from an empty table and no TIME-WAIT socket.
+- The test suite opens about 53,000 connections (the full suite, Debug, after M3 shrank the
+  generator tests; 80,282 before), so the four sanitizer suites run at once, as every milestone
+  has run them, can fill the table: 249,537 entries were read during the backpressure
+  reproductions (step 0, item 3).
+- Options, each a host change outside my authority and outside what the frozen text reads at the
+  freeze, for Alex: a `notrack` rule for `lo` in a raw table; stopping Docker for the length of
+  each lab job; a larger `nf_conntrack_max`; a shorter `nf_conntrack_tcp_timeout_time_wait`. None
+  was made. Without one, the harness's wait stands and the time plan grows by the hours above.
+
+### K_SRC
+
+`K_SRC` = 16, recorded in the revision log (M3 entry, item 9). Section 9.1's rule ("so that no
+connect fails in the development runs") is met at every block size tried: no connect failed in any
+M3 window run after the table wait, at K = 1, 4, 16 or 64. The fastest cells whose clients close
+first, and so keep a TIME-WAIT socket per connection, are MQTT and h2c churn on epoll
+(`ksrc_sweep.py`, one window each, `~/lab/p3/m3-aa/ksrc2`):
+
+| Cell | K | Conn/s | Connect failures | Server busy | Generator rule | Busiest worker |
+|---|---|---|---|---|---|---|
+| churn MQTT epoll | 1 | 16,301 | 0 | 0.566 | 74.9% | 69.5% |
+| churn MQTT epoll | 4 | 32,507 | 0 | 1.000 | 23.2% | 13.4% |
+| churn MQTT epoll | 16 | 32,632 | 0 | 1.000 | 23.4% | 14.2% |
+| churn MQTT epoll | 64 | 32,761 | 0 | 1.000 | 22.1% | 12.8% |
+| churn h2c epoll | 1 | 16,068 | 0 | 0.622 | 70.5% | 65.8% |
+| churn h2c epoll | 4 | 28,846 | 0 | 1.000 | 21.2% | 12.6% |
+| churn h2c epoll | 16 | 28,633 | 0 | 1.000 | 20.5% | 12.2% |
+| churn h2c epoll | 64 | 28,940 | 0 | 1.000 | 20.0% | 12.1% |
+
+At K = 1 the generator, not the server, set the rate (the kernel's search for a free port among
+one address's TIME-WAIT sockets): the server was 57% or 62% busy while section 7's generator rule
+read 70% to 75%, below its 90%. So the frozen rule alone would allow K = 1 and would not mark those
+windows. From K = 4 the server is saturated. K_SRC = 16 is four times that smallest block, a design
+choice. In the HTTP/1.1 cells, whose server closes first, the clients keep no TIME-WAIT socket and
+K does not bind. A connect failure in any later development run before the code freeze requires a
+new revision-log entry. The window runner records the block of every window and refuses one that
+would reuse an address within 60 s (`SourceBlocks`, state in `~/lab/p3/src-blocks.json`).
+
+### A/A noise: dedicated against dedicated, development data
+
+Section 8, step 2 allows dedicated mode to be timed against anything before the code freeze, as
+development data (design/status.md, "Does section 8 allow A/A development windows?"). Every window
+here ran the server in dedicated mode (`window.py` refuses any other mode; no one-port window ran
+in M3, timed or not, outside the functional test suite), under the lab lock, in section 4.1's
+layout (fresh processes, the probe, 1 s warm-up, 5 s window; the server on CPU 14, its sibling 15
+idle; opgen on CPUs 2 to 13), from a fresh source block of K_SRC addresses, after the
+connection-tracking wait. A session is X Y Y X of arms A and B (both dedicated, B's ports 100
+above A's); the session ratio is B / A of the arms' window means; per cell, the ratios' median,
+range, log standard deviation, and how many lie outside the cost family's margin [0.98, 1.02]
+(a ratio at a bound counts as outside, section 4.3). Every job is journaled as development.
+
+The final runs (jobs aa2 to aa5, from a clone of the lab remote at ef536a1, Release, clang
+22.1.8, K_SRC 16) and the epoll jobs of the engineering phase (aa1, the development tree; its open
+loop had the generator's first design):
+
+| Cell (workload, protocol, backend) | Job | Sessions | Median | Range | Log SD | Outside | Metric per window |
+|---|---|---|---|---|---|---|---|
+| churn, HTTP/1.1, epoll | aa1 | 6 | 1.0013 | 0.9976 to 1.0032 | 0.0020 | 0 | 44,495 to 44,949 conn/s |
+| keep-alive, HTTP/1.1, epoll | aa1 | 6 | 0.9998 | 0.9968 to 1.0049 | 0.0034 | 0 | 138,684 to 140,474 req/s |
+| open loop, HTTP/1.1, epoll (first generator design) | aa1 | 6 | 0.9993 | 0.9982 to 1.0046 | 0.0027 | 0 | 124.2 to 125.1 us median TTFB |
+| open loop, HTTP/1.1, epoll | aa2 | 6 | 1.0005 | 0.9972 to 1.0036 | 0.0022 | 0 | 57.1 to 57.6 us median TTFB |
+| churn, HTTP/1.1, io_uring | aa3 | 6 | 1.0007 | 0.9968 to 1.0042 | 0.0028 | 0 | 52,776 to 53,372 conn/s |
+| keep-alive, HTTP/1.1, io_uring | aa3 | 6 | 1.0018 | 0.9887 to 1.0103 | 0.0085 | 0 | 147,963 to 154,125 req/s |
+| open loop, HTTP/1.1, io_uring | aa3 | 6 | 0.9981 | 0.9964 to 1.0058 | 0.0037 | 0 | 50.0 to 50.5 us median TTFB |
+| keep-alive, h2c, epoll | aa4 | 8 | 1.0010 | 0.9946 to 1.0071 | 0.0045 | 0 | 117,139 to 119,061 req/s |
+| keep-alive, h2c, io_uring | aa4 | 8 | 0.9994 | 0.9931 to 1.0066 | 0.0047 | 0 | 124,726 to 128,062 req/s |
+| keep-alive, TLS, epoll | aa4 | 8 | 0.9947 | 0.9914 to 1.0085 | 0.0076 | 0 | 98,411 to 101,193 req/s |
+| keep-alive, TLS, io_uring | aa4 | 8 | 0.9998 | 0.9823 to 1.0197 | 0.0108 | 0 | 104,153 to 107,781 req/s |
+| keep-alive, MQTT, epoll | aa4 | 8 | 0.9996 | 0.9971 to 1.0024 | 0.0019 | 0 | 141,870 to 143,429 req/s |
+| keep-alive, MQTT, io_uring | aa4 | 8 | 1.0026 | 0.9913 to 1.0124 | 0.0074 | 0 | 151,667 to 156,506 req/s |
+| churn, h2c, epoll | aa5 | 3 | 1.0000 | 0.9959 to 1.0036 | 0.0039 | 0 | 28,611 to 28,981 conn/s |
+| churn, TLS, epoll | aa5 | 3 | 1.0023 | 1.0019 to 1.0047 | 0.0015 | 0 | 3,800 to 3,839 conn/s |
+| churn, MQTT, epoll | aa5 | 3 | 1.0029 | 0.9998 to 1.0034 | 0.0020 | 0 | 32,275 to 32,613 conn/s |
+
+All 396 windows of jobs aa1 to aa5 were valid by section 7's rules: no connect failed, no error
+share above 0.1%, the connection-tracking table dropped nothing, `pin.sh` reported the host pinned
+in every session, the mean CPU MHz drifted at most 0.57% from the session's value, and in every
+closed-loop window the server's core was at least 99.6% busy while the generator rule read at most
+41.5%. CPU per exchange (WL4) in the same sessions: the session ratios' log standard deviation lies
+between 0.0013 (MQTT keep-alive, io_uring) and 0.0082 (TLS keep-alive, epoll), every ratio between
+0.9900 and 1.0127.
+
+The widest cells are keep-alive on io_uring (HTTP/1.1, MQTT) and TLS keep-alive on both backends:
+log SD 0.0074 to 0.0108, every session ratio still inside the margin (the extremes 0.9823 and
+1.0197, TLS on io_uring). Their windows vary more from one fresh process to the next: the
+coefficient of variation of the window metric is 0.99% (HTTP/1.1, io_uring, aa3), 0.80% (MQTT,
+io_uring), 0.73% and 0.83% (TLS, epoll and io_uring), against 0.31% (HTTP/1.1, epoll, aa1) and
+0.27% (MQTT, epoll). In TLS keep-alive that variation follows the server's CPU per request
+(correlation -0.95 on epoll, -0.80 on io_uring, the CPU per request varying 0.77%); in MQTT on
+io_uring it hardly does (correlation -0.46, the CPU per request varying 0.27% while the metric
+varied 0.80%). One explanation tested and rejected: the server's
+address-space randomisation (each fresh process lays out its ring and buffers differently). Job
+aslr1 ran io_uring HTTP/1.1 keep-alive 8 sessions as usual and 8 with the server started under
+`setarch -R`: log SD 0.0061 and 0.0063, window variation 0.61% and 0.62%; the default is unchanged
+(the option stays in the runner, 1af8eab). The cause is open; for the pilot these are the cells
+whose R_C the noise will set.
+
+What the harness's engineering changed, and what it measured before changing it:
+- The connection-tracking wait (above) made churn and open-loop windows valid at all: without it
+  the second window of a session failed.
+- The open loop's generator. Its first design (12 workers sleeping between due times with the
+  default 50 us timer slack, each exchange's socket made at its due time) put a median 65.6 us
+  (p99 75 us) of issue lag between the due time and `connect`, so 53% of the C3 metric (124.7 us)
+  was the generator's. That lag is the same in both arms, so it pulls every C3 ratio toward 1: a
+  difference between the arms is diluted, which favours "equivalent". The timer slack at 1 ns,
+  the socket made before the due time, a 200 us poll before each due time, and one worker per
+  physical core (job variants1, one A/A session per variant, open loop HTTP/1.1 epoll at aa1's
+  22,362 per second; medians of four windows):
+
+  | Generator | TTFB from due | Issue lag (p99) | TTFB from connect | A/A ratio |
+  |---|---|---|---|---|
+  | 12 workers, sleep, 50 us slack (aa1) | 124.7 us | 65.6 us (75.0) | 56.3 us | (6 sessions above) |
+  | 12 workers, sleep, 1 ns slack | 78.4 us | 10.5 us (14.9) | 67.5 us | 0.9996 |
+  | 12 workers, 200 us poll | 74.8 us | 2.8 us (5.1) | 71.9 us | 1.0050 |
+  | 6 workers, one per core, sleep | 64.8 us | 7.6 us (11.5) | 57.1 us | 1.0010 |
+  | 6 workers, one per core, 200 us poll (chosen) | 57.4 us | 2.1 us (4.3) | 55.3 us | 1.0009 |
+
+  Workers on both SMT siblings of a core lengthened the client's own work after `connect` by 10 to
+  16 us; one worker per core with the poll leaves 2.1 us of the 57.4 us to the generator. aa2 then
+  measured the chosen design over 6 sessions (above).
+- Interrupts on the server's CPU (`/proc/interrupts` at the markers): in saturated windows only its
+  local timer (about 1,000 per second; at most 25 other interrupts in a window); in open-loop
+  windows also function-call IPIs, the remote wake-ups of the server's idle CPU (median per
+  window 6,278 in aa1, 22,221 in aa2 on epoll, 55,603 in aa3 on io_uring), the same in both arms. No device interrupt reached CPUs 14 or 15, so IRQ affinity was
+  left as it is (changing it would be a host change).
+- The idle sibling CPU 15 was at most 1.4% busy, CPUs 0 and 1 at most 1.8%, and the mean CPU MHz
+  drifted at most 0.57% from the session's value (`pin.sh` reported boost off, governor performance, mains
+  power, pinned, in every session).
+- K_SRC: below 4 the generator, not the server, set the rate of client-closes-first churn
+  (above).
+- Not changed: the window layout (section 4.1), C = 64, the warm-up, the placement.
+
+The spread measured is the harness's at R = 6 (aa5: 3) sessions per cell, development data. It
+enters no rule: the pilot (section 4.6) sizes R_C on the frozen binary from its own sessions.
+
+### WL7's readers and the ophold window
+
+`bench/run/footprint.py` reads, per WL7: U from the `VmRSS` of each of the system's processes;
+Kq as the mean `r` (rmem_alloc) of `ss -tmn state established ( sport = :port )` over the
+system's accepted sockets, with `f` beside it, not added; Ks from `Slab` of `/proc/meminfo`
+less the growth of the three skb caches, read from `/proc/slabinfo` through `sudo -n` (the file
+is 0400), each cache's size its num_slabs x pagesperslab x the page size. The fast-clone cache is
+found by following `/sys/kernel/slab/skbuff_fclone_cache` (`:0000512` on L, read again on
+2026-10-03); its co-tenants are every name linked to that directory (`pool_workqueue`,
+`sgpool-16`, `skbuff_fclone_cache`), its size comes from the one of them `/proc/slabinfo` lists
+(`pool_workqueue`), and its `slabs` and `objects` from that directory (first integer, through
+`sudo -n`). Also the host's TIME-WAIT count and the established count. Section 7's B3 rules are
+`window_problems()`: the settle rule (W at the two samples apart by more than the larger of 2% of
+sample 2's W and SETTLE_ABS = 8 bytes per pending connection), the TIME-WAIT count at either sample
+against the baseline's, fewer than N_PEND established, and a cache or the shared cache that cannot
+be found or read, or co-tenants that differ from the baseline's. K_BASE is the median over 16
+ophold windows of Ks, after the pilot entry (section 9.3); `b3.py` runs one such window and
+`footprint.k_base()` takes the median over 16 valid ones (b9f5810), refusing fewer.
+
+Two development ophold windows (silent case, N_PEND = 10,000; never K_BASE):
+- f1 (development tree): opened 10,000, no connect or write failed, held 10,001 (the reset probe
+  too), settled (W 7,417.9 then 7,418.3 bytes per pending connection, tolerance 148 B),
+  10,000 established at both samples, U 7.8 B, Kq 0, Ks 7,410.5 B, no growth of the skb caches or
+  the shared cache, no listen overflow. Invalid by one rule: the host's TIME-WAIT count was 12 at
+  the baseline and 10 at the samples, sockets left by step 0's test runs, which the 60 s gap after
+  the last window did not cover. So `b3.py` now waits until the host holds no TIME-WAIT socket
+  before the baseline (a design choice, above).
+- ophold2 (ef536a1, after the TIME-WAIT wait): valid. Opened 10,000 (no connect or write failed),
+  held 10,001; ophold's backlog 4,096 after the kernel's somaxconn cap; the host held no TIME-WAIT
+  socket at the baseline nor at either sample; settled (W 7,240.9 then 7,242.1 bytes per pending
+  connection); 10,000 established at both samples; U 8.2 B, Kq 0, Ks 7,233.9 B, W 7,242.1 B per
+  pending connection; no growth of the skb caches or the shared cache; the shared cache's
+  co-tenants as WL7 names them at all three readings; no listen overflow. Development data, not
+  K_BASE.
+
+### Counters for the mechanism family
+
+Exactly as section 2.1 and I29 count them: the server's in-code counters (per worker, plain
+integers, every build and mode), printed once at SIGTERM as `counter <name> [<sub>] <value>` lines
+and read by key (`window.parse_counters`). Per window the runner gives them per accepted connection
+(WL5; M3 reading 6) and, for keep-alive, per request; CPU per exchange is `utime + stime` of the
+server process between the generator's markers over the exchanges completed in the window (WL4;
+reading 7), with the threads' run time from `schedstat` beside it. In the final A/A windows, per
+connection (dedicated mode, the HTTP/1.1 port):
+
+Medians over each cell's windows. Per connection for churn and the open loop, per request for
+keep-alive; "-" where the backend has no such call. Operations are calls; bytes are payload bytes
+received, sent, and copied in user space (I29's rule).
+
+| Cell | Job | Per | CPU us (WL4) | accept | recv | send | epoll_wait | epoll_ctl | io_uring_enter | setsockopt | Bytes in, out, copied |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| churn HTTP/1.1 epoll | aa1 | connection | 14.97 | 1.016 | 1.000 | 1.000 | 0.031 | 1.000 | - | 0 | 57, 78, 0 |
+| churn HTTP/1.1 io_uring | aa3 | connection | 11.67 | 1.000 | 1.000 | 1.000 | - | - | 0.032 | 0 | 57, 78, 0 |
+| open HTTP/1.1 epoll | aa2 | connection | 25.31 | 1.974 | 1.000 | 1.000 | 1.949 | 1.000 | - | 0 | 57, 78, 0 |
+| open HTTP/1.1 io_uring | aa3 | connection | 20.21 | 1.000 | 1.000 | 1.000 | - | - | 1.987 | 0 | 57, 78, 0 |
+| churn h2c epoll | aa5 | connection | 22.71 | 1.016 | 2.999 | 1.000 | 0.032 | 1.000 | - | 0 | 76, 70, 0 |
+| churn TLS epoll | aa5 | connection | 245.62 | 1.031 | 2.000 | 2.000 | 0.047 | 1.000 | - | 0 | 354, 913, 0 |
+| churn MQTT epoll | aa5 | connection | 18.95 | 1.016 | 2.999 | 1.000 | 0.032 | 1.000 | - | 0 | 16, 4, 0 |
+| keep-alive HTTP/1.1 epoll | aa1 | request | 4.73 | 0 | 1.000 | 1.000 | 0.016 | 0 | - | 0 | 38, 78, 0 |
+| keep-alive HTTP/1.1 io_uring | aa3 | request | 4.28 | 0 | 1.000 | 1.000 | - | - | 0.016 | 0 | 38, 78, 0 |
+| keep-alive h2c epoll | aa4 | request | 5.92 | 0 | 1.000 | 1.000 | 0.016 | 0 | - | 0 | 26, 38, 0 |
+| keep-alive h2c io_uring | aa4 | request | 5.44 | 0 | 1.000 | 1.000 | - | - | 0.016 | 0 | 26, 38, 0 |
+| keep-alive TLS epoll | aa4 | request | 7.46 | 0 | 1.000 | 1.000 | 0.016 | 0 | - | 0 | 60, 100, 0 |
+| keep-alive TLS io_uring | aa4 | request | 6.90 | 0 | 1.000 | 1.000 | - | - | 0.016 | 0 | 60, 100, 0 |
+| keep-alive MQTT epoll | aa4 | request | 4.58 | 0 | 1.000 | 1.000 | 0.016 | 0 | - | 0 | 2, 2, 0 |
+| keep-alive MQTT io_uring | aa4 | request | 4.14 | 0 | 1.000 | 1.000 | - | - | 0.016 | 0 | 2, 2, 0 |
+
+On io_uring each churn or open-loop connection's receive is one `IORING_OP_RECV` submission (the
+counter's opcode table), and the multishot accept adds none per connection.
+
+These are dedicated mode's own costs, recorded as the runner reports them; no contrast is drawn
+from them in M3. Section 10's check of the system-call counters against `perf trace -s` in an
+untimed window per cost cell is not built yet (M4 or M5).
+
+### Design choices of M3
+
+Every number here is a design choice of M3, not a frozen value.
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| opgen's exchange timeout | 1000 ms from the exchange's start (keep-alive: from the request's send; a connection's first request includes its setup) | `opgen.hpp` `Options::timeout`; `window.py` `TIMEOUT_MS` | lab/t1/t1.py's default (`--timeout-ms 1000`) |
+| A connect not complete at the timeout | a failed connect, not a timeout | `worker.cpp` `pass()` | section 7's "any connect failed": a SYN never answered is one (cd7c61e) |
+| Generator sockets | `TCP_NODELAY`, `IP_BIND_ADDRESS_NO_PORT`, non-blocking | `worker.cpp` `make_socket()` | the write of a request is sent at once; section 2.4 for the address |
+| h2c in churn | no SETTINGS ACK; GOAWAY after END_STREAM, then close | `parse.cpp` | WL1's exchange as frozen |
+| h2 in keep-alive | the server's SETTINGS acknowledged; one WINDOW_UPDATE for the connection after 32,768 DATA bytes | `parse.cpp` | a long connection must keep h2's flow-control window open; half the default window |
+| MQTT CONNECT | level 4, empty client identifier, Remaining Length 12 | `exchange.cpp` | the hard cases' CONNECT (HC1) |
+| SSH line | `SSH-2.0-opgen_1.0` CRLF | `exchange.cpp` | RFC 4253 s4.2 |
+| Responses checked | status 200, Content-Length 13 and `Hello, World!`; h2 `:status` 200 as static index 8 and the 13-byte body; CONNACK accepted; PINGRESP; an `SSH-2.0-` line; the stub's 13 bytes | `exchange.cpp`, `parse.cpp` | an exchange counts only if the server answered as I26 says |
+| Quantiles | exact: median the mean of the middle two for an even count; p99 and p99.9 nearest rank | `options.cpp` | C3 compares medians at a 2% margin; no histogram error |
+| TLS's first byte | stamped when the socket read inside OpenSSL returns it (a callback on the socket BIO), as the plain path stamps it after `recv`; before 0420da0, at the epoll event that reported it | `worker.cpp` `on_bio()`, `note_tls_read()` | reading 3; an event stamp misses bytes a later step of the same event reads (the sanitizer checks, below) |
+| Open loop's schedule | one global schedule origin + n / rate; worker k takes n mod threads = k; the exchanges due in the window counted from the schedule | `worker.cpp`, `opgen.cpp` | an exchange the generator never started counts against the 99% rule |
+| Open loop's workers | one per physical core of opgen's CPUs: 2, 4, 6, 8, 10, 12 (the siblings 3 to 13 idle) | `window.py` `OPEN_GEN_THREADS` | workers on both siblings of a core slowed the client's own work by 10 to 16 us per exchange (below) |
+| Open loop's spin | the last 200 us before each due time are spent polling, not asleep; the next exchange's socket is made and bound before it falls due | `opgen --spin-us`, `worker.cpp` | the generator's issue lag fell from a median of 65.6 us to 2.1 us (below) |
+| Timer slack of the workers | 1 ns (`PR_SET_TIMERSLACK`) | `worker.cpp` | a timed wait ends at its time, not up to the default 50 us later |
+| Reserved room | 131,072 records and 256 open-loop slots per worker | `worker.hpp` | no reallocation inside a window |
+| Closed-loop workers | one per CPU of 2 to 13 (12) | `window.py` `GEN_CPUS` | the saturation cells need the generator's whole share |
+| Arm ports | arm A from 20000, arm B from 20100 (offset 100); ophold on 21000 | `aa.py`, `b3.py` | below the ephemeral range; every change of arm changes port (section 4.6, step 1) |
+| Source blocks | from 127.0.1.0 upward, wrapping before 127.255.255.255; a block refused if any of its addresses was released less than 60 s before | `window.py` `SourceBlocks` | section 2.4 |
+| K_SRC | 16 | `aa.py --k-src` | four times the smallest block at which the server set the rate (above) |
+| Connection-tracking wait | at most 2,000 entries before a window, waited for at most 180 s | `window.py` `CT_START_MAX`, `CT_WAIT_MAX_S` | every window starts from an empty table (above) |
+| WL7 window: TIME-WAIT | the host holds no TIME-WAIT socket before the baseline, waited for at most 70 s | `b3.py` | sockets of any earlier activity, not only windows, expire within 60 s and would move the count |
+| WL7 window: probe | `opcase probe-reset` (connect, then close by reset), 0.5 s before the baseline | `b3.py` | WL7's probe for a system that answers nothing |
+| opcase's batch connect | each connect of a batch completes within 1 s or counts as failed | `opcase_main.cpp` | a batch must not delay the pace |
+| A/A order | churn and keep-alive sessions shuffled with a recorded seed, then the open-loop sessions; X drawn per session from the same generator | `aa.py` | the pilot's order rule (C1 and C2 before C3), for development jobs |
+| A/A open-loop rate | RATE_FRAC x the median over the job's churn sessions of their mean conn/s (or an earlier job's, `--rates`) | `aa.py` | WL2's rule, applied to development sessions as a stand-in |
+
+### Readings of the frozen text in M3
+
+In the revision log of `hypotheses.md`, M3 entry (058a578, and item 9 later): 1. T_dec bounds
+pass-through's wait (step 0); 2. every `setsockopt` on a connection's socket is counted (step 0);
+3. TTFB ends at the first byte the server sends on the connection (TLS: its handshake flight; h2c:
+its first frame; SSH in dedicated mode: its identification line at accept); 4. in open loop TTFB
+runs from the due time, the connect-relative time recorded beside it; 5. keep-alive counts requests
+only, not a connection's setup; 6. WL5's counters per connection are the window's server process's
+counters over its life, per accepted connection, and per request for keep-alive; 7. WL4's CPU time
+is `utime + stime` between the generator's two markers, per exchange completed in the window; 8.
+section 7's generator rule takes the larger of the generator's own CPU share and its CPUs' busy
+share and applies to closed-loop windows, and the MHz rule compares with `pin.sh`'s mean at the
+session's start; 9. K_SRC. And a note on L's connection tracking.
+
+### Sanitizer checks on L (development checks, not records)
+
+A clone of the lab remote at 21938c5 (`~/lab/p3/m3-final/src`), built in `~/lab/p3/m3-check/final/`,
+clang 22.1.8, Ninja, `ctest -V -j 8`, the four builds at once (`~/lab/p3/sancheck.sh`, run by
+`~/lab/p3/m3-aa/post_job.sh` as job post4 under the lab lock); each links the OpenSSL 3.5.9 and
+nghttp2 1.70.0 of its flavour (`ONEPORT_OPENSSL_USED`, `ONEPORT_NGHTTP2_USED`, read from each
+build's cache). "Report lines" counts the lines of the ctest log that match the lab's shared report
+pattern.
+
+| Build | CMake | Libraries | Build | CTest | Report lines |
+|---|---|---|---|---|---|
+| Debug | `-DCMAKE_BUILD_TYPE=Debug` | release | 0 warnings | 373 passed, 0 skipped, 0 failed | 0 |
+| ASan+UBSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address+undefined` | asan | 0 warnings | the same | 0 |
+| TSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=thread` | tsan | 0 warnings | the same | 0 |
+| MSan | `-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=memory`, the libc++ at `~/opt/libcxx-msan-gcc` | msan | 0 warnings | the same | 0 |
+
+- Options as in M1 to M2b. Each run took 94 to 100 s of ctest time.
+- Instrumentation, as checked: the test binary and `opgen` of each build define the runtime's
+  symbols (`nm`: 316 `__asan_`, 173 `__tsan_`, 63 `__msan_` in each).
+- The 29 generator tests (`gen.*`) and `run.test_runner` ran in every build, so opgen's TLS runs
+  under TSan and MSan against the OpenSSL of that flavour.
+- Declared gaps that apply: as in M2b.
+
+The first check, at 446055b (job post3, the same layout, logs `*-446055b.*`), did not pass.
+ASan+UBSan, TSan and MSan passed 373 with 0 report lines; the Debug suite failed 2 of 373 (its ctest
+log's sha256 40e603b7fee29e493ac1590a16c238397e754e37a0a6d83398a918f71a9c0eb5):
+- `handlers.output_backpressure.epoll`: step 0's item 3, whose cause and fix (21938c5) are above.
+- `gen.churn.tls.io_uring`, "a TTFB per completed exchange": a TLS exchange completed with no first
+  byte. opgen stamped TLS's first byte only at an epoll event whose mask held EPOLLIN. The event
+  that completes a connect drives the handshake twice, in `connected()`, which sends the
+  ClientHello, and again in the TLS branch of `on_event()`. When the server's flight arrives
+  between the two calls, the second reads it under a mask without EPOLLIN; the exchange was then
+  stamped late, at a later EPOLLIN event, or not at all when the rest of it was read the same way.
+  0420da0 stamps the first byte when the socket read inside OpenSSL returns it (design choices,
+  above); a handshake cannot complete without such a read, so no completed exchange lacks one.
+  The race was not reproduced on purpose: job cpu1 ran each TLS churn test 5 times per backend on
+  one CPU beside two busy loops, and both binaries passed. In Release the two calls are
+  microseconds apart, so the flight meets that gap only when the client is preempted there. Each of
+  the 532 window rows of M3's jobs with an opgen report (Release, the earlier stamp) has one TTFB per
+  completed exchange, and no figure in this file is a TLS TTFB (the TLS cells report conn/s and req/s).
+
+Log sha256 (21938c5):
+
+    ccf5ce70b2a8e0d0fcce0a3127db3fc576308e7b5ff6a85c06ac89cda76762b4  debug-21938c5.build.log
+    aecc5984a3ad50a2e587156b24c3c7cb5efcfa37fa561c32dd9107214462b591  debug-21938c5.ctest.log
+    7464b36d15b6106e4018842e60ffb938d2d77c2e97d75a5bc8f970aaa9ffdfd0  asan-21938c5.build.log
+    b4789763cfb39ccb38d276639c5522d7d9bed3e2605b5b56796113ec00b72149  asan-21938c5.ctest.log
+    b8eade898eac3a6410a7ca867d1cacab18f3323d565f0fa584a8e17e2cbd9eff  tsan-21938c5.build.log
+    6f178aaaaad966374fa4c889ac638d9402ff2752ace7a638c8abd549826f1431  tsan-21938c5.ctest.log
+    753ea679dcf48ea2342ae4820c83715de6e00776310ab932fbc678be8de6cafb  msan-21938c5.build.log
+    7e81fc7a7b989331a821c0b458227d64348b0f03a5199df2cb6aad96f35926b4  msan-21938c5.ctest.log
+
+### Lab journal and raw data
+
+Every lab job of M3 that ran windows is one line of the Papers repo's `lab/journal.jsonl` (Papers
+commit 4fa459a, local, not pushed; 19 lines): `run` marks it development, `code_commit` names the
+commit (empty for the jobs of the uncommitted development tree, whose binaries' sha256 the line
+carries), `cells` lists every window with its validity, and `summary` the spread per cell. The
+jobs: smoke1, smoke2, aa1, f1-ksrc1, ksrc2, aa2-stopped, variants1 (four lines), aa2, aa3, aa4,
+aa5, aslr1 (three lines), and the two ophold windows (f1-ophold, ophold2). Not windows, so not
+journaled: step 0's reproductions (test suites, `~/lab/p3/m3-dev/repro/`), the conntrack check
+(`~/lab/p3/m3-aa/f1/ctfull/`) and the test checks. The rows (`windows.jsonl`, `summary.json`,
+`provenance.json` and each window's raw opgen report and server log) stay on L under
+`~/lab/p3/m3-aa/<job>/`, archived in `~/lab/runs-archive/p3-m3-20261003T092018.tar.gz` (sha256
+5588ca17f2cf23889e90a78bc871a711ebb7be790605f968d161f66e715b9778, beside it in a `.sha256` file;
+made under the lab lock), with step 0's reproduction logs and the check logs of
+`~/lab/p3/m3-check/`; build trees, source clones and scratch binaries are left out.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
   added `papers/one-port/bench/oneport_record.py` to it.
 - The Papers repo's submodule pointer for `papers/one-port` (the coordinator's commit).
+- M3's lab journal: 19 lines in the Papers repo's `lab/journal.jsonl`, Papers commit 4fa459a
+  (local, not pushed), every one marked development.
 - The readings of the frozen text are in the revision log of hypotheses.md: M1's (c8a0525), M2a's
   with the coordinator's three decisions (30b5be4), and M2b's with the rule of I29 (89a96c5).
 
@@ -1473,3 +2074,30 @@ afterwards, unchanged.)
   a partial ClientHello open until its peer ends it, as in-process TLS is. B3's partial-ClientHello
   windows close every connection by reset at 30 s, so they are not affected.
 - Nothing blocks M3.
+
+## What M4 starts from
+
+- The harness: `opgen` for every cost, M1, M2 and M3 load (HTTP/1.1, h2c, TLS, MQTT, SSH, the TLS
+  stub exchange; churn closed and open, keep-alive), `opcase open` and `ophold` for WL7, and the
+  window runner (`bench/run`): `window.py` for one window, `aa.py` for sessions, `b3.py` for WL7's
+  layout, `footprint.py` for WL7's readings, `lab_job.sh` for jobs under the lock.
+- What the runner does not do yet, for M4 and M5:
+  - competitors: starting a proxy or library under its configuration (Appendix B) instead of the
+    server; `window.py` starts only `oneport` in dedicated mode and refuses any other mode
+    (`guard_mode`), which M4 relaxes for the competitors and M5 for one-port windows against them
+    (section 8 step 2: one-port against a competitor, never against dedicated mode);
+  - hand-off cells: the front on CPU 14, the backend on CPUs 10 and 12, opgen on 2 to 9; WL6's CPU
+    of the front and the backend together; the backend's 90% rule;
+  - B3: the server or a competitor as the system in `b3.py` (U over its processes, the stub
+    backend left out), the partial-ClientHello case against them, the collectors' steps (`jcmd`,
+    `FreeOSMemory`, caddy's heap profile), and the server's timers at 60 s (step 0, item 1);
+  - M3's listen overflows recorded per window, not a validity rule;
+  - section 10's untimed `perf trace -s` window per cost cell.
+- The A/A spread on L (above) says the harness's noise is far inside the 2% margin for the cells
+  measured; the pilot (section 4.6) sizes R_C on the frozen binary, and nothing here enters it.
+- Open for the coordinator and Alex:
+  - L's connection tracking (above): a host change, or the harness's wait and the longer time plan;
+  - the per-connection decision record of the binary that WL8 needs against a server in its own
+    process (M1's note) is still to build;
+  - `RELAY_BUF`, `IORING_OP_SEND` and splice's worker threads: M2b's engineering options for M5.
+- Nothing blocks M4's competitor builds; their windows inherit the connection-tracking wait.
