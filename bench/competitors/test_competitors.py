@@ -480,11 +480,12 @@ class HandoffRow(unittest.TestCase):
 # in the hand-off test, 23500, each with its stub's six listeners 10 to 15 above it: the block 23000
 # to 23515. The tests move that block to TEST_PORT_BASE plus a shift, below 10000, because the
 # suite's in-process servers take random runs of free ports from 10000 up to the ephemeral range
-# (bench/server/server.cpp, bind_all, "a test convenience"): two dry runs of the records drivers
-# (dryrun1, dryrun3) had a stub that could not bind its fixed port inside that range while the C++
-# tests of two suites ran beside it. A shift is a multiple of PORT_STRIDE, more than the block's
-# 516 ports, so the blocks of two shifts never overlap (dryrun1: at a stride of 400, TSan's probe
-# front took ASan's hand-off port).
+# (bench/server/server.cpp, bind_all, "a test convenience"): in the records drivers' dry run
+# dryrun3 a stub exited at start on its fixed port inside that range while the C++ tests of two
+# suites ran beside it (its standard error was gone with the test's temporary directory, so the
+# held port is the likely cause, not a proven one). A shift is a multiple of PORT_STRIDE, more
+# than the block's 516 ports, so the blocks of two shifts never overlap (dryrun1: at a stride of
+# 400, TSan's probe front took ASan's hand-off port).
 PORT_BLOCK = (23000, 23515)
 TEST_PORT_BASE = 4000
 SERVER_RANDOM_FIRST_PORT = 10000  # bench/server/server.cpp, bind_all: first_port
