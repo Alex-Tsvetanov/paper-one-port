@@ -168,6 +168,7 @@ namespace oneport::server::detail
 			}
 			if (n == 0)
 			{
+				++c_.recv_eof;
 				rr.eof = true;
 				c->eof_seen = true;
 				break;
@@ -177,6 +178,10 @@ namespace oneport::server::detail
 			{
 				rr.error = true;
 				rr.reset = errno == ECONNRESET;
+			}
+			else
+			{
+				++c_.recv_again;
 			}
 			break;
 		}
@@ -607,11 +612,16 @@ namespace oneport::server::detail
 			}
 			if (n == 0)
 			{
+				++c_.recv_eof;
 				d.eof = true;
 				continue;
 			}
 			if (e == EINTR) continue;
-			if (e == EAGAIN || e == EWOULDBLOCK) return true;
+			if (e == EAGAIN || e == EWOULDBLOCK)
+			{
+				++c_.recv_again;
+				return true;
+			}
 			relay_abort(c, e == ECONNRESET);
 			return false;
 		}

@@ -35,7 +35,8 @@ SYSCALLS = ("accept_calls", "recv_calls", "peek_calls", "check_calls", "send_cal
             "connect_calls", "shutdown_calls", "splice_calls")
 WAITS = ("epoll_wait_calls", "io_uring_enter_calls")
 COPIES = ("bytes_copied",)
-BESIDE = ("lowat_sets", "lowat_resets", "recv_retries", "out_waits", "bytes_received", "bytes_peeked", "bytes_sent")
+BESIDE = ("recv_eof", "recv_again", "lowat_sets", "lowat_resets", "recv_retries", "out_waits", "bytes_received", "bytes_peeked",
+          "bytes_sent")
 COUNTERS = SYSCALLS + WAITS + COPIES + BESIDE
 
 
@@ -46,6 +47,10 @@ def load_counters(row: dict) -> dict[str, float]:
     out: dict[str, float] = {}
     for k in COUNTERS + ("accepted",):
         out[k] = float(full.get(k, 0) or 0) - float(idle.get(k, 0) or 0)
+    # The receives that returned bytes (M5's split): recv_calls less those that found the end or
+    # nothing; the end and the empty socket depend on when the peer's FIN or next bytes arrive.
+    if "recv_eof" in full:
+        out["recv_data"] = out["recv_calls"] - out["recv_eof"] - out["recv_again"]
     ops = set((full.get("io_uring_submissions") or {})) | set((idle.get("io_uring_submissions") or {}))
     for op in sorted(ops):
         out[f"ring:{op}"] = float((full.get("io_uring_submissions") or {}).get(op, 0)) - float((idle.get("io_uring_submissions") or {}).get(op, 0))

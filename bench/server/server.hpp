@@ -94,11 +94,18 @@ namespace oneport::server
 		// Operations by kind.
 		std::uint64_t accept_calls = 0;
 		std::uint64_t recv_calls = 0;
+		/// Of recv_calls, those that found the peer's end (0 bytes), and those that returned no
+		/// byte without an end or an error (EAGAIN; on io_uring also ENOBUFS, the ring empty), so
+		/// recv_calls less both counts the receives that returned bytes or failed (M5: those do not
+		/// depend on when the peer's FIN or its next bytes arrive). IOCP's receives are not split.
+		std::uint64_t recv_eof = 0;
+		std::uint64_t recv_again = 0;
 		std::uint64_t peek_calls = 0;
 		std::uint64_t send_calls = 0;
 		/// Every setsockopt on a connection's socket: each SO_RCVLOWAT set and reset (peek mode and
-		/// pass-through's wait in peek), the two TCP_NODELAY of a relayed connection (its client
-		/// side and its backend side), and the SO_LINGER of each side a relay closes by reset.
+		/// pass-through's wait in peek), the TCP_NODELAY of a relayed connection's backend side (its
+		/// client side inherits it from the relaying listener, M5), and the SO_LINGER of each side a
+		/// relay closes by reset.
 		std::uint64_t setsockopt_calls = 0;
 		std::uint64_t check_calls = 0;       // the non-blocking check of 1(b)
 		std::uint64_t epoll_wait_calls = 0;

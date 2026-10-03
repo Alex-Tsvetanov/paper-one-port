@@ -79,6 +79,8 @@ namespace oneport::server
 	{
 		accept_calls += o.accept_calls;
 		recv_calls += o.recv_calls;
+		recv_eof += o.recv_eof;
+		recv_again += o.recv_again;
 		peek_calls += o.peek_calls;
 		send_calls += o.send_calls;
 		setsockopt_calls += o.setsockopt_calls;
@@ -137,6 +139,8 @@ namespace oneport::server
 		};
 		line("accept_calls", c.accept_calls);
 		line("recv_calls", c.recv_calls);
+		line("recv_eof", c.recv_eof);
+		line("recv_again", c.recv_again);
 		line("peek_calls", c.peek_calls);
 		line("send_calls", c.send_calls);
 		line("setsockopt_calls", c.setsockopt_calls);

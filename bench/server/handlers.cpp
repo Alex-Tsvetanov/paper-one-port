@@ -146,6 +146,10 @@ namespace oneport::server::detail
 					r.error = true;
 					r.reset = e == WSAECONNRESET;
 				}
+				else
+				{
+					++c_.recv_again;
+				}
 				break;
 			}
 #else
@@ -163,6 +167,7 @@ namespace oneport::server::detail
 			}
 			if (n == 0)
 			{
+				++c_.recv_eof;
 				r.eof = true;
 				c->eof_seen = true;
 				c->observe_pass = pass_;
@@ -170,6 +175,7 @@ namespace oneport::server::detail
 			}
 			if (errno == EINTR) continue;
 			if (errno != EAGAIN && errno != EWOULDBLOCK) r.error = true;
+			else ++c_.recv_again;
 			break;
 		}
 		if (r.bytes > 0) c->last_read_pass = pass_;

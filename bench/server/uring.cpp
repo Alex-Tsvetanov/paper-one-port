@@ -228,11 +228,13 @@ namespace oneport::server::detail
 						}
 						else if (x.res == 0)
 						{
+							++c_.recv_eof;
 							rr.eof = true;
 							c->eof_seen = true;
 						}
 						else if (x.res == -EINTR || x.res == -EAGAIN)
 						{
+							++c_.recv_again;
 							rr.retry = true;
 						}
 						else
@@ -404,6 +406,7 @@ namespace oneport::server::detail
 		if (selected != nullptr) pool_.put(selected);  // not seen on L's kernel (server.kernel_uring_recv_select)
 		if (x.res == 0)
 		{
+			++c_.recv_eof;
 			rr.eof = true;
 			if (&buf == &c->buf)
 			{
@@ -414,6 +417,7 @@ namespace oneport::server::detail
 		}
 		if (x.res == -ENOBUFS || x.res == -EINTR || x.res == -EAGAIN)
 		{
+			++c_.recv_again;
 			rr.retry = true;
 			return rr;
 		}
