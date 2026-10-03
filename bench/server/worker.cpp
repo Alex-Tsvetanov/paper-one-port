@@ -3,15 +3,17 @@
 // bytes reach them (proxy_after_read, detect_after_read) and the check of 1(b).
 #include "worker.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include <algorithm>
 #include <cstring>
 
+#if defined(__linux__)
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 namespace oneport::server::detail
 {
@@ -19,8 +21,12 @@ namespace oneport::server::detail
 	Worker::Worker(unsigned index, const Shared& shared, const std::vector<ListenerSpec>& specs, const std::vector<int>& fds)
 		: index_(index), shared_(shared)
 	{
+#if defined(__linux__)
 		if (uring()) ur_ = std::make_unique<loop::UringLoop>();
 		else ep_ = std::make_unique<loop::EpollLoop>();
+#else
+		ic_ = std::make_unique<loop::IocpLoop>();
+#endif
 		listeners_.resize(specs.size());
 		for (std::size_t i = 0; i < specs.size(); ++i)
 		{
@@ -32,22 +38,46 @@ namespace oneport::server::detail
 
 	Worker::~Worker()
 	{
+#if defined(__linux__)
 		ur_.reset();  // the ring first: its operations reference the descriptors and buffers below
 		for (auto& c : conns_)
 		{
 			if (c->fd >= 0) ::close(c->fd);
 			if (c->relay && c->relay->fd >= 0) ::close(c->relay->fd);
 		}
+#else
+		// run() closed and drained everything unless it failed; what is left is closed here, and
+		// the port goes last, after the operations that name it.
+		for (auto& c : conns_)
+		{
+			if (c->fd >= 0) ::closesocket(sock(c->fd));
+		}
+		for (ListenerState& l : listeners_)
+		{
+			for (auto& r : l.accepts)
+			{
+				if (r->s != INVALID_SOCKET) ::closesocket(r->s);
+			}
+		}
+		ic_.reset();
+#endif
 	}
 
 	void Worker::stop() noexcept
 	{
+#if defined(__linux__)
 		if (ur_) ur_->stop();
 		else ep_->stop();
+#else
+		ic_->stop();
+#endif
 	}
 
 	void Worker::run()
 	{
+#if defined(_WIN32)
+		run_iocp();
+#else
 		if (uring())
 		{
 			run_uring();
@@ -73,6 +103,7 @@ namespace oneport::server::detail
 			error_ = std::string("worker ") + std::to_string(index_) + ": " + e.what();
 		}
 		close_all();
+#endif
 	}
 
 	// ---- The pass ----
@@ -101,6 +132,7 @@ namespace oneport::server::detail
 		return *first > now ? std::chrono::duration_cast<nanoseconds>(*first - now) : nanoseconds(0);
 	}
 
+#if defined(__linux__)
 	void Worker::pass_epoll()
 	{
 		const std::span<const epoll_event> events = ep_->wait(bound_now());
@@ -185,6 +217,7 @@ namespace oneport::server::detail
 			accepted(l, fd, peer.ss_family == AF_INET ? ntohs(reinterpret_cast<const sockaddr_in&>(peer).sin_port) : 0);
 		}
 	}
+#endif  // __linux__: the epoll pass, its events and accept4
 
 	void Worker::accepted(ListenerState& l, int fd, std::uint16_t peer_port)
 	{
@@ -193,6 +226,7 @@ namespace oneport::server::detail
 		c->peer_port = peer_port;
 		c->accept_pass = pass_;
 		++c_.accepted;
+#if defined(__linux__)
 		if (!uring())
 		{
 			try
@@ -207,6 +241,7 @@ namespace oneport::server::detail
 				return;
 			}
 		}
+#endif
 		const ListenerSpec& spec = *l.spec;
 		if (spec.proxy || spec.detects) c->accept_time = Clock::now();  // timers start at accept
 		if (spec.proxy)
@@ -257,11 +292,19 @@ namespace oneport::server::detail
 			if (r.verdict == detect::ProxyVerdict::more)
 			{
 				if (rdhup) end_detection(c, Outcome::undecided, 0);
+#if defined(_WIN32)
+				else switch_to_replay(c);  // IOCP: no SO_RCVLOWAT (I11)
+#else
 				else set_lowat(c, r.at);
+#endif
 				return;
 			}
 			// Consume exactly the header, so the next read starts at the first application byte.
+#if defined(_WIN32)
+			const ssize_t got = ::recv(sock(c->fd), reinterpret_cast<char*>(scratch_.data()), static_cast<int>(r.at), 0);  // non-blocking socket
+#else
 			const ssize_t got = ::recv(c->fd, scratch_.data(), r.at, MSG_DONTWAIT);
+#endif
 			++c_.recv_calls;
 			if (got != static_cast<ssize_t>(r.at))
 			{
@@ -422,7 +465,11 @@ namespace oneport::server::detail
 			end_detection(c, Outcome::undecided, 0);  // 1(h)
 			return;
 		}
+#if defined(_WIN32)
+		if (peeks(c)) switch_to_replay(c);  // IOCP: no SO_RCVLOWAT (I11)
+#else
 		if (peeks(c)) set_lowat(c, d.at);
+#endif
 	}
 
 	void Worker::dispatch(Conn* c, Proto p, std::uint32_t at)
@@ -474,6 +521,9 @@ namespace oneport::server::detail
 		r.lowat_resets = c->lowat_resets;
 		r.has_proxy = c->has_proxy;
 		r.proxy = c->proxy;
+#if defined(_WIN32)
+		r.replayed = c->no_peek;
+#endif
 		if (ev != nullptr)
 		{
 			r.timed = true;
@@ -484,6 +534,27 @@ namespace oneport::server::detail
 
 	ssize_t Worker::peek(Conn* c, std::span<std::byte> into)
 	{
+#if defined(_WIN32)
+		// The synchronous MSG_PEEK of I11 on the non-blocking socket, after the zero-byte WSARecv.
+		const int n = ::recv(sock(c->fd), reinterpret_cast<char*>(into.data()), static_cast<int>(into.size()), MSG_PEEK);
+		++c_.peek_calls;
+		if (n > 0)
+		{
+			c_.bytes_peeked += static_cast<std::uint64_t>(n);
+			c->last_read_pass = pass_;
+			return n;
+		}
+		if (n == 0)
+		{
+			// IOCP has no RDHUP event: a peek of 0 bytes after the zero-byte completion is where the
+			// loop observes the half-close (I11; B2 e).
+			c->observe_pass = pass_;
+			return 0;
+		}
+		if (WSAGetLastError() == WSAEWOULDBLOCK) return -1;
+		end_detection(c, Outcome::reset, 0);
+		return -1;
+#else
 		const ssize_t n = ::recv(c->fd, into.data(), into.size(), MSG_PEEK | MSG_DONTWAIT);
 		++c_.peek_calls;
 		if (n > 0)
@@ -497,11 +568,17 @@ namespace oneport::server::detail
 		if (c->stage == Stage::route) relay_abort(c, true);
 		else end_detection(c, Outcome::reset, 0);
 		return -1;
+#endif
 	}
 
 	void Worker::set_lowat(Conn* c, std::uint32_t total)
 	{
 		if (c->lowat == total) return;
+#if defined(_WIN32)
+		// Windows does not support SO_RCVLOWAT (setsockopt refuses it; iocp.pin_rcvlowat), so IOCP
+		// never sets it: an undecided peek switches to replay instead, and the mark stays 1.
+		throw std::logic_error("oneport: SO_RCVLOWAT on IOCP");
+#else
 		const int v = static_cast<int>(total);
 		if (::setsockopt(c->fd, SOL_SOCKET, SO_RCVLOWAT, &v, sizeof(v)) != 0) throw_errno("setsockopt (SO_RCVLOWAT)");
 		++c_.setsockopt_calls;
@@ -516,6 +593,7 @@ namespace oneport::server::detail
 			++c->lowat_sets;
 		}
 		c->lowat = total;
+#endif
 	}
 
 	// ---- Timers (I13; hypotheses.md, section 1) ----
@@ -571,6 +649,60 @@ namespace oneport::server::detail
 	{
 		const TimePoint deadline = deadline_of(c, TimerKind::t_fb);
 		disarm(c, TimerKind::t_fb);
+#if defined(_WIN32)
+		if (posted_form() && !peeks(c))
+		{
+			// IOCP's posted-buffer form: a WSARecv is posted with the handler's buffer, so the check
+			// is a non-waiting reap of the port's completions (1 b), every one handled now, as on
+			// io_uring in replay; the event is recorded first, since the connection may be closed,
+			// even reused, by the time the reap returns.
+			const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::fallback);
+			const std::size_t at = c_.timed.size() - 1;
+			++c_.check_calls;
+			if (const std::optional<int> res = reap_for(c))
+			{
+				++c_.check_found_byte;
+				c_.timed[at].result = *res > 0 ? TimerResult::byte_won : TimerResult::closed;
+				return;
+			}
+			disarm(c, TimerKind::t_dec);
+			const Proto p = *c->listener->spec->fallback;
+			++c_.outcomes[static_cast<std::size_t>(Outcome::fallback)];
+			++c_.fallback[static_cast<std::size_t>(p)];
+			report(c, Outcome::fallback, p, 0, detect::ProxyReason::none, &ev);
+			enter_handler(c, p, Entry::fallback);
+			return;
+		}
+		else
+		{
+			// The zero-byte WSARecv form and the peek path: no receive holds a buffer, so the check
+			// is a one-byte MSG_PEEK on the non-blocking socket (1 b).
+			std::array<char, 1> one{};
+			const int n = ::recv(sock(c->fd), one.data(), static_cast<int>(one.size()), MSG_PEEK);
+			++c_.check_calls;
+			if (n == 1)
+			{
+				++c_.check_found_byte;
+				record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::byte_won);
+				on_detect_readable(c, false);  // the bytes alone decide the connection
+				if (c->fd >= 0 && !c->zombie && c->stage == Stage::detect) pending_io(c);
+				return;
+			}
+			if (n == 0)
+			{
+				c->observe_pass = pass_;
+				const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::closed);
+				end_detection(c, Outcome::silent, 0, detect::ProxyReason::none, &ev);  // 1(h): a half-close, no byte
+				return;
+			}
+			if (WSAGetLastError() != WSAEWOULDBLOCK)
+			{
+				const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::closed);
+				end_detection(c, Outcome::reset, 0, detect::ProxyReason::none, &ev);
+				return;
+			}
+		}
+#else
 		if (uring() && !peeks(c))
 		{
 			// io_uring replay: a receive is posted with a buffer, so the check is a non-waiting
@@ -623,6 +755,7 @@ namespace oneport::server::detail
 				return;
 			}
 		}
+#endif
 		const TimedEvent ev = record(c, TimerKind::t_fb, deadline, wait_return, TimerResult::fallback);
 		disarm(c, TimerKind::t_dec);
 		const Proto p = *c->listener->spec->fallback;
@@ -634,6 +767,9 @@ namespace oneport::server::detail
 
 	void Worker::expire_dec(Conn* c, TimePoint wait_return)
 	{
+#if defined(__linux__)
+		// Relay dispatch is Linux only (hypotheses.md, section 2.1): no connection on IOCP reaches
+		// the route stage, and relay.cpp is not built there.
 		if (c->stage == Stage::route)
 		{
 			// Pass-through: classified TLS at byte 6, its ClientHello still incomplete. The
@@ -645,6 +781,7 @@ namespace oneport::server::detail
 			close_conn(c);
 			return;
 		}
+#endif
 		if (c->app_seen == 0 && c->listener->spec->fallback)
 		{
 			record(c, TimerKind::t_dec, deadline_of(c, TimerKind::t_dec), wait_return, TimerResult::waited);
@@ -658,4 +795,4 @@ namespace oneport::server::detail
 
 }  // namespace oneport::server::detail
 
-#endif  // __linux__
+#endif  // __linux__ || _WIN32

@@ -18,6 +18,12 @@ if(TARGET oneport_tls)
     target_link_libraries(oneport_server PUBLIC oneport_tls oneport_dep_nghttp2)
 endif()
 oneport_warnings(oneport_server)
+# Windows (M6a): the IOCP worker and the server's listeners and threads; Winsock, and mswsock for
+# AcceptEx's GUIDs.
+if(WIN32)
+    target_sources(oneport_server PRIVATE iocp.cpp server_win.cpp)
+    target_link_libraries(oneport_server PUBLIC ws2_32 mswsock)
+endif()
 
 add_executable(oneport main.cpp)
 target_link_libraries(oneport PRIVATE oneport_server)

@@ -101,6 +101,33 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(handlers.tls_context PROPERTIES TIMEOUT 300 LABELS handlers)
 endif()
 
+# Windows (M6a): the handlers of I26 over sockets on IOCP; the IOCP pins (the Windows behaviour
+# the backend rests on, tested before use) and the server's tests on IOCP; the binary.
+if(WIN32)
+    target_sources(oneport_tests PRIVATE iocp_tests.cpp)
+    target_link_libraries(oneport_tests PRIVATE ws2_32 mswsock)
+    foreach(_test handlers.clienthello_live handlers.tls_exchange handlers.tls_h2 handlers.tls_refusals handlers.h2c_streams
+                  handlers.mqtt_session handlers.ssh_banner_timing handlers.smtp_dialogue handlers.output_backpressure)
+        add_test(NAME ${_test}.IOCP COMMAND oneport_tests test ${_test}.IOCP)
+        set_tests_properties(${_test}.IOCP PROPERTIES TIMEOUT 300 LABELS "handlers;IOCP")
+    endforeach()
+    add_test(NAME handlers.tls_context COMMAND oneport_tests test handlers.tls_context)
+    set_tests_properties(handlers.tls_context PROPERTIES TIMEOUT 300 LABELS handlers)
+    foreach(_test iocp.pin_rcvlowat iocp.pin_zero_byte iocp.pin_zero_byte_half_close iocp.pin_zero_byte_reset
+                  iocp.pin_peek_beside_zero_byte iocp.pin_close_completes iocp.pin_acceptex)
+        add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+        set_tests_properties(${_test} PROPERTIES TIMEOUT 120 LABELS "iocp;pin")
+    endforeach()
+    foreach(_test iocp.receive_forms iocp.check_byte_wins.replay_zero_byte iocp.check_byte_wins.replay_posted
+                  iocp.check_byte_wins.peek iocp.peek_switch iocp.accept_forms iocp.stub_mode iocp.stop_with_pending
+                  iocp.not_served)
+        add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
+        set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS "server;IOCP")
+    endforeach()
+    add_test(NAME iocp.binary_smoke COMMAND oneport_tests test iocp.binary_smoke $<TARGET_FILE:oneport>)
+    set_tests_properties(iocp.binary_smoke PROPERTIES TIMEOUT 120 LABELS "server;IOCP")
+endif()
+
 # The 25 hard cases of hypotheses.md, Appendix A, on every backend, in both detection modes, with
 # in-process and relay dispatch (section 5.2, B1). How much of each frozen outcome an entry
 # checks, by label: full, or partial (the detection checked, the rest of the outcome pending).
@@ -126,8 +153,10 @@ foreach(_n RANGE 1 25)
                 endforeach()
             endforeach()
         elseif(WIN32)
-            add_test(NAME case.${_id}.IOCP.inproc.${_mode} COMMAND oneport_tests pending ${_id}.IOCP.inproc.${_mode} pending M6: the IOCP backend)
-            set_tests_properties(case.${_id}.IOCP.inproc.${_mode} PROPERTIES SKIP_RETURN_CODE 77 LABELS "case;pending")
+            # IOCP (M6a), in-process: relay dispatch is Linux only (hypotheses.md, section 2.1).
+            set(_name case.${_id}.IOCP.inproc.${_mode})
+            add_test(NAME ${_name} COMMAND oneport_tests case ${_n} IOCP inproc ${_mode})
+            set_tests_properties(${_name} PROPERTIES TIMEOUT 900 LABELS "case;IOCP;inproc;${_coverage}")
         endif()
     endforeach()
 endforeach()
@@ -150,7 +179,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     oneport_cli_test(relay_needs_port 2 "--dispatch relay needs --relay-port"
                      --mode one-port --detect replay --dispatch relay --backend io_uring)
 else()
-    oneport_cli_test(not_served_iocp 3 "not served yet: the IOCP backend is M6" ${_arm})
+    oneport_cli_test(not_served_iocp_workers 3 "not served yet: IOCP with more than one worker" ${_arm} --workers 2)
+    oneport_cli_test(relay_refused_iocp 2 "the relay is Linux only" --mode one-port --detect replay --dispatch relay --backend IOCP)
 endif()
 
 # The records gate and the record writer (bench/), when a Python 3 interpreter is found.

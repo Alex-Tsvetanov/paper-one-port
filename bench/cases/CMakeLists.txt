@@ -27,9 +27,11 @@ if(TARGET oneport_tls)
     target_compile_definitions(opcase PUBLIC ONEPORT_HAVE_TLS=1)
     # Prints the ClientHello an OpenSSL client writes with the settings of bench/tls, as the
     # fixture's text (run once on L; the output is tests/fixtures/tls/clienthello.hex).
+    if(NOT WIN32)  # the recording was made on L; W uses the fixture (M6a)
     add_executable(record_clienthello record_clienthello.cpp)
     target_link_libraries(record_clienthello PRIVATE oneport_tls)
     oneport_warnings(record_clienthello)
+    endif()
 endif()
 
 # The programs of the windows (Linux): opcase's WL7 openings and probe, and ophold, the holder

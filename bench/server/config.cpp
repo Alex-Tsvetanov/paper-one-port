@@ -34,6 +34,7 @@ namespace oneport
 			{Backend::iocp, "IOCP"},
 		}};
 		constexpr std::array<Choice<IocpReceive>, 2> kIocpReceives{{{IocpReceive::zero_byte, "zero-byte"}, {IocpReceive::posted, "posted"}}};
+		constexpr std::array<Choice<IocpAccept>, 2> kIocpAccepts{{{IocpAccept::no_buffer, "no-buffer"}, {IocpAccept::buffer, "buffer"}}};
 		constexpr std::array<Choice<RelayCopy>, 2> kRelayCopies{{{RelayCopy::user_space, "user-space"}, {RelayCopy::splice, "splice"}}};
 		constexpr std::array<Choice<Proxy>, 2> kProxies{{{Proxy::off, "off"}, {Proxy::on, "on"}}};
 		constexpr std::array<Choice<Fallback>, 3> kFallbacks{{
@@ -47,9 +48,9 @@ namespace oneport
 		constexpr std::array<std::string_view, 4> kRequired{"--mode", "--detect", "--dispatch", "--backend"};
 
 		/// Every flag that takes a value.
-		constexpr std::array<std::string_view, 15> kValueFlags{
-			"--mode",     "--detect",  "--dispatch", "--backend",    "--iocp-receive", "--relay-copy", "--proxy",    "--fallback",
-			"--listener", "--workers", "--port",     "--relay-port", "--t-fb-ms",      "--t-dec-ms",   "--t-hdr-ms",
+		constexpr std::array<std::string_view, 16> kValueFlags{
+			"--mode",     "--detect",   "--dispatch", "--backend", "--iocp-receive", "--iocp-accept", "--relay-copy", "--proxy",
+			"--fallback", "--listener", "--workers",  "--port",    "--relay-port",   "--t-fb-ms",     "--t-dec-ms",   "--t-hdr-ms",
 		};
 
 		template <class E, std::size_t N>
@@ -115,6 +116,7 @@ namespace oneport
 			if (flag == "--dispatch") return set_choice(c.dispatch, kDispatches, flag, value);
 			if (flag == "--backend") return set_choice(c.backend, kBackends, flag, value);
 			if (flag == "--iocp-receive") return set_choice(c.iocp_receive, kIocpReceives, flag, value);
+			if (flag == "--iocp-accept") return set_choice(c.iocp_accept, kIocpAccepts, flag, value);
 			if (flag == "--relay-copy") return set_choice(c.relay_copy, kRelayCopies, flag, value);
 			if (flag == "--proxy") return set_choice(c.proxy, kProxies, flag, value);
 			if (flag == "--fallback") return set_choice(c.fallback, kFallbacks, flag, value);
@@ -155,6 +157,11 @@ namespace oneport
 			{
 				return "--listener reuseport needs epoll or io_uring: the SO_REUSEPORT group is measured on those "
 				       "backends only (hypotheses.md, section 10)";
+			}
+			if (c.iocp_accept == IocpAccept::buffer && c.backend == Backend::iocp && c.fallback != Fallback::none)
+			{
+				return "--iocp-accept buffer needs --fallback none: AcceptEx with a receive buffer completes only once data "
+				       "arrives, so a silent client would never reach its fallback (proposal I5)";
 			}
 			return std::nullopt;
 		}
@@ -232,6 +239,7 @@ namespace oneport
 		line("dispatch", token(c.dispatch));
 		line("backend", token(c.backend));
 		line("iocp-receive", token_of(kIocpReceives, c.iocp_receive));
+		line("iocp-accept", token_of(kIocpAccepts, c.iocp_accept));
 		line("relay-copy", token_of(kRelayCopies, c.relay_copy));
 		line("proxy", token_of(kProxies, c.proxy));
 		line("fallback", token_of(kFallbacks, c.fallback));
@@ -256,6 +264,7 @@ namespace oneport
 		       "  --backend       " + list_of(kBackends) + " (Linux: epoll, io_uring; Windows: IOCP)\n"
 		       "Options, with their defaults first:\n"
 		       "  --iocp-receive  " + list_of(kIocpReceives) + "\n"
+		       "  --iocp-accept   " + list_of(kIocpAccepts) + " (buffer: one-port listeners, no fallback)\n"
 		       "  --relay-copy    " + list_of(kRelayCopies) + "\n"
 		       "  --proxy         " + list_of(kProxies) + " (PROXY v1 and v2 on every listener)\n"
 		       "  --fallback      " + list_of(kFallbacks) + "\n"
@@ -270,7 +279,7 @@ namespace oneport
 		       "  --print-config  print the parsed configuration and exit\n"
 		       "  --help          print this text and exit\n"
 		       "Each flag and value has one spelling, case-sensitive. Served on 127.0.0.1: every mode and\n"
-		       "dispatch on epoll and io_uring; IOCP from M6.\n";
+		       "dispatch on epoll and io_uring; every mode with in-process dispatch on IOCP, one worker.\n";
 	}
 
 }  // namespace oneport

@@ -9,6 +9,21 @@
 #include <system_error>
 #include <thread>
 
+#if defined(_WIN32)
+// Winsock before OpenSSL's headers and anything else that may include windows.h.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+
+#include <mutex>
+#endif
+
 #if defined(ONEPORT_HAVE_TLS)
 #include "tls.hpp"
 
@@ -94,24 +109,112 @@ namespace oneport::opcase
 		return s;
 	}
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 	namespace
 	{
+
+#if defined(_WIN32)
+		/// The client on Winsock (M6a): the same steps as on Linux, with Winsock's calls. The socket
+		/// stays blocking, as on Linux, and is read only after WSAPoll reports it readable; it is
+		/// kept in an int as the server keeps its sockets (a kernel handle's lower 32 bits).
+		SOCKET as_socket(int fd) noexcept { return static_cast<SOCKET>(static_cast<std::intptr_t>(fd)); }
+
+		/// Winsock 2.2, started once for the process and never cleaned up (the test process ends).
+		void winsock_once()
+		{
+			static std::once_flag once;
+			std::call_once(once, [] {
+				WSADATA d{};
+				const int e = ::WSAStartup(MAKEWORD(2, 2), &d);
+				if (e != 0) throw std::system_error(e, std::system_category(), "opcase: WSAStartup");
+			});
+		}
+#endif
 
 		class Client
 		{
 		public:
 			Client(Transcript& t, const Limits& limits) : t_(t), limits_(limits) {}
+#if defined(_WIN32)
+			~Client()
+			{
+				if (fd_ >= 0) ::closesocket(as_socket(fd_));
+				if (timer_ != nullptr) ::CloseHandle(timer_);
+			}
+
+			/// Waits until the socket is readable (or reports its end) or until `until`; true if
+			/// readable. WSAPoll's timeout ends on the system timer's tick (about 15.6 ms at Windows'
+			/// default resolution), which would stretch every gap of a script, so the last 20 ms of
+			/// a wait run in steps of at most 1 ms on a high-resolution waitable timer (Windows 10
+			/// version 1803 and later), which ends within its step whatever the system timer's
+			/// resolution. Process-local: no system setting changes.
+			bool wait_readable(TimePoint until)
+			{
+				using namespace std::chrono;
+				for (;;)
+				{
+					WSAPOLLFD p{as_socket(fd_), POLLRDNORM, 0};
+					const auto now = Clock::now();
+					if (now >= until) return ::WSAPoll(&p, 1, 0) > 0;
+					const auto left = until - now;
+					if (left > 20ms)
+					{
+						const auto coarse = duration_cast<milliseconds>(left - 20ms).count();
+						const int r = ::WSAPoll(&p, 1, static_cast<int>(std::min<long long>(coarse, 1000)));
+						if (r != 0) return r > 0;
+						continue;
+					}
+					const int r = ::WSAPoll(&p, 1, 0);
+					if (r != 0) return r > 0;
+					sleep_precise(std::min<nanoseconds>(left, 1ms));
+				}
+			}
+
+			void sleep_precise(std::chrono::nanoseconds d)
+			{
+				if (timer_ == nullptr)
+				{
+					timer_ = ::CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+					if (timer_ == nullptr) throw std::system_error(static_cast<int>(::GetLastError()), std::system_category(), "opcase: CreateWaitableTimerEx");
+				}
+				LARGE_INTEGER due{};
+				due.QuadPart = -std::max<long long>(1, d.count() / 100);  // relative, in 100 ns units
+				if (!::SetWaitableTimer(timer_, &due, 0, nullptr, nullptr, FALSE)) throw std::system_error(static_cast<int>(::GetLastError()), std::system_category(), "opcase: SetWaitableTimer");
+				::WaitForSingleObject(timer_, INFINITE);
+			}
+#else
 			~Client()
 			{
 				if (fd_ >= 0) ::close(fd_);
 			}
+#endif
 			Client(const Client&) = delete;
 			Client& operator=(const Client&) = delete;
 
 			bool connect(std::uint16_t port)
 			{
+#if defined(_WIN32)
+				winsock_once();
+				const SOCKET s = ::WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+				if (s == INVALID_SOCKET) throw std::system_error(WSAGetLastError(), std::system_category(), "opcase: socket");
+				fd_ = static_cast<int>(static_cast<std::intptr_t>(s));
+				const BOOL one = TRUE;
+				::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
+				sockaddr_in a{};
+				a.sin_family = AF_INET;
+				a.sin_port = htons(port);
+				a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+				t_.before_connect = Clock::now();
+				if (::connect(s, reinterpret_cast<const sockaddr*>(&a), sizeof(a)) != 0) return false;
+				t_.after_connect = Clock::now();
+				sockaddr_in local{};
+				int n = sizeof(local);
+				::getsockname(s, reinterpret_cast<sockaddr*>(&local), &n);
+				t_.local_port = ntohs(local.sin_port);
+				t_.connected = true;
+				return true;
+#else
 				fd_ = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 				if (fd_ < 0) throw std::system_error(errno, std::generic_category(), "opcase: socket");
 				const int one = 1;
@@ -129,6 +232,7 @@ namespace oneport::opcase
 				t_.local_port = ntohs(local.sin_port);
 				t_.connected = true;
 				return true;
+#endif
 			}
 
 			/// Reads what the server sends until `until`, or until it closes. With
@@ -140,9 +244,14 @@ namespace oneport::opcase
 					if (stop_at_line && has_line()) return;
 					const auto now = Clock::now();
 					const auto left = until > now ? std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count() + 1 : 0;
+#if defined(_WIN32)
+					(void)left;
+					const int r = wait_readable(std::min(until, now + std::chrono::seconds(1))) ? 1 : 0;
+#else
 					pollfd p{fd_, POLLIN, 0};
 					const int r = ::poll(&p, 1, static_cast<int>(std::min<long long>(left, 1000)));
 					if (r < 0 && errno == EINTR) continue;
+#endif
 					if (r > 0) read_some();
 					if (Clock::now() >= until) return;
 				}
@@ -154,8 +263,13 @@ namespace oneport::opcase
 				if (closed()) return;
 				const auto now = Clock::now();
 				const auto left = until > now ? std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count() + 1 : 0;
+#if defined(_WIN32)
+				(void)left;
+				const int r = wait_readable(std::min(until, now + std::chrono::seconds(1))) ? 1 : 0;
+#else
 				pollfd p{fd_, POLLIN, 0};
 				const int r = ::poll(&p, 1, static_cast<int>(std::min<long long>(left, 1000)));
+#endif
 				if (r > 0) read_some();
 			}
 
@@ -274,6 +388,14 @@ namespace oneport::opcase
 				std::size_t done = 0;
 				while (done < b.size())
 				{
+#if defined(_WIN32)
+					const int w = ::send(as_socket(fd_), reinterpret_cast<const char*>(b.data() + done), static_cast<int>(std::min<std::size_t>(b.size() - done, std::size_t{1} << 30)), 0);
+					if (w == SOCKET_ERROR)
+					{
+						t_.write_failed = true;
+						return;
+					}
+#else
 					const ssize_t w = ::send(fd_, b.data() + done, b.size() - done, MSG_NOSIGNAL);
 					if (w < 0)
 					{
@@ -281,11 +403,28 @@ namespace oneport::opcase
 						t_.write_failed = true;
 						return;
 					}
+#endif
 					done += static_cast<std::size_t>(w);
 				}
 				t_.sent.insert(t_.sent.end(), b.begin(), b.end());
 			}
 
+#if defined(_WIN32)
+			void shutdown_write()
+			{
+				if (fd_ >= 0) ::shutdown(as_socket(fd_), SD_SEND);
+			}
+
+			void reset()
+			{
+				if (fd_ < 0) return;
+				const linger l{1, 0};
+				::setsockopt(as_socket(fd_), SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&l), sizeof(l));
+				::closesocket(as_socket(fd_));
+				fd_ = -1;
+				t_.client_reset = true;
+			}
+#else
 			void shutdown_write()
 			{
 				if (fd_ >= 0) ::shutdown(fd_, SHUT_WR);
@@ -300,6 +439,7 @@ namespace oneport::opcase
 				fd_ = -1;
 				t_.client_reset = true;
 			}
+#endif
 
 			TimePoint limit() const { return Clock::now() + limits_.wait; }
 
@@ -315,7 +455,20 @@ namespace oneport::opcase
 
 			void read_some()
 			{
+#if defined(_WIN32)
+				// Called only after WSAPoll reported the socket readable, so the read does not block.
+				const int n = ::recv(as_socket(fd_), reinterpret_cast<char*>(buf_.data()), static_cast<int>(buf_.size()), 0);
+				if (n == SOCKET_ERROR)
+				{
+					const int e = WSAGetLastError();
+					if (e == WSAEWOULDBLOCK || e == WSAEINTR) return;
+					t_.reset = true;
+					t_.end = Clock::now();
+					return;
+				}
+#else
 				const ssize_t n = ::recv(fd_, buf_.data(), buf_.size(), MSG_DONTWAIT);
+#endif
 				if (n > 0)
 				{
 					if (!t_.first_byte) t_.first_byte = Clock::now();
@@ -400,6 +553,9 @@ namespace oneport::opcase
 			const Limits& limits_;
 			int fd_ = -1;
 			std::vector<std::byte> buf_ = std::vector<std::byte>(65536);
+#if defined(_WIN32)
+			HANDLE timer_ = nullptr;  // the high-resolution waitable timer of wait_readable()
+#endif
 		};
 
 	}  // namespace

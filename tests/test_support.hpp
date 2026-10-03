@@ -29,6 +29,9 @@ namespace oneport::test
 	void register_handler_tests(Registry& r);  // Linux with TLS only; empty elsewhere
 	void register_relay_tests(Registry& r);    // Linux with TLS only; empty elsewhere
 	void register_gen_tests(Registry& r);      // opgen, opcase and ophold (tests/gen_tests.cpp); the pure parts on every platform
+#if defined(_WIN32)
+	void register_iocp_tests(Registry& r);     // Windows with TLS (M6a): the IOCP pins and the server on IOCP
+#endif
 
 	/// Runs hard case `hc` on `backend` ("epoll" or "io_uring") with `dispatch` ("inproc" or
 	/// "relay") in detection mode `mode` ("replay" or "peek"). Returns the process exit code.

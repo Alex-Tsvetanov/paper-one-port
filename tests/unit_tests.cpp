@@ -147,7 +147,7 @@ namespace
 			{"--detect", "Replay"},    {"--detect", "peeking"},    {"--dispatch", "in-process"}, {"--dispatch", "Relay"},
 			{"--backend", "iocp"},     {"--backend", "uring"},     {"--backend", "IO_URING"},    {"--backend", "Epoll"},
 			{"--iocp-receive", "zero"}, {"--relay-copy", "user"},  {"--proxy", "yes"},           {"--fallback", "smtp"},
-			{"--fallback", "ssh"},     {"--listener", "reuse"},
+			{"--fallback", "ssh"},     {"--listener", "reuse"},       {"--iocp-accept", "with-buffer"},
 		};
 		for (const auto& [flag, value] : wrong)
 		{
@@ -201,6 +201,7 @@ namespace
 		                         "dispatch inproc\n"
 		                         "backend epoll\n"
 		                         "iocp-receive zero-byte\n"
+		                         "iocp-accept no-buffer\n"
 		                         "relay-copy user-space\n"
 		                         "proxy off\n"
 		                         "fallback none\n"
@@ -218,12 +219,12 @@ namespace
 
 	Result flags_options()
 	{
-		const Args a = with(base(), {"--iocp-receive", "posted", "--relay-copy", "splice", "--proxy", "on", "--fallback", "SMTP",
+		const Args a = with(base(), {"--iocp-receive", "posted", "--iocp-accept", "buffer", "--relay-copy", "splice", "--proxy", "on", "--fallback", "SMTP",
 		                             "--listener", "reuseport", "--workers", "2", "--port", "8080", "--relay-port", "9000",
 		                             "--t-fb-ms", "60000", "--t-dec-ms", "60000", "--t-hdr-ms", "250"});
 		const auto r = parse(a, Platform::Linux);
 		CHECK(r.has_value(), "every option parses: " << r.error());
-		for (const char* line : {"iocp-receive posted", "relay-copy splice", "proxy on", "fallback SMTP", "listener reuseport", "workers 2",
+		for (const char* line : {"iocp-receive posted", "iocp-accept buffer", "relay-copy splice", "proxy on", "fallback SMTP", "listener reuseport", "workers 2",
 		                         "port 8080", "relay-port 9000", "t-fb-ms 60000", "t-dec-ms 60000", "t-hdr-ms 250"})
 		{
 			CHECK(has_line(r->config, line), "describe echoes '" << line << "'");
@@ -281,6 +282,10 @@ namespace
 			      "reuseport on " << b << " parses");
 		}
 		CHECK(parse(with(base("IOCP"), {"--iocp-receive", "posted"}), Platform::Windows).has_value(), "the posted form on IOCP parses");
+		CHECK(parse(with(base("IOCP"), {"--iocp-accept", "buffer"}), Platform::Windows).has_value(), "AcceptEx with a receive buffer on IOCP parses");
+		CHECK(refused_with(with(base("IOCP"), {"--iocp-accept", "buffer", "--fallback", "SMTP"}), Platform::Windows,
+		                   "--iocp-accept buffer needs --fallback none"),
+		      "AcceptEx with a receive buffer is refused with a fallback (proposal I5)");
 		return std::nullopt;
 	}
 
@@ -318,7 +323,7 @@ namespace
 		const auto mixed = parse(with(base(), {"--help"}), Platform::Linux);
 		CHECK(mixed.has_value() && mixed->kind == oneport::Command::help, "--help after an arm is a help command");
 		const std::string text = oneport::usage();
-		for (const char* f : {"--mode", "--detect", "--dispatch", "--backend", "--iocp-receive", "--relay-copy", "--proxy", "--fallback",
+		for (const char* f : {"--mode", "--detect", "--dispatch", "--backend", "--iocp-receive", "--iocp-accept", "--relay-copy", "--proxy", "--fallback",
 		                      "--listener", "--workers", "--port", "--relay-port", "--t-fb-ms", "--t-dec-ms", "--t-hdr-ms", "--print-config",
 		                      "--help"})
 		{
@@ -610,11 +615,19 @@ int main(int argc, char** argv)
 	if (a.size() == 5 && a[0] == "case")
 	{
 		const int hc = std::atoi(std::string(a[1]).c_str());
+#if defined(_WIN32)
+		// IOCP, in-process: relay dispatch is Linux only (hypotheses.md, section 2.1).
+		if (hc < 1 || hc > 25 || a[2] != "IOCP" || a[3] != "inproc" || (a[4] != "replay" && a[4] != "peek"))
+		{
+			return usage_error("bad case arguments");
+		}
+#else
 		if (hc < 1 || hc > 25 || (a[2] != "epoll" && a[2] != "io_uring") || (a[3] != "inproc" && a[3] != "relay") ||
 		    (a[4] != "replay" && a[4] != "peek"))
 		{
 			return usage_error("bad case arguments");
 		}
+#endif
 		return oneport::test::run_case(hc, a[2], a[3], a[4]);
 	}
 	if (a.size() >= 2 && a[0] == "test")
@@ -628,6 +641,9 @@ int main(int argc, char** argv)
 		oneport::test::register_handler_tests(registry);
 		oneport::test::register_relay_tests(registry);
 		oneport::test::register_gen_tests(registry);
+#if defined(_WIN32)
+		oneport::test::register_iocp_tests(registry);
+#endif
 		if (a.size() >= 3) oneport::test::binary_path() = std::string(a[2]);
 		for (std::size_t i = 3; i < a.size(); ++i) oneport::test::extra_paths().emplace_back(a[i]);
 		const auto it = registry.find(a[1]);

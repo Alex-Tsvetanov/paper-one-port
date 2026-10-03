@@ -14,15 +14,20 @@
 // while it waits, the connection reads nothing more, and the read resumes after the flush.
 #include "worker.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include <algorithm>
 #include <cstring>
 
 #include <openssl/err.h>
+#if defined(__linux__)
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
+#if defined(_WIN32)
+#include <climits>
+#endif
 
 namespace oneport::server::detail
 {
@@ -130,8 +135,25 @@ namespace oneport::server::detail
 				c->last_read_full = true;
 				break;
 			}
+#if defined(_WIN32)
+			// IOCP's zero-byte form, the switch to replay and the handlers: a synchronous recv on
+			// the non-blocking socket after the zero-byte WSARecv's completion.
+			const int n = ::recv(sock(c->fd), reinterpret_cast<char*>(c->buf->data.data() + c->len), static_cast<int>(room), 0);
+			++c_.recv_calls;
+			if (n == SOCKET_ERROR)
+			{
+				const int e = WSAGetLastError();
+				if (e != WSAEWOULDBLOCK)
+				{
+					r.error = true;
+					r.reset = e == WSAECONNRESET;
+				}
+				break;
+			}
+#else
 			const ssize_t n = ::recv(c->fd, c->buf->data.data() + c->len, room, 0);
 			++c_.recv_calls;
+#endif
 			if (n > 0)
 			{
 				c->len += static_cast<std::uint32_t>(n);
@@ -405,6 +427,16 @@ namespace oneport::server::detail
 
 	bool Worker::emit(Conn* c, std::span<const std::byte> bytes)
 	{
+#if defined(_WIN32)
+		if (!c->pend.empty() && (c->posted & bit(Op::poll_out)) != 0)
+		{
+			// IOCP: the queue's WSASend reads `pend` until it completes, so output behind it waits
+			// in `pend_more`, a copy in user space (I29), as an append to the queue is.
+			c->pend_more.insert(c->pend_more.end(), bytes.begin(), bytes.end());
+			c_.bytes_copied += bytes.size();
+			return true;
+		}
+#endif
 		if (!c->pend.empty())
 		{
 			// Behind output that waits: appended to the queue, a copy in user space (I29).
@@ -412,6 +444,17 @@ namespace oneport::server::detail
 			c_.bytes_copied += bytes.size();
 			return true;
 		}
+#if defined(_WIN32)
+		// A synchronous send on the non-blocking socket, as on epoll; at most INT_MAX bytes a call.
+		const int w = ::send(sock(c->fd), reinterpret_cast<const char*>(bytes.data()), static_cast<int>(std::min<std::size_t>(bytes.size(), INT_MAX)), 0);
+		++c_.send_calls;
+		if (w == SOCKET_ERROR && WSAGetLastError() != WSAEWOULDBLOCK)
+		{
+			close_conn(c);
+			return false;
+		}
+		const auto done = static_cast<std::size_t>(std::max(w, 0));
+#else
 		const ssize_t w = ::send(c->fd, bytes.data(), bytes.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
 		++c_.send_calls;
 		if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
@@ -420,6 +463,7 @@ namespace oneport::server::detail
 			return false;
 		}
 		const auto done = static_cast<std::size_t>(std::max<ssize_t>(w, 0));
+#endif
 		c_.bytes_sent += done;
 		c->bytes_sent += done;
 		if (done == bytes.size()) return true;
@@ -431,6 +475,7 @@ namespace oneport::server::detail
 		return true;
 	}
 
+#if defined(__linux__)
 	void Worker::want_out(Conn* c)
 	{
 		if (uring())
@@ -499,6 +544,7 @@ namespace oneport::server::detail
 		}
 		return c->id == id && c->fd >= 0 && !c->zombie;
 	}
+#endif  // __linux__: want_out and flush; IOCP's are in iocp.cpp
 
 	// ---- Connections ----
 
@@ -510,11 +556,13 @@ namespace oneport::server::detail
 	Conn* Worker::new_conn(int fd)
 	{
 		const auto slot = static_cast<std::size_t>(fd);
+#if defined(__linux__)
 		if (slot >= by_fd_.size())
 		{
 			by_fd_.resize(slot + 1, nullptr);
 			gen_by_fd_.resize(slot + 1, 0);
 		}
+#endif
 		Conn* c = nullptr;
 		std::uint32_t index = 0;
 		std::uint32_t gen = 0;
@@ -538,7 +586,9 @@ namespace oneport::server::detail
 		// io_uring: the generation of the slot (24 bits, the user_data's field).
 		c->gen = uring() ? ((gen + 1) & 0xFFFFFFu) : (++gen_by_fd_[slot] & 0x3FFFFFFFu);
 		c->id = ++next_id_;
+#if defined(__linux__)
 		by_fd_[slot] = c;
+#endif
 		++open_;
 		return c;
 	}
@@ -576,6 +626,7 @@ namespace oneport::server::detail
 			r.bytes_sent = c->bytes_sent;
 			shared_.hooks.closed(shared_.hooks.ctx, r);
 		}
+#if defined(__linux__)
 		if (by_fd_[static_cast<std::size_t>(c->fd)] == c) by_fd_[static_cast<std::size_t>(c->fd)] = nullptr;
 		if (c->relay)
 		{
@@ -605,6 +656,13 @@ namespace oneport::server::detail
 			++c_.setsockopt_calls;
 		}
 		::close(c->fd);  // on epoll this also removes it from the set; io_uring holds it until its operations end
+#else
+		// IOCP: closing the socket cancels its operations, whose completions still arrive; their
+		// OVERLAPPED, buffers and the queue a WSASend reads stay until then (finalize).
+		::closesocket(sock(c->fd));
+		if ((c->posted & bit(Op::poll_out)) != 0) c->sending.swap(c->pend);
+		c->pend_more.clear();
+#endif
 		c->fd = -1;
 		c->pend.clear();
 		c->pend.shrink_to_fit();
@@ -637,6 +695,10 @@ namespace oneport::server::detail
 			if (c->relay->down.buf != nullptr) pool_.put(c->relay->down.buf);
 			c->relay.reset();
 		}
+#if defined(_WIN32)
+		c->sending.clear();
+		c->sending.shrink_to_fit();
+#endif
 		free_conns_.push_back(c);
 	}
 
@@ -656,9 +718,11 @@ namespace oneport::server::detail
 		c_.conns_open = open_;
 		c_.buffers_allocated = pool_.allocated();
 		c_.buffers_outstanding = pool_.outstanding();
+#if defined(__linux__)
 		if (ep_) c_.passes = ep_->passes();
+#endif
 	}
 
 }  // namespace oneport::server::detail
 
-#endif  // __linux__
+#endif  // __linux__ || _WIN32

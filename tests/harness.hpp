@@ -42,6 +42,10 @@ namespace oneport::test
 		std::chrono::milliseconds t_fb{300};
 		std::chrono::milliseconds t_dec{300};
 		std::chrono::milliseconds t_hdr{300};
+#if defined(_WIN32)
+		IocpReceive iocp_receive = IocpReceive::zero_byte;  // rule E's receive form (M6a)
+		IocpAccept iocp_accept = IocpAccept::no_buffer;     // the AcceptEx form (M6a)
+#endif
 	};
 
 	inline Config make_config(const ServerArgs& a)
@@ -60,6 +64,10 @@ namespace oneport::test
 		c.t_fb_ms = a.t_fb.count();
 		c.t_dec_ms = a.t_dec.count();
 		c.t_hdr_ms = a.t_hdr.count();
+#if defined(_WIN32)
+		c.iocp_receive = a.iocp_receive;
+		c.iocp_accept = a.iocp_accept;
+#endif
 		return c;
 	}
 

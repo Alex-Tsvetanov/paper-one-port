@@ -10,9 +10,30 @@
 // Output is a synchronous send on both; what the socket does not take waits in the connection's
 // queue for writability (EPOLLOUT, or an IORING_OP_POLL_ADD for POLLOUT). Relay dispatch and
 // pass-through are in relay.cpp.
+//
+// On Windows (M6a) the worker runs on IOCP (iocp.cpp), completion-based like io_uring: a zero-byte
+// WSARecv is the readiness of the peek path and of rule E's zero-byte form, then a synchronous
+// recv or MSG_PEEK on the non-blocking socket; rule E's posted form posts the WSARecv with the
+// handler's buffer. Output is the synchronous send; what the socket does not take waits in the
+// connection's queue for an overlapped WSASend of it. Accept is AcceptEx, N_ACCEPTEX outstanding
+// per listener. Relay dispatch is Linux only (hypotheses.md, section 2.1).
 #pragma once
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
+
+#if defined(_WIN32)
+// Winsock before anything that may include windows.h.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <mswsock.h>
+#include <windows.h>
+#endif
 
 #include "apps.hpp"
 #include "h2.hpp"
@@ -34,9 +55,11 @@
 #include <system_error>
 #include <vector>
 
+#if defined(__linux__)
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/types.h>
+#endif
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
@@ -62,7 +85,9 @@ namespace oneport::server::detail
 	using std::chrono::nanoseconds;
 
 	constexpr std::uint64_t kListenerTag = std::uint64_t{1} << 62;
+#if defined(__linux__)
 	constexpr std::uint32_t kConnEvents = EPOLLIN | EPOLLRDHUP | EPOLLET;
+#endif
 
 	/// io_uring: the provided-buffer group of the handlers' receive buffers, and how many buffers
 	/// its ring holds free. A design choice of M2b: 128, twice WL1's 64 connection slots per
@@ -85,6 +110,36 @@ namespace oneport::server::detail
 	constexpr std::uint32_t kHelloWireMax = 6 * detect::kBCh;
 
 	[[noreturn]] inline void throw_errno(const char* what) { throw std::system_error(errno, std::generic_category(), what); }
+
+#if defined(_WIN32)
+	using ssize_t = std::ptrdiff_t;
+
+	/// The last Winsock error as a std::system_error.
+	[[noreturn]] inline void throw_wsa(const char* what) { throw std::system_error(WSAGetLastError(), std::system_category(), what); }
+
+	/// A SOCKET kept in the shared code's `int fd`, where -1 stays "closed". Socket handles of the
+	/// Windows TCP/IP provider are kernel handles, and a 64-bit process may truncate a kernel handle
+	/// to its lower 32 bits or sign-extend it back (Microsoft, "Interprocess Communication Between
+	/// 32-bit and 64-bit Applications"); INVALID_SOCKET sign-extends from -1. fd_of() checks it.
+	inline SOCKET sock(int fd) noexcept { return static_cast<SOCKET>(static_cast<std::intptr_t>(fd)); }
+	inline int fd_of(SOCKET s)
+	{
+		const auto v = static_cast<std::intptr_t>(s);
+		if (v < 0 || v > static_cast<std::intptr_t>(0x7FFFFFFF)) throw std::runtime_error("oneport: a socket handle does not fit in 32 bits");
+		return static_cast<int>(v);
+	}
+
+	/// The completion keys of a worker's port: its connections, and each listener by its index.
+	constexpr std::uintptr_t kConnKey = 16;
+	constexpr std::uintptr_t kListenerKeyBase = 32;
+
+	/// N_ACCEPTEX (hypotheses.md, section 9.1; proposal I5): the AcceptEx requests each listener
+	/// keeps outstanding, the same in both modes. A design choice of M6a: 64, WL1's connection slots
+	/// per server core, so every slot of a closed loop finds an AcceptEx posted when it reconnects.
+	constexpr std::size_t kAcceptEx = 64;
+	/// AcceptEx's room for each address: sizeof(sockaddr_in) + 16 (AcceptEx docs).
+	constexpr std::uint32_t kAcceptAddr = sizeof(sockaddr_in) + 16;
+#endif
 
 	// ---- Buffers: the handlers' receive buffers, from a per-worker free list ----
 
@@ -211,6 +266,43 @@ namespace oneport::server::detail
 		hello,
 	};
 
+#if defined(_WIN32)
+	/// IOCP: one overlapped operation of a connection, its OVERLAPPED first, so a completion's
+	/// pointer is the operation's. The ops it uses: Op::poll_in, the zero-byte WSARecv (readiness);
+	/// Op::recv, the WSARecv with the handler's buffer (rule E's posted form); Op::poll_out, the
+	/// overlapped WSASend of the output queue (the wait for writability).
+	struct IoOp
+	{
+		OVERLAPPED ov{};
+		std::uint32_t slot = 0;
+		Op op = Op::recv;
+	};
+
+	/// IOCP: one outstanding AcceptEx of a listener. With --iocp-accept buffer it receives into a
+	/// handler's buffer: the data first, then the two addresses in the buffer's last 2 * kAcceptAddr
+	/// bytes (AcceptEx docs); otherwise only the addresses, into `addrs`.
+	struct AcceptReq
+	{
+		OVERLAPPED ov{};
+		std::size_t listener = 0;
+		SOCKET s = INVALID_SOCKET;
+		bool posted = false;
+		Buffer* buf = nullptr;
+		std::array<std::byte, 2 * kAcceptAddr> addrs{};
+	};
+
+	/// IOCP: an operation that completed at once. FILE_SKIP_COMPLETION_PORT_ON_SUCCESS (proposal I5)
+	/// queues no packet for it, so the worker handles it from a queue in the same pass (settle()).
+	struct Inline
+	{
+		std::uint32_t slot = 0;
+		std::uint32_t gen = 0;
+		Op op = Op::recv;
+		std::uint32_t bytes = 0;
+		int error = 0;  // a Winsock error, 0 on success
+	};
+#endif
+
 	struct ListenerState;
 	struct Conn;
 
@@ -332,6 +424,19 @@ namespace oneport::server::detail
 
 		std::unique_ptr<Relay> relay;
 
+#if defined(_WIN32)
+		// IOCP: its overlapped operations (IoOp); the output emitted while the queue's WSASend is
+		// in flight, which may not touch `pend` until it completes; a closed connection's queue,
+		// kept until that WSASend completes.
+		IoOp io_zero{};
+		IoOp io_recv{};
+		IoOp io_send{};
+		std::vector<std::byte> pend_more;
+		std::vector<std::byte> sending;
+		bool no_peek = false;        // detection reads into the handler's buffer: after IOCP's switch (I11) or AcceptEx's buffer
+		bool peek_switched = false;  // an undecided peek switched it to replay (peek_to_replay)
+#endif
+
 		/// The application handler's state, by `app`.
 		union
 		{
@@ -383,6 +488,10 @@ namespace oneport::server::detail
 		const ListenerSpec* spec = nullptr;
 		std::array<DeadlineList, 3> lists{};
 		bool accept_armed = false;  // io_uring: its multishot accept is in flight
+#if defined(_WIN32)
+		std::vector<std::unique_ptr<AcceptReq>> accepts;  // IOCP: N_ACCEPTEX outstanding AcceptEx requests
+		bool accept_buffer = false;  // --iocp-accept buffer applies: a one-port listener (no fallback, by the parser)
+#endif
 	};
 
 	inline std::span<const std::byte> as_bytes(std::string_view s) noexcept { return std::as_bytes(std::span<const char>(s.data(), s.size())); }
@@ -402,6 +511,10 @@ namespace oneport::server::detail
 		bool relay = false;
 		bool splice = false;                                // --relay-copy splice
 		std::array<sockaddr_in, detect::kProtos> backends{};  // by class, the backend's ports in the order of I20
+#if defined(_WIN32)
+		IocpReceive iocp_receive = IocpReceive::zero_byte;  // rule E's receive form
+		IocpAccept iocp_accept = IocpAccept::no_buffer;     // the AcceptEx form
+#endif
 	};
 
 	struct ReadResult
@@ -431,7 +544,16 @@ namespace oneport::server::detail
 		const std::optional<std::string>& error() const noexcept { return error_; }
 
 	private:
+#if defined(__linux__)
 		bool uring() const noexcept { return shared_.backend == Backend::io_uring; }
+#else
+		/// IOCP is completion-based like io_uring, so the shared paths that post an operation and
+		/// wait for its completion take io_uring's branch: pending_io after accept and after the
+		/// PROXY header, want_read when a handler wants input, the close's cancel of what is in
+		/// flight, the slot's generation. Their IOCP implementations are in iocp.cpp; nothing
+		/// io_uring-specific is compiled on Windows.
+		bool uring() const noexcept { return true; }
+#endif
 
 		// ---- The pass (worker.cpp; io_uring's in uring.cpp) ----
 
@@ -456,7 +578,13 @@ namespace oneport::server::detail
 
 		/// Peek mode on a one-port listener peeks the header and consumes it exactly; replay
 		/// mode, and every dedicated listener, reads it into the handler's buffer.
+#if defined(__linux__)
 		bool peeks(const Conn* c) const noexcept { return c->listener->spec->detects && shared_.detect == Detect::peek; }
+#else
+		/// On IOCP a connection stops peeking once an undecided peek switched it to replay (I11), or
+		/// when AcceptEx's receive buffer took its first bytes out of the socket.
+		bool peeks(const Conn* c) const noexcept { return c->listener->spec->detects && shared_.detect == Detect::peek && !c->no_peek; }
+#endif
 
 		/// Readiness during the header: the peek path (both backends), or a read (epoll replay).
 		void on_proxy_readable(Conn* c, bool rdhup);
@@ -581,6 +709,7 @@ namespace oneport::server::detail
 
 		// ---- io_uring (uring.cpp) ----
 
+#if defined(__linux__)
 		void run_uring();
 
 		void pass_uring();
@@ -590,6 +719,7 @@ namespace oneport::server::detail
 		void on_accept_completion(const loop::Completion& x);
 
 		std::uint64_t ud(const Conn* c, Op op) const noexcept;
+#endif
 
 		/// Posts `op`'s submission bookkeeping: its bit, for the close to cancel it.
 		void posted(Conn* c, Op op) noexcept { c->posted = static_cast<std::uint16_t>(c->posted | bit(op)); }
@@ -608,6 +738,7 @@ namespace oneport::server::detail
 		/// is posted already.
 		void want_read(Conn* c);
 
+#if defined(__linux__)
 		/// A receive's bytes into `buf` (a provided buffer the completion names becomes it), the
 		/// `res` bytes unpoisoned for MSan.
 		ReadResult take_recv(Conn* c, Buffer*& buf, std::uint32_t& len, const loop::Completion& x);
@@ -617,19 +748,68 @@ namespace oneport::server::detail
 
 		/// Puts one buffer from the pool into the ring.
 		void provide_one();
+#endif
 
 		/// io_uring replay's check of 1(b): the non-waiting reap, every completion handled. Returns
 		/// the result of `c`'s receive completion if one was among them.
 		std::optional<int> reap_for(Conn* c);
 
+#if defined(__linux__)
 		/// Sets up the ring's provided buffers.
 		void provide_ring();
+#endif
 
 		/// After close(): cancels what is in flight; the connection is freed when the last
 		/// completion arrives (finalize).
 		void cancel_all(Conn* c);
 
 		void finalize(Conn* c);
+
+#if defined(_WIN32)
+		// ---- IOCP (iocp.cpp) ----
+		// post_recv, post_poll_in, pending_io, want_read, reap_for, cancel_all, want_out and flush
+		// above have IOCP implementations there too: post_poll_in posts the zero-byte WSARecv,
+		// post_recv the WSARecv with the handler's buffer (rule E's posted form), want_out the
+		// overlapped WSASend of the queue, and flush continues after its completion.
+
+		void run_iocp();
+
+		void pass_iocp();
+
+		/// Handles every completion IOCP reported at once (Inline), in order, as the port's.
+		void settle();
+
+		void on_entry(const loop::IocpEntry& x);
+
+		void on_accept_entry(AcceptReq& r, const loop::IocpEntry& x);
+
+		/// Posts one AcceptEx on the listener with a new socket (and, in the buffer form, a buffer).
+		void post_accept(ListenerState& l, AcceptReq& r);
+
+		/// A connection operation's end, from the port or from settle(): `bytes` moved, `error` a
+		/// Winsock error or 0.
+		void on_op(Conn* c, Op op, std::uint32_t bytes, int error);
+
+		/// An operation that completed at once: handled by settle(), in this pass.
+		void queue_inline(Conn* c, Op op, std::uint32_t bytes, int error);
+
+		/// The overlapped WSASend of the queue's unsent bytes, pend[pend_off, end).
+		void post_send(Conn* c);
+
+		/// IOCP has no SO_RCVLOWAT, so an undecided peek switches the connection to replay for the
+		/// rest of its detection (hypotheses.md, section 2.1; proposal I11): the queued bytes are
+		/// read into the handler's buffer now and matching continues there. Counted (I29).
+		void switch_to_replay(Conn* c);
+
+		/// The non-waiting reap of 1(b) and the stop's drain hand their completions here.
+		void take_entries(std::span<const loop::IocpEntry> xs);
+
+		/// At stop: every connection closed, every AcceptEx cancelled, and their completions
+		/// drained before the requests' memory goes.
+		void stop_iocp();
+
+		bool posted_form() const noexcept { return shared_.iocp_receive == IocpReceive::posted; }
+#endif
 
 		// ---- Relay dispatch and pass-through (relay.cpp) ----
 
@@ -682,8 +862,10 @@ namespace oneport::server::detail
 		/// An error or a reset on either side: both are closed, by reset if a side reset.
 		void relay_abort(Conn* c, bool reset);
 
+#if defined(__linux__)
 		/// io_uring: a completion of one of the relay's operations.
 		void relay_completion(Conn* c, Op op, const loop::Completion& x);
+#endif
 
 		/// io_uring: what a direction waits for next, after any bytes it holds are sent.
 		void relay_next_uring(Conn* c, bool up);
@@ -700,8 +882,19 @@ namespace oneport::server::detail
 
 		unsigned index_;
 		const Shared& shared_;
+#if defined(__linux__)
 		std::unique_ptr<loop::EpollLoop> ep_;
 		std::unique_ptr<loop::UringLoop> ur_;
+#else
+		std::unique_ptr<loop::IocpLoop> ic_;
+		std::vector<Inline> inline_;  // operations that completed at once, handled by settle()
+		std::size_t inline_at_ = 0;   // settle()'s position in inline_
+		LPFN_ACCEPTEX accept_ex_ = nullptr;
+		LPFN_GETACCEPTEXSOCKADDRS accept_addrs_ = nullptr;
+		std::size_t accepts_in_flight_ = 0;  // AcceptEx requests whose completion has not been taken
+		Buffer* accept_buf_ = nullptr;       // --iocp-accept buffer: the accepted connection's first bytes, for pending_io()
+		std::uint32_t accept_bytes_ = 0;
+#endif
 		std::vector<ListenerState> listeners_;
 		std::vector<std::unique_ptr<Conn>> conns_;
 		std::vector<Conn*> free_conns_;
@@ -727,4 +920,4 @@ namespace oneport::server::detail
 
 }  // namespace oneport::server::detail
 
-#endif  // __linux__
+#endif  // __linux__ || _WIN32

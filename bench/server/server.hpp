@@ -184,6 +184,10 @@ namespace oneport::server
 		detect::ProxySource proxy{};
 		bool timed = false;
 		TimedEvent event{};
+		/// IOCP (M6a): its detection read into the handler's buffer, after an undecided peek switched
+		/// it to replay (I11) or after AcceptEx's receive buffer took its first bytes, so replay's
+		/// bound of B2(d) applies to it. Always false on Linux.
+		bool replayed = false;
 	};
 
 	/// A connection's close (test hook).

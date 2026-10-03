@@ -13,8 +13,19 @@ namespace oneport::server
 
 	std::optional<std::string> not_served(const Config& config)
 	{
+#if defined(_WIN32)
+		if (config.backend != Backend::iocp) return "the epoll and io_uring backends are Linux only";
+		if (config.mode == Mode::one_port && config.dispatch == Dispatch::relay) return "relay dispatch is Linux only (hypotheses.md, section 2.1)";
+		if (config.workers > 1)
+		{
+			return "IOCP with more than one worker: proposal I4 shares one completion port among the worker threads, "
+			       "which M6a does not build (design/status-m6.md)";
+		}
+		return std::nullopt;
+#else
 		if (config.backend == Backend::iocp) return "the IOCP backend is M6 (Windows)";
 		return std::nullopt;
+#endif
 	}
 
 	std::vector<ListenerSpec> listener_specs(const Config& config)

@@ -340,7 +340,7 @@ namespace oneport::server
 
 	std::size_t Server::conn_state_bytes() noexcept { return sizeof(detail::Conn); }
 
-#else  // not Linux: nothing is served here yet (IOCP is M6)
+#elif !defined(_WIN32)  // neither Linux nor Windows: nothing is served (Windows: server_win.cpp)
 
 	struct Server::Impl
 	{

@@ -223,9 +223,24 @@ namespace oneport::loop
 
 #elif defined(_WIN32)
 
+	/// One IOCP completion, copied out of the port's OVERLAPPED_ENTRY (M6a).
+	struct IocpEntry
+	{
+		std::uintptr_t key = 0;      // the completion key the handle was associated with
+		void* overlapped = nullptr;  // the operation's OVERLAPPED
+		std::uint32_t bytes = 0;     // the bytes the operation transferred
+		std::uintptr_t status = 0;   // the operation's status (OVERLAPPED::Internal, an NTSTATUS); 0 on success
+	};
+
 	class IocpLoop
 	{
 	public:
+		/// The most completions one wait returns. A design choice of M6a, as EpollLoop's
+		/// kMaxEvents: the 64 connection slots per server core of WL1 (hypotheses.md, section 3).
+		static constexpr std::size_t kMaxEntries = 64;
+		/// The key of the stop packet; associations must use other keys.
+		static constexpr std::uintptr_t kStopKey = 2;
+
 		/// Throws std::system_error when the port cannot be created.
 		IocpLoop();
 		~IocpLoop();
@@ -233,21 +248,40 @@ namespace oneport::loop
 		IocpLoop& operator=(const IocpLoop&) = delete;
 
 		void start();
-		/// As EpollLoop::wait. The bound is rounded up to whole milliseconds, as the wait call
-		/// takes it; such a wait can still end up to one timer tick early (proposal I13).
-		void wait(Bound bound);
+		/// As EpollLoop::wait: one GetQueuedCompletionStatusEx call that dequeues at most
+		/// kMaxEntries completions. The bound is rounded up to whole milliseconds, as the wait call
+		/// takes it; such a wait can still end up to one timer tick early (proposal I13). Returns
+		/// the completions (never the stop packet), valid until the next wait() or drain().
+		std::span<const IocpEntry> wait(Bound bound);
+		/// The non-waiting reap of hypotheses.md 1(b): dequeues what has completed, without
+		/// waiting. Not a pass. Its completions are valid until the next reap_now().
+		std::span<const IocpEntry> reap_now();
+		/// After stop(): waits at most `bound` for completions (cancelled operations finishing),
+		/// as wait() would before stop(). Not a pass. Shares wait()'s result buffer.
+		std::span<const IocpEntry> drain(std::chrono::nanoseconds bound);
+		/// Associates a handle (a SOCKET) with the port, its completions carrying `key`. Throws
+		/// std::system_error.
+		void associate(std::uintptr_t handle, std::uintptr_t key);
 		void stop() noexcept;
 		bool stopped() const noexcept { return stop_.load(std::memory_order_acquire); }
 		std::uint64_t passes() const noexcept { return passes_.load(std::memory_order_relaxed); }
+		/// GetQueuedCompletionStatusEx calls: every wait, reap and drain (proposal I29).
+		std::uint64_t gqcs_calls() const noexcept { return gqcs_calls_; }
 
 		static constexpr const char* name = "IOCP";
-		static constexpr const char* wait_method = "GetQueuedCompletionStatus";
+		static constexpr const char* wait_method = "GetQueuedCompletionStatusEx";
 
 	private:
+		/// One dequeue of at most kMaxEntries completions into `out`, waiting `wait_ms`.
+		void dequeue(unsigned long wait_ms, std::vector<IocpEntry>& out);
+
 		std::atomic<bool> stop_{false};
 		std::atomic<bool> started_{false};
 		std::atomic<std::uint64_t> passes_{0};
 		void* port_ = nullptr;  // HANDLE
+		std::uint64_t gqcs_calls_ = 0;
+		std::vector<IocpEntry> done_;    // wait() and drain()
+		std::vector<IocpEntry> reaped_;  // reap_now()
 	};
 
 #endif

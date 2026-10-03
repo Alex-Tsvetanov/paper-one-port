@@ -4,7 +4,20 @@
 // the only times checked are timer bounds and "nothing before the client spoke".
 #include "test_support.hpp"
 
-#if defined(__linux__) && defined(ONEPORT_HAVE_TLS)
+#if (defined(__linux__) || defined(_WIN32)) && defined(ONEPORT_HAVE_TLS)
+
+#if defined(_WIN32)
+// Winsock before OpenSSL's headers and anything else that may include windows.h. On Windows the
+// tests run on IOCP (M6a).
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 
 #include "apps.hpp"
 #include "cases.hpp"
@@ -25,6 +38,7 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__)
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -32,6 +46,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include <openssl/ssl.h>
 
@@ -353,6 +368,38 @@ namespace oneport::test
 
 		// ---- Output under backpressure ----
 
+		template <class D>
+		double ms_of(D d)
+		{
+			return std::chrono::duration<double, std::milli>(d).count();
+		}
+
+		/// The server's side of a failed backpressure run (design/status.md, M3, step 0, item 3):
+		/// whether it saw the client's port closed, how detection ended (by a timer, as T_dec closes
+		/// a connection with no byte as silent, or by an event; after how many wake-ups; how long
+		/// after accept), its counters and any worker error. Stops the server.
+		std::string server_side_of(Running& srv, std::uint16_t client_port)
+		{
+			std::vector<server::DetectionReport> reps;
+			const bool seen = srv.collector.wait_close(client_port, 2000ms, reps);
+			srv.server->stop();
+			const server::Counters c = srv.server->totals();
+			const auto err = srv.server->error();
+			std::ostringstream o;
+			o << "server saw the port closed: " << seen << ", detection reports " << reps.size();
+			if (!reps.empty())
+			{
+				const server::DetectionReport& r0 = reps[0];
+				o << ", outcome " << server::name(r0.outcome) << ", ended by "
+				  << (r0.timed ? std::string(server::name(r0.event.kind)) : std::string("an event")) << " after " << r0.wakeups
+				  << " wake-ups, " << ms_of(r0.end_time - r0.accept_time) << " ms after accept";
+			}
+			o << "; accepted " << c.accepted << ", closed " << c.closed << ", accept errors " << c.accept_errors << ", classified "
+			  << c.outcomes[static_cast<std::size_t>(server::Outcome::classified)] << ", bytes received " << c.bytes_received << ", sent "
+			  << c.bytes_sent << "; worker error: " << (err ? *err : std::string("none"));
+			return o.str();
+		}
+
 		/// A client that pipelines many requests over a small receive buffer and reads only after
 		/// a pause: the server's sends meet a full socket, the rest waits in the connection's
 		/// queue for EPOLLOUT, its reads wait for the flush, and every response arrives in order.
@@ -381,6 +428,70 @@ namespace oneport::test
 						for (int i = 0; i < kRequests - 1; ++i) all.insert(all.end(), kGetKeepAlive.begin(), kGetKeepAlive.end());
 						const Bytes last = opcase::http_get();
 						all.insert(all.end(), last.begin(), last.end());
+#if defined(_WIN32)
+						// The same client on Winsock: the server's queue waits for its overlapped WSASend.
+						const SOCKET fd = ::WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+						CHECK(fd != INVALID_SOCKET, "socket");
+						const int small = 4096;
+						::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&small), sizeof(small));
+						sockaddr_in addr{};
+						addr.sin_family = AF_INET;
+						addr.sin_port = htons(port_for(srv, a, detect::Proto::http1));
+						addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+						CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "connect");
+						const auto connected_at = std::chrono::steady_clock::now();
+						sockaddr_in local{};
+						int local_len = sizeof(local);
+						::getsockname(fd, reinterpret_cast<sockaddr*>(&local), &local_len);
+						const std::uint16_t local_port = ntohs(local.sin_port);
+						std::atomic<bool> written{false};
+						std::size_t sent = 0;
+						int send_error = 0;
+						std::chrono::steady_clock::time_point first_send{};
+						std::thread writer([fd, &all, &written, &sent, &send_error, &first_send] {
+							first_send = std::chrono::steady_clock::now();
+							while (sent < all.size())
+							{
+								const int w = ::send(fd, reinterpret_cast<const char*>(all.data() + sent), static_cast<int>(std::min<std::size_t>(all.size() - sent, std::size_t{1} << 30)), 0);
+								if (w <= 0)
+								{
+									send_error = w < 0 ? ::WSAGetLastError() : 0;
+									break;
+								}
+								sent += static_cast<std::size_t>(w);
+							}
+							written.store(true);
+						});
+						for (int i = 0; i < 1000 && !written.load(); ++i) std::this_thread::sleep_for(10ms);
+						Bytes in;
+						std::array<std::byte, 65536> buf{};
+						int recv_error = 0;
+						bool recv_eof = false;
+						for (;;)
+						{
+							WSAPOLLFD p{fd, POLLRDNORM, 0};
+							if (::WSAPoll(&p, 1, 10000) <= 0) break;
+							const int n = ::recv(fd, reinterpret_cast<char*>(buf.data()), static_cast<int>(buf.size()), 0);
+							if (n <= 0)
+							{
+								recv_eof = n == 0;
+								recv_error = n < 0 ? ::WSAGetLastError() : 0;
+								break;
+							}
+							in.insert(in.end(), buf.begin(), buf.begin() + n);
+						}
+						writer.join();
+						::closesocket(fd);
+						got = count(in, "Hello, World!");
+						if (in.size() != static_cast<std::size_t>(kRequests) * http1::kResponse200.size())
+						{
+							CHECK(false, a.name << ": " << in.size() << " bytes for " << kRequests << " responses; the client's first send "
+							                    << ms_of(first_send - connected_at) << " ms after its connect; client local port " << local_port
+							                    << ", server port " << port_for(srv, a, detect::Proto::http1) << ", sent " << sent << " bytes (WSA error "
+							                    << send_error << "), receive end " << (recv_eof ? "EOF" : "error") << " (WSA error " << recv_error
+							                    << "); " << server_side_of(srv, local_port));
+						}
+#else
 						const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 						const int small = 4096;
 						::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &small, sizeof(small));
@@ -444,35 +555,16 @@ namespace oneport::test
 						got = count(in, "Hello, World!");
 						if (in.size() != static_cast<std::size_t>(kRequests) * http1::kResponse200.size())
 						{
-							// The server's side of the failure (M2b saw one such run, design/status.md):
-							// whether it saw this connection, how detection ended, and its counters.
-							std::vector<server::DetectionReport> reps;
-							const bool seen = srv.collector.wait_close(local_port, 2000ms, reps);
-							srv.server->stop();
-							const server::Counters c = srv.server->totals();
-							const auto err = srv.server->error();
-							const auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
-							std::ostringstream ended;
-							if (!reps.empty())
-							{
-								// How detection ended: by a timer (T_dec closes a connection with no byte as
-								// silent) or by an event, after how many wake-ups, how long after accept.
-								const server::DetectionReport& r0 = reps[0];
-								ended << ", ended by " << (r0.timed ? std::string(server::name(r0.event.kind)) : std::string("an event")) << " after "
-								      << r0.wakeups << " wake-ups, " << ms(r0.end_time - r0.accept_time) << " ms after accept";
-							}
+							// The client's side of the failure (M2b saw one such run, design/status.md),
+							// and whether its descriptor still names this socket; then the server's side.
 							CHECK(false, a.name << ": " << in.size() << " bytes for " << kRequests << " responses; the client's first send "
-							                    << ms(first_send - connected_at) << " ms after its connect; client local port " << local_port
+							                    << ms_of(first_send - connected_at) << " ms after its connect; client local port " << local_port
 							                    << " (at the end the descriptor names " << (st1.st_ino == st0.st_ino ? "the same socket" : "another socket")
 							                    << ", local port " << ntohs(now_local.sin_port) << ", server port " << port_for(srv, a, detect::Proto::http1) << ")"
 							                    << ", sent " << sent << " bytes (errno " << send_errno << "), receive end "
-							                    << (recv_eof ? "EOF" : "error") << " (errno " << recv_errno << "); server saw the port closed: " << seen
-							                    << ", detection reports " << reps.size()
-							                    << (reps.empty() ? std::string() : std::string(", outcome ") + std::string(server::name(reps[0].outcome))) << ended.str()
-							                    << "; accepted " << c.accepted << ", closed " << c.closed << ", accept errors " << c.accept_errors
-							                    << ", classified " << c.outcomes[static_cast<std::size_t>(server::Outcome::classified)] << ", bytes received "
-							                    << c.bytes_received << ", sent " << c.bytes_sent << "; worker error: " << (err ? *err : std::string("none")));
+							                    << (recv_eof ? "EOF" : "error") << " (errno " << recv_errno << "); " << server_side_of(srv, local_port));
 						}
+#endif
 					}
 					else
 					{
@@ -498,7 +590,11 @@ namespace oneport::test
 	{
 		r["handlers.tls_context"] = tls_context;  // the context alone: no backend
 		// Over sockets: once per Linux backend, named with it last.
+#if defined(_WIN32)
+		for (const Backend b : {Backend::iocp})
+#else
 		for (const Backend b : {Backend::epoll, Backend::io_uring})
+#endif
 		{
 			const std::string s = "." + std::string(token(b));
 			auto on = [b](Result (*fn)()) {
