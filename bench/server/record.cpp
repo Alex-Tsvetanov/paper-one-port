@@ -78,7 +78,14 @@ namespace oneport::server
 
 	Recorder::Recorder(const std::string& path)
 	{
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)  // MSVC deprecates fopen (C4996); fopen's sharing and behaviour are the ones wanted
+#endif
 		f_ = std::fopen(path.c_str(), "w");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 		if (f_ == nullptr) throw std::runtime_error("oneport: --record: cannot open " + path);
 	}
 
