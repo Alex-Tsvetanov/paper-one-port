@@ -93,7 +93,9 @@ CHECKS = (
     ("epoll_ctl", ("epoll_ctl_calls",), ("epoll_ctl",), False, ("epoll",)),
     ("wait", ("epoll_wait_calls",), ("epoll_pwait2", "epoll_pwait", "epoll_wait"), True, ("epoll",)),
     ("io_uring_enter", ("io_uring_enter_calls",), ("io_uring_enter",), True, ("io_uring",)),
-    ("connect", ("connect_calls",), ("connect",), False, ("epoll", "io_uring")),
+    # The relay's connect on io_uring is a ring operation (IORING_OP_CONNECT), no system call (found
+    # in M5, when systrace.py first ran the relay on io_uring).
+    ("connect", ("connect_calls",), ("connect",), False, ("epoll",)),
     ("shutdown", ("shutdown_calls",), ("shutdown",), False, ("epoll", "io_uring")),
     ("splice", ("splice_calls",), ("splice",), False, ("epoll", "io_uring")),
 )

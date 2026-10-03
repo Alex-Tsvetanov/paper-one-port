@@ -628,6 +628,7 @@ class Trace(unittest.TestCase):
         u = {c["check"] for c in systrace.check_counters(counters, calls, "io_uring", 1)}
         self.assertIn("recv (peek and check)", u)
         self.assertNotIn("accept", u)  # a ring operation on io_uring
+        self.assertNotIn("connect", u)  # so is the relay's connect (IORING_OP_CONNECT)
 
     def test_stat_and_startup_offset(self):
         stat = systrace.parse_stat("1,,syscalls:sys_enter_recvfrom,635543,100.00,,\n"
