@@ -2,7 +2,11 @@
 # B; design/proposal.md section 6, CP4), for the competitors' outcomes on the hard cases of
 # Appendix A that caddy-l4's features cover. Appendix B: the tls, http, ssh and regexp matchers and
 # the proxy handler; matching_timeout matched. Every route those features cover: TLS for
-# oneport.test whose ALPN offers h2 or http/1.1 (the tls matcher's sni and alpn), SSH, MQTT 3.1.1
+# oneport.test whose ALPN offers h2 or http/1.1 (the tls matcher's sni and alpn), TLS for
+# oneport.test with no ALPN (the tls matcher's sni alone, in the next route: the alpn matcher
+# matches only a protocol the client offers, modules/l4tls/alpn_matcher.go, and has no form for
+# none, so that route also takes a ClientHello whose ALPN offers neither, which the server's
+# route table, bench/server/relay.cpp, closes and no hard case sends), SSH, MQTT 3.1.1
 # and 5.0 by a regexp on the CONNECT's first 12 bytes, h2c with prior knowledge (the http matcher
 # parses it into an HTTP/2 request, modules/l4http/httpmatcher.go; Caddy's protocol matcher
 # http/2), and HTTP/1.1. Routes are tried in order, and the http matcher waits for a newline before
@@ -25,6 +29,14 @@
 				alpn h2 http/1.1
 			}
 			route @tls {
+				proxy 127.0.0.1:@BACKEND_TLS@
+			}
+			# TLS for oneport.test with no ALPN (and, by the matchers, any other list), after the
+			# ALPN route: added before the code freeze (M4b-1's reading 4 had left it out).
+			@tls_no_alpn tls {
+				sni oneport.test
+			}
+			route @tls_no_alpn {
 				proxy 127.0.0.1:@BACKEND_TLS@
 			}
 			@ssh ssh
@@ -60,6 +72,12 @@
 						alpn h2 http/1.1
 					}
 					route @tls {
+						proxy 127.0.0.1:@BACKEND_TLS@
+					}
+					@tls_no_alpn tls {
+						sni oneport.test
+					}
+					route @tls_no_alpn {
 						proxy 127.0.0.1:@BACKEND_TLS@
 					}
 					@ssh ssh

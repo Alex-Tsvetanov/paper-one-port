@@ -10,6 +10,10 @@ has a fallback) at matched timers or at its defaults. The checks:
   routes    opgen --probe on the plain listener for HTTP/1.1, h2c, TLS (SNI oneport.test, ALPN
             http/1.1), MQTT and SSH: each exchange completes only if the system routed it to the
             backend's port of its class;
+  no ALPN   on a proxy, TLS for oneport.test with no ALPN extension (bench/run/b3.py's tls_probe:
+            the test certificate verified, then HTTP/1.1): the server's route table sends it to
+            the backend's TLS port (bench/server/relay.cpp), the only port that completes the
+            handshake, which then selects no protocol and serves HTTP/1.1 (routes["tls-noalpn"]);
   proxy     on the PROXY listener (competitors.PROXY_SYSTEMS), a PROXY v1 and a PROXY v2 header,
             each followed by an HTTP/1.1 request in the same write: the backend's 200 must come
             back (the header consumed);
@@ -43,6 +47,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "run"))
 
+import b3  # noqa: E402  (bench/run: the TLS client of the in-process B3 probe)
 import competitors as comp  # noqa: E402
 import window  # noqa: E402
 
@@ -71,6 +76,15 @@ JUDGE_FALLBACK = {"matched": {"haproxy", "envoy", "cmux"}, "default": {"haproxy"
 # available information ... might even be racy, so such setups are not recommended"
 # (configuration.txt v3.4.6, tcp-request inspect-delay): its routes are recorded there, not judged.
 JUDGE_ROUTES_AT_DEFAULT = {"nginx", "envoy", "caddy-l4", "sslh-ev", "netty", "jetty", "cmux", "hyper-util"}
+# The route for a ClientHello without ALPN (the server's route table, bench/server/relay.cpp:
+# SNI oneport.test with no ALPN goes to the backend's TLS port), in every proxy's cases
+# configuration since the code freeze's preparation (Appendix B: "every route its features
+# cover"; M4b-1's reading 4 had left it out). nginx and HAProxy express it exactly (an empty ALPN
+# list; no ALPN sample); Envoy, caddy-l4 and sslh-ev only as a route by SNI alone after the ALPN
+# route, which also takes ALPN lists that offer neither h2 nor http/1.1 (NOALPN_EXACT).
+NOALPN_SYSTEMS = ("nginx", "haproxy", "envoy", "caddy-l4", "sslh-ev")
+NOALPN_EXACT = ("nginx", "haproxy")
+TEST_CERT = HERE.parent.parent / "tests" / "fixtures" / "tls" / "test-cert.pem"
 REQUEST = b"GET / HTTP/1.1\r\nHost: oneport.test\r\nConnection: close\r\n\r\n"
 
 
@@ -99,6 +113,18 @@ def exchange(port: int, data: bytes, timeout: float = 5.0) -> bytes:
         except socket.timeout:
             pass
     return got
+
+
+def no_alpn_route(port: int) -> dict:
+    """TLS for oneport.test without the ALPN extension through the system: ok only if the
+    handshake completed against the test certificate, no protocol was selected, and the
+    backend's HTTP/1.1 reply came back (its TLS port serves HTTP/1.1 when no ALPN is offered,
+    M2a's reading 6)."""
+    r = b3.tls_probe(port, TEST_CERT, alpn=())
+    tls = r.get("tls") or {}
+    ok = bool(r["ok"]) and tls.get("alpn") is None
+    detail = r["detail"] if not r["ok"] else f"{r['detail']}, {tls.get('version')}, ALPN {tls.get('alpn')}"
+    return {"ok": ok, "detail": detail, "tls": tls}
 
 
 def silent_until_greeting(port: int, limit: float) -> dict:
@@ -146,6 +172,12 @@ def check(build: Path, system: str, kind: str, timers: str, raw: Path, blocks: w
                     problems.append(f"{p} not routed: {r['detail']}")
         finally:
             blocks.release(base)
+        if system in NOALPN_SYSTEMS:
+            r = no_alpn_route(PORT)
+            row["routes"]["tls-noalpn"] = {**r, "exact": system in NOALPN_EXACT}
+            judged = timers == "matched" or system in JUDGE_ROUTES_AT_DEFAULT
+            if not r["ok"] and judged:
+                problems.append(f"tls-noalpn not routed: {r['detail']}")
         for name, header in (("v1", proxy_v1()), ("v2", proxy_v2())) if system in comp.PROXY_SYSTEMS else ():
             try:
                 got = exchange(PORT + comp.PROXY_PORT_OFFSET, header + REQUEST)

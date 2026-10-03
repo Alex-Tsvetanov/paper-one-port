@@ -201,6 +201,27 @@ class Cases(unittest.TestCase):
         self.assertIn("envoy.filters.listener.http_inspector", live(rendered("envoy", "cases")))
         self.assertNotIn("http_inspector", live(rendered("envoy", "m3")))  # M4a's reading 11: M3 and B3 hold none
 
+    def test_no_alpn_route(self):
+        # The server's route for a ClientHello without ALPN (bench/server/relay.cpp), in every
+        # proxy's cases configuration (Appendix B: "every route its features cover").
+        self.assertIn('"oneport.test "             tls_backend;', live(rendered("nginx", "cases")))
+        h = live(rendered("haproxy", "cases"))
+        self.assertIn("acl tls_has_alpn req.ssl_alpn -m found", h)
+        self.assertIn("use_backend tls_backend if { req.ssl_sni -m str oneport.test } !tls_has_alpn", h)
+        e = live(rendered("envoy", "cases"))
+        chains = e.split("filter_chain_match:")
+        self.assertTrue(any('server_names: [ "oneport.test" ]' in c and "application_protocols" not in c.split("filters:")[0]
+                            for c in chains[1:]), "a TLS chain by SNI alone")
+        c = live(rendered("caddy-l4", "cases"))
+        self.assertEqual(c.count("@tls_no_alpn tls {"), 2)  # the plain listener and the PROXY listener's subroute
+        self.assertEqual(c.count("route @tls_no_alpn {"), 2)
+        self.assertLess(c.index("route @tls {"), c.index("route @tls_no_alpn {"))  # after the ALPN route
+        s = live(rendered("sslh-ev", "cases"))
+        self.assertIn('{ name: "tls"; host: "127.0.0.1"; port: "22112"; sni_hostnames: [ "oneport.test" ]; log_level: 0; }', s)
+        self.assertLess(s.index("alpn_protocols"), s.index('sni_hostnames: [ "oneport.test" ]; log_level: 0;'))
+        self.assertEqual(set(cases_check.NOALPN_SYSTEMS), set(comp.ORDER))
+        self.assertLessEqual(set(cases_check.NOALPN_EXACT), set(cases_check.NOALPN_SYSTEMS))
+
     def test_fallback_only_in_its_kind(self):
         smtp = str(22110 + comp.STUB_OFFSET["smtp"])
         for s in (x for x in comp.FALLBACK_SYSTEMS if x in comp.ORDER):

@@ -419,16 +419,19 @@ def http1_probe(port: int, timeout: float = PROBE_TIMEOUT_S) -> dict:
             "s": time.monotonic() - t0}
 
 
-def tls_probe(port: int, cert: Path, timeout: float = PROBE_TIMEOUT_S) -> dict:
+def tls_probe(port: int, cert: Path, timeout: float = PROBE_TIMEOUT_S, alpn: tuple[str, ...] = ("http/1.1",)) -> dict:
     """A TLS 1.3 handshake with SNI oneport.test, the test certificate verified, ALPN http/1.1 and
     the group X25519 (section 2.1's settings, as far as Python's ssl module sets them), then one
-    HTTP/1.1 exchange; the client closes by reset without close_notify (WL7)."""
+    HTTP/1.1 exchange; the client closes by reset without close_notify (WL7). `alpn` is the list
+    the client offers; an empty one sends no ALPN extension (the route check of the cases
+    configurations for a ClientHello without ALPN, bench/competitors/cases_check.py)."""
     import ssl
     t0 = time.monotonic()
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ctx.maximum_version = ssl.TLSVersion.TLSv1_3
     ctx.load_verify_locations(cafile=str(cert))
-    ctx.set_alpn_protocols(["http/1.1"])
+    if alpn:
+        ctx.set_alpn_protocols(list(alpn))
     ctx.set_ecdh_curve("X25519")
     try:
         raw = socket.create_connection(("127.0.0.1", port), timeout=timeout)

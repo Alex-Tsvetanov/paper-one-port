@@ -501,6 +501,14 @@ class B3InProcess(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "the test certificate's key with the system OpenSSL")
     def test_tls_probe(self):
+        self.tls_probe_against_stand_in(("http/1.1",), "http/1.1")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the test certificate's key with the system OpenSSL")
+    def test_tls_probe_without_alpn(self):
+        # The route check of a ClientHello without ALPN (cases_check.py): no extension, none selected.
+        self.tls_probe_against_stand_in((), None)
+
+    def tls_probe_against_stand_in(self, offered: tuple[str, ...], selected) -> None:
         import ssl
         fixtures = HERE.parent.parent / "tests" / "fixtures" / "tls"
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -525,10 +533,10 @@ class B3InProcess(unittest.TestCase):
 
         th = threading.Thread(target=one, daemon=True)
         th.start()
-        r = b3.tls_probe(srv.getsockname()[1], fixtures / "test-cert.pem")
+        r = b3.tls_probe(srv.getsockname()[1], fixtures / "test-cert.pem", alpn=offered)
         th.join(5)
         self.assertTrue(r["ok"], r)
-        self.assertEqual((r["tls"]["version"], r["tls"]["alpn"]), ("TLSv1.3", "http/1.1"))
+        self.assertEqual((r["tls"]["version"], r["tls"]["alpn"]), ("TLSv1.3", selected))
         self.assertTrue(seen["got"].startswith(b"GET / HTTP/1.1\r\n"))
         self.assertIn(seen["after"], ("ConnectionResetError", "SSLError", b""))  # a reset, never a close_notify
 
