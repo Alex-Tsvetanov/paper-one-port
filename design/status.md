@@ -13,8 +13,8 @@ has run.
 | M2a | h2c, TLS, PROXY, SSH, MQTT and SMTP handlers on epoll in-process; the pinned OpenSSL and nghttp2; the recorded ClientHello; every hard case full on epoll in-process | done, 2026-10-02 (below) |
 | M2b | relay mode and stub mode, the pass-through ClientHello routing, and io_uring | done, 2026-10-02 (below) |
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | done, 2026-10-03 (below) |
-| M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b (the libraries) next |
-| M5 | Iterate until it wins | |
+| M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
+| M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) open |
 | M7 | Code freeze | |
 
@@ -3784,6 +3784,501 @@ There, in those windows, the server's relay on epoll was ahead of nginx by 11,97
 proxies under THP at `madvise`, b3dev1 for the relay under `always`, so not the same day); the
 relay on io_uring had not run in B3.
 
+## M5, 2026-10-03
+
+M5: step 0 (the exit criteria above, the revision log, tokio's TSan suppression), then two
+engineering rounds against the exit criteria: round 1 (2127a8a to deaabfe: the TLS handler's
+deferred OpenSSL state, the relay's parked ClientHello and its system calls, and the two carried
+items) and round 2 (e69e860 to ac84f2d: io_uring's receives as `IORING_OP_READ`, the receive
+counters split by result, the relay's drained-source rule, and three fixes of tests). Nothing in
+this section is a result: every window, session, profile and check is development data, journaled
+where it times anything; one-port mode was timed only against the competitors and against its other
+option, and dedicated mode was never timed, so no FC5 pair exists.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| e06fa82 | docs: status.md, M5 exit criteria, with the bound development B3 data puts on sslh-ev's cells |
+| d166e44 | docs: hypotheses.md revision log, M4b-2's eleven readings |
+| 6057afa | feat: the harnesses' named inputs and inputs hash (harness_inputs.py), hyper-util's tsan.supp among them; build.json; coverage.json records the suppression; tests |
+| 2847315 | feat: the runners take the detection mode; systrace.py's repeats; counterdelta.py; every slab cache in each B3 reading; journal.py --kind b3; tests |
+| 6bb6484 | feat: perfrec.py, a profile of a front of M3 under its load |
+| 2734b19 | fix: perfrec.py's perf report (-f); systrace.py's relay on either backend; journal.py --kind perf |
+| 2127a8a | feat: the TLS handler makes OpenSSL's state only once the ClientHello is complete (both arms); clienthello::scan; tls_states; tests |
+| 23eae82 | perf: the relay's footprint and system calls (one-port relay only): the parked ClientHello; TCP_NODELAY from the listener; no SO_ERROR on success; no speculative reads; the half-close's short read; close() for the last direction; tests |
+| deaabfe | feat: the binary's decision record for WL8 (--record) and opcase case (hard cases by port); tests |
+| e69e860 | feat: the receive counters split by result (recv_eof, recv_again; both arms) |
+| c8e588a | fix: handlers.tls_deferred's last input passes the detector; a range-loop copy |
+| 666a6b7 | perf: io_uring's receives are IORING_OP_READ, not IORING_OP_RECV (both arms) |
+| 333d846 | perf: the relay takes a short read as the source drained (one-port relay only) |
+| 0aa639e | fix: the relay remembers a side's reported half-close (333d846 left a FIN unseen) |
+| ac84f2d | fix: the runner's tests when two suites run at once (ports by build tree; the signal tests wait for the job) |
+| 681c58e | fix: systrace.py checks the connect counter on epoll only (the relay's connect on io_uring is a ring operation) |
+
+Papers (local, not pushed): the lab journal (below). Every one-port commit is on the `lab` remote;
+nothing is pushed to origin.
+
+### Step 0
+
+- **Exit criteria** (e06fa82): written above, under "M5 exit criteria (set by the coordinator before
+  M5)", before any engineering, with the bound that development B3 data puts on sslh-ev's cells.
+- **Revision log** (d166e44): "Readings fixed during engineering (M4b-2), before the code freeze",
+  M4b-2's eleven readings, one line each with why it follows. The two that change what runs are
+  supported by the frozen lines, and each says why: Jetty's PROXY header is detected because
+  Appendix B puts `ProxyConnectionFactory` inside the one `DetectorConnectionFactory`, which falls
+  through to the next protocol when no detector recognises the bytes (the survey, section 2.16,
+  says so of the frozen structure); cmux's `Any()` stays in B3 because Appendix B lists it without
+  a condition and starts B3 from the case configuration, and only the hard cases' "cases" kind
+  leaves it out, because HC6 asks for a listener without a fallback. Not logged by M5, and not
+  M5's: M4b-1's nine readings ("Readings of the frozen text in M4b-1") are still not in the
+  revision log.
+- **tokio's TSan suppression** (6057afa), the coordinator's decision (allowed, one entry, scoped to
+  tokio's internals):
+  - `bench/competitors/harness_inputs.py` names each harness's inputs (its sources and lock files;
+    the hyper-util harness's `tsan.supp` among them, since a suppression decides what a TSan
+    record reports) and hashes them as `lab/bin/inputs_hash.py` does (the sorted lines
+    "<path>\t<sha256>", CRLF read as LF). `build_harnesses.sh` records the list, the hash and the
+    environment each flavour runs with in `build.json` (hyper-util's TSan:
+    `TSAN_OPTIONS=suppressions=<checkout>/bench/competitors/hyper-util/tsan.supp`). Editing the file
+    changes the hash, so a record made with another suppression no longer covers the harness. The
+    run configurations (`cases.args`, `b3.args`) and the probe scripts are not inputs.
+  - `bench/coverage.json`: `targets.harness_hyper_util.suppressions` records the file, its one entry,
+    the run environment, the decision and the evidence (10 reports without it in libsetup3, 2 per
+    process in each of 5, all with `RegistrationSet::allocate` as the earlier access, the order
+    epoll gives and TSan cannot see; 0 with it in tsancheck1); the gate reads only `not_covered_by`
+    and `reason` of a target (`bench/gate_lib.py`), so the new key changes no gate decision
+    (`bench/test_gates.py` passes).
+  - Tests (`run.test_competitors`, `HarnessInputs`): every input exists; `tsan.supp` is one of
+    hyper-util's and holds exactly the one entry; a copy of the inputs hashes the same, CRLF hashes
+    the same, an added line changes the hash, a missing input is an error.
+
+### The engineering, round by round
+
+**Before (6bb6484).** The runners first learned to take the server's detection mode (handoff.py,
+b3.py, systrace.py: replay, the proposed default of section 2.1 until rule E, or peek) and
+systrace.py to repeat each cost cell's arms, interleaved; `counterdelta.py` computes one-port
+against dedicated per connection from section 10's untimed rows, after each arm's idle pass; every
+B3 reading keeps the size of every slab cache (`slab_all`), deciding nothing, so Ks's growth can be
+attributed to caches; `perfrec.py` profiles a front of M3 under its load. The before data:
+m5b3a and m5b3a2 (B3), m5perf1 and m5perf2 (profiles), m5m3a (M3 sessions), m5tr1 (counters).
+
+**Round 1** (2127a8a, 23eae82, deaabfe; measured as deaabfe: m5b3b, m5perf3, m5m3b, m5tr2):
+- The TLS handler (in-process dispatch; both arms, since dedicated mode's TLS port runs the same
+  handler) makes OpenSSL's state only once the ClientHello is complete in the handler's buffer, or
+  cannot complete there: malformed, not a ClientHello, needing more record bytes than the buffer
+  has room for, or the peer has ended. `clienthello::scan` gives the reassembler's verdict without
+  its copy (test `clienthello.scan`: the same verdict, need, lengths and record count as
+  `reassemble` on every prefix of six inputs). Until then a pending TLS connection holds its bytes
+  in the handler's buffer (section 2.1's replay bound) and no OpenSSL state. OpenSSL then reads the
+  bytes it would have read piecemeal, with the frozen settings, so its replies and alerts are the
+  same; the counter `tls_states` counts the states made (`handlers.tls_deferred`, each arm: half a
+  ClientHello then a reset makes none; two writes make one with the second; half then the peer's
+  end makes one; a ClientHello too long to be one gets OpenSSL's alert).
+- The relay (one-port relay dispatch only; dedicated mode has no relay, so no cost contrast is
+  touched):
+  - pass-through in replay parks a ClientHello still incomplete after a read in storage of its own,
+    sized to the record bytes the reassembly needs next (5 plus the length its record header
+    announces), with one counted copy of the bytes held, and gives the 4,096-byte receive buffer
+    back; a ClientHello whole in its first read is routed from the receive buffer as before, with no
+    copy (the relay test's `bytes_copied == 0` over whole ClientHellos still holds). Tests:
+    `relay.pass_through` and `relay.pass_through_tdec` check that no receive buffer is held while
+    the ClientHello is incomplete and that the storage never outgrows the records it needs;
+  - per relayed connection: TCP_NODELAY is set once on the relaying listener and inherited by every
+    accepted socket (pinned on L: `server.kernel_nodelay_inherited`), the backend's set before its
+    connect, so one `setsockopt` instead of two; a connect that epoll reports with EPOLLOUT and no
+    error is not asked for SO_ERROR; a side is read when the copy starts only if it may hold bytes
+    (a read that filled its room, a peek, a seen end, a client event while the connect was
+    pending, or a backend connect reported with EPOLLIN); a short read after a reported half-close
+    ends its source without a second read; the direction that ends last is closed by `close()`,
+    whose FIN passes its end on, with no `shutdown()` first (M2b's reading 1 still holds: each
+    end is passed on, and the connection closes when both have ended).
+- The carried items (below): `--record` and `opcase case`.
+
+**Round 2** (e69e860, c8e588a, 666a6b7, 333d846, 0aa639e, ac84f2d; measured as ac84f2d: m5b3c,
+m5m3c, m5tr3):
+- io_uring's receives are `IORING_OP_READ` on the socket, not `IORING_OP_RECV` (both arms: every
+  io_uring receive, the handlers' in dedicated mode too). At v7.2.6 every RECV allocates its
+  `io_async_msghdr` at preparation (io_uring/net.c, `io_recvmsg_prep_setup`), which L serves from
+  kmalloc-512; an armed READ allocates an `io_async_rw` (io_uring/rw.c, `io_rw_alloc_async`). In
+  every io_uring window with an armed receive in m5b3a, m5b3a2 and m5b3b, kmalloc-512 grew by 236
+  to 532 bytes per pending connection, and in no epoll window was it among the six caches that grew
+  most. The receive is the same: `sock_read_iter` calls `sock_recvmsg` with
+  MSG_DONTWAIT at offset 0, which a socket, a stream file, always has (net/socket.c); the same
+  provided buffers; 0 at EOF. A READ that took a buffer and returned 0 names it, and the buffer goes
+  back to the pool (the pin `server.kernel_uring_recv_select` now pins READ and allows that).
+  Section 1(b)'s form for io_uring replay, a receive posted with a buffer and its non-waiting reap,
+  is unchanged. The sources (io_uring/net.c, net.h, rw.c, rw.h, net/socket.c) were read at the
+  v7.2.6 tag of the stable tree.
+- The receive counters split by result (`recv_eof`: the peer's end; `recv_again`: no byte without an
+  end or an error, EAGAIN or the ring's ENOBUFS), so the receives that returned bytes, which do not
+  depend on when a FIN or the next bytes arrive, compare exactly between arms (`recv_data` in
+  counterdelta.py). Counter increments only, in the shared read paths, so both arms alike. IOCP's
+  receives are not split (iocp.cpp was not touched: M6b works there).
+- The relay's user-space copy takes a short read as the source drained (333d846), as the handlers'
+  reads do; found by round 1's counters (m5tr2: the relay in peek mode read the client again into
+  EAGAIN, 5.0 receives per connection against replay's 3.2). Its first form left a FIN that had
+  arrived before the short read unseen (no later edge reports it), and `case.HC13` and `case.HC19`
+  in relay peek on epoll waited past their limit in every build (m5chk3); 0aa639e remembers a side's
+  reported half-close from any event (the route stage's included) or an end already read, so the
+  short read after it ends the source. One-port relay dispatch only.
+- Tests fixed: `handlers.tls_deferred`'s last input in round 1 had byte 5 changed, so the
+  detector rejected it in one-port mode before any handler (c8e588a: the handshake length's top
+  byte instead); two suites run at once met in the runner's tests (ac84f2d: `test_competitors`'
+  integration ports move with the build tree; the clock floor's and THP's signal tests wait for
+  the wrapper's job to start, since a TERM between a wrapper's record and its fork of the job is
+  honoured only when the job ends, which the loaded host made happen).
+
+### Criterion 1: the counters, one-port against dedicated
+
+Section 10's untimed counter checks (`systrace.py --kind cost`): each cost cell's two arms, in-process
+dispatch, in both detection modes (dedicated mode ignores the mode, so its rows are A/A repeats),
+three times each, interleaved; churn at 2,000 exchanges per second for 2 s after 0.5 s and
+keep-alive with two connections for 0.5 s (counts only; never a window). `counterdelta.py` takes each
+row's counters less its idle pass's, per connection (keep-alive: per request), and compares the arms:
+"equal" (every row the same), "within the spread" (the arms' ranges over the repeats overlap) or
+"differs". Jobs m5tr1 (6bb6484), m5tr2 (deaabfe), m5tr3 (ac84f2d, the final code, below). Every
+counter that names a system call agreed with `perf stat`'s count of its entry tracepoint in all
+120 cost rows of m5tr3 (`perf trace -s`, the cross-check, in 53, short by at most 1.1% of a call's
+count).
+
+At ac84f2d, per connection, one-port less dedicated, for HTTP/1.1, h2c, TLS and MQTT churn on epoll
+and io_uring and HTTP/1.1 keep-alive on both (per request):
+- **Replay: no extra system call and no extra copy.** Equal in every cell: sends, `setsockopt` (0),
+  `epoll_ctl` (1), connects, shutdowns and splices (0), peeks and checks (0), io_uring's READ
+  submissions, the receives that returned bytes (`recv_data`), and `bytes_copied` (0 in every row
+  of both arms). What differs, differs within the dedicated arm's own spread over its three
+  repeats, and depends on when bytes or a FIN arrive, not on the mode: the accept that ends a
+  batch with EAGAIN (2.0 per connection in both arms, within 0.0004), the loop's waits
+  (`epoll_wait`, `io_uring_enter`, at most 0.0011 apart), and the receives that found the peer's end
+  (`recv_eof`: MQTT on epoll +0.0118, h2c on epoll +0.0079, the arms' ranges overlapping; the
+  dedicated arm's own ranges are 0.9486 to 0.9842 and 0.956 to 0.9868). Before the split of e69e860 the same effect showed as
+  `recv_calls`: at 6bb6484 MQTT on epoll was 2.8774 to 2.981 receives per connection in dedicated
+  mode and 2.9846 to 2.985 in one-port mode (m5tr1), whether the client's FIN came with its
+  DISCONNECT or after it, and at deaabfe (m5tr2) the arms overlapped.
+- **Peek: exactly the operations the design adds.** On epoll, one `recv(MSG_PEEK)` per connection
+  (24 bytes peeked for HTTP/1.1, h2c and TLS, 14 for MQTT; keep-alive 0.0001 per request, one per
+  connection), and nothing else structural. On io_uring, one `IORING_OP_POLL_ADD`, one peek, and
+  one more `io_uring_enter` per connection (2.0 to 3.0 for HTTP/1.1, 3.0 to 4.0 for the others):
+  the poll's completion comes back through the ring before the handler's receive can be posted,
+  so at this load, where every step is its own wait, the poll costs a round of the ring. The
+  receives, sends and copies are the replay counts. One timing difference lies just outside the
+  spread: MQTT on epoll in peek, `recv_eof` +0.0035 (0.9772 to 0.9812 against 0.9826 to 0.9836),
+  receives that found the end only, with `recv_data` equal.
+- **The relay** (relay dispatch, which dedicated mode does not have; `systrace.py --kind proxy`, one
+  row per mode, backend and protocol, per relayed connection; `bytes_copied` 0 in every row):
+
+| Relay row (ac84f2d, m5tr3) | System calls per connection | Peek less replay |
+|---|---|---|
+| HTTP/1.1, epoll, replay | 20.6: accept4 2, epoll_ctl 2, recvfrom 3.22 (2.0 returned bytes), sendto 2, setsockopt 1, socket 1, connect 1, shutdown 1, close 2, epoll_pwait2 5.4 | |
+| HTTP/1.1, epoll, peek | 22.4 | +1 peek; `recv_data` equal; `recv_eof` +0.27 and waits +0.55 (when the FIN came) |
+| TLS by SNI, epoll, replay | 21.1 | |
+| TLS by SNI, epoll, peek | 23.0 | +2 peeks (detection's 24 bytes, then the route's whole ClientHello); `recv_data` equal; `recv_eof` -0.12 |
+| HTTP/1.1, io_uring, replay | 13.0: io_uring_enter 6, sendto 2, setsockopt 1, socket 1, shutdown 1, close 2 (accept, connect and receives are ring operations) | |
+| HTTP/1.1 and TLS, io_uring, peek | 15.0 and 16.0 | +1 POLL_ADD, +1 io_uring_enter, +1 peek (TLS +2) |
+
+  Round 1's relay changes took the epoll relay from 25.0 system calls per connection (m5tr1) to
+  20.6 (m5tr2), and round 2's drained-source rule took peek's from 24.0 (m5tr2: it read the client
+  again into EAGAIN, and its EOF reads followed) to 22.4. nginx makes 22.1 to 22.4 and HAProxy 44.0
+  to 44.2 per connection at the same rate (m5tr3).
+- **Criterion 1: met**, with the two kinds of timing difference named above (the loop's waits and the
+  reads of a FIN, which fall within the dedicated arm's spread except MQTT's +0.0035 per
+  connection in peek) and, on io_uring in peek, the poll's extra `io_uring_enter`, which the brief
+  asked to report rather than fold into "the poll the design adds": it is the poll's round trip
+  through the ring.
+- `systrace.py`'s check of the relay on io_uring compared the `connect` counter with `connect(2)`,
+  which the relay on io_uring never calls (its connect is `IORING_OP_CONNECT`): the four io_uring
+  relay rows of m5tr3 disagreed on that check alone (681c58e makes the check epoll's only).
+
+### Criterion 2: B3 in relay against each proxy
+
+W at sample 2 in bytes per pending connection, replay (the proposed default), development windows
+(WL7's layout, all valid by section 7). Q is the proxy's W over the relay's. Before and after round
+1 the proxies' W is m5b3a's (the same day, earlier in the day) and the relay's comes from other
+jobs (m5b3a2 or m5b3a before, m5b3b after); after round 2 (m5b3c) each proxy ran twice around the
+relay on both backends (proxy, relay on epoll, relay on io_uring, proxy), and Q uses the mean of
+its two windows. Within m5b3c every system's Ks fell steadily through the job, from 7,173 to 6,451
+(TCP's and the inode caches' growth per connection falling as their slabs fill), so a Q across jobs
+carries a few hundred bytes of the host's drift; the interleaved Q of m5b3c does not.
+
+| Case | Proxy | Proxy W (m5b3a / m5b3c) | Q, epoll: before / round 1 / round 2 | Q, io_uring: before / round 1 / round 2 |
+|---|---|---|---|---|
+| silent | nginx | 11,941.9 / 11,957.5 | 1.586 / 1.530 / 1.597 | 1.475 / 1.458 / 1.545 |
+| silent | HAProxy | 10,092.1 / 9,940.2 | 1.340 / 1.293 / 1.372 | 1.247 / 1.232 / 1.320 |
+| silent | Envoy | 17,063.5 / 16,747.3 | 2.266 / 2.186 / 2.368 | 2.108 / 2.084 / 2.296 |
+| silent | caddy-l4 | 17,895.8 / 17,707.2 | 2.377 / 2.293 / 2.479 | 2.211 / 2.185 / 2.392 |
+| silent | sslh-ev | 7,220.0 / 6,960.1 | 0.959 / 0.925 / 1.000 | 0.892 / 0.882 / 0.964 |
+| partial | nginx | 13,424.8 / 13,286.8 | 1.146 / 1.660 / 1.718 | 1.068 / 1.591 / 1.661 |
+| partial | HAProxy | 14,273.7 / 14,068.1 | 1.218 / 1.765 / 1.859 | 1.135 / 1.692 / 1.800 |
+| partial | Envoy | 18,460.0 / 18,201.8 | 1.576 / 2.283 / 2.458 | 1.468 / 2.188 / 2.352 |
+| partial | caddy-l4 | 20,672.1 / 20,440.3 | 1.764 / 2.556 / 2.739 | 1.644 / 2.450 / 2.664 |
+| partial | sslh-ev | 7,324.1 / 7,064.8 | 0.625 / 0.906 / 0.957 | 0.583 / 0.868 / 0.927 |
+
+The server's relay itself (W; U; Ks):
+
+| Case, backend | Before (6bb6484) | Round 1 (deaabfe, m5b3b) | Round 2 (ac84f2d, m5b3c: the five windows' range) |
+|---|---|---|---|
+| silent, epoll | 7,529.7; 407.1; 7,122.5 | 7,804.5; 407.1; 7,397.4 | 6,962.8 to 7,486.7; 407.1; 6,555.6 to 7,079.5 |
+| silent, io_uring | 8,095.3; 407.1; 7,688.2 | 8,189.5; 407.1; 7,782.4 | 7,218.8 to 7,738.2; 407.1; 6,811.6 to 7,331.0 |
+| partial, epoll | 11,715.8; 4,670.7; 7,045.1 | 8,086.3; 791.3; 7,295.0 | 7,381.0 to 7,732.8; 791.3; 6,589.6 to 6,941.5 |
+| partial, io_uring | 12,571.9; 4,671.9; 7,900.0 | 8,436.9; 791.3; 7,645.6 | 7,616.8 to 8,000.7; 791.3; 6,826.8 to 7,209.4 |
+
+- Round 1's parked ClientHello cut the relay's U with a partial ClientHello from 4,670.7 to 791.3
+  bytes per pending connection on both backends (the 4,096-byte receive buffer gone; the
+  connection's state, the relay's, and storage of 5 + l bytes remain).
+- Round 2's `IORING_OP_READ` removed the kmalloc-512 growth that every io_uring window with an armed
+  receive showed before it (236 to 532 bytes per pending connection in m5b3a, m5b3a2 and m5b3b, one
+  `io_async_msghdr` each); in m5b3c io_uring's Ks exceeded epoll's in the adjacent window by 211
+  to 335 bytes (io_kiocb about 195, and an `io_async_rw` from kmalloc-256 about 170 where it
+  shows); within m5b3a2 and m5b3b, before it, the gap was 351 to 566 bytes.
+- Peek, the other option, after round 1 (m5b3b): relay silent 7,560.4 (epoll) and 7,527.6
+  (io_uring); partial 8,725.1 and 8,804.9 (Kq 1,068.0: the bytes stay in the socket; U 567.3).
+- **Criterion 2: met against nginx, HAProxy, Envoy and caddy-l4, in both cases on both backends**
+  (the smallest Q is HAProxy's silent case on io_uring, 1.320); **not met against sslh-ev** (Q 0.927
+  to 1.000), as the note under the exit criteria derived before any engineering: sslh-ev's W is
+  its sockets' Ks and 400 to 524 bytes of U, and the server's Ks alone is as large.
+
+### Item 3: the in-process footprint with a partial ClientHello
+
+| System | Case | W | U | Job |
+|---|---|---|---|---|
+| server, epoll | partial, before | 56,524.0 | 49,746.3 | m5b3a (6bb6484) |
+| server, io_uring | partial, before | 57,162.5 | 49,742.2 | m5b3a |
+| server, epoll | partial, round 1 | 11,458.2 | 4,521.2 | m5b3b (deaabfe) |
+| server, io_uring | partial, round 1 | 11,778.0 | 4,522.8 | m5b3b |
+| server, epoll | partial, round 2 | 11,057.6 | 4,521.2 | m5b3c (ac84f2d) |
+| server, io_uring | partial, round 2 | 11,266.0 | 4,522.8 | m5b3c |
+| server, epoll and io_uring | partial, peek, round 1 | 11,345.9; 11,681.4 | 4,521.2; 4,522.8 | m5b3b |
+| Netty | partial | 8,837.9 | 2,340.5 | m5b3c |
+| Jetty | partial | 38,744.9 | 32,165.1 | m5b3c |
+| cmux | partial | 18,981.3 | 12,530.5 | m5b3c |
+| server, epoll and io_uring | silent, round 2 | 6,941.9; 7,172.9 | 402.2; 402.2 | m5b3c |
+
+The deferred OpenSSL state took 45,225 bytes of U per pending connection away (49,746.3 to
+4,521.2): a pending TLS connection now holds its state (368 bytes) and the handler's 4,096-byte
+buffer with the 108 bytes received. Netty, which buffers the ClientHello in a growing buffer and
+makes no engine until it is complete, holds 2,340.5; the server is below Jetty and cmux and above
+Netty in this case (Q of Netty over the server 0.80 on epoll, 0.78 on io_uring). Going below Netty
+would mean holding the incomplete ClientHello in storage smaller than the handler's buffer, a copy
+in the handler, which dedicated mode runs too; not done (section 2.1 names the handler's buffer as
+replay's bound, and the cells are descriptive). Peek does not change it: in-process, the handler
+reads the bytes into its buffer at classification in either mode.
+
+### Criterion 3: M3 against nginx and HAProxy
+
+The server's one-port relay on epoll (replay, the user-space copy) against each proxy in its M3
+configuration, sessions X Y Y X in hand-off placement, every window valid by section 7 (48 of 48 in
+each job). Session ratio, server / proxy:
+
+| Cell | Before (6bb6484, m5m3a, seed 851) | Round 1 (deaabfe, m5m3b, seed 853) | Round 2 (ac84f2d, m5m3c, seed 857) |
+|---|---|---|---|
+| HTTP/1.1, nginx | 1.0210, 1.0237, 1.0174 | 1.0738, 1.0744, 1.0745 | 1.0764, 1.0773, 1.0812 |
+| HTTP/1.1, HAProxy | 1.0511, 1.0562, 1.0522 | 1.1206, 1.1080, 1.1119 | 1.1086, 1.1226, 1.1102 |
+| TLS by SNI, nginx | 1.0243, 1.0239, 1.0265 | 1.0763, 1.0860, 1.0810 | 1.0932, 1.0793, 1.1142 |
+| TLS by SNI, HAProxy | 1.0355, 1.0327, 1.0364 | 1.0964, 1.0956, 1.0943 | 1.0906, 1.0999, 1.1006 |
+
+- Every front was the bottleneck (CPU 14 saturated). The relay's CPU per connection (front) fell
+  from 48.0 to 48.9 us (m5m3a) to 44.2 to 45.0 us (m5m3c); nginx's stayed 48.7 to 50.1 us (one
+  m5m3c window of nginx, TLS, 53.2 us, which makes that session's 1.1142), HAProxy's 54.1 to 56.0
+  us. WL6 (front and stub) per connection: the relay 69.9 to 70.7 us before, 66.1 to 67.0 us after.
+- Where it came from. `perf record` of the relay under M3's load (m5perf2, a profiling build):
+  about 91% of its samples in the kernel, 3.3 to 3.6% in nf_tables (the loopback NOTRACK rules and
+  Docker's), and under 3% in oneport and libc together (oneport 1.6%); nginx's profile (m5perf1)
+  is about 88.6% kernel. So the user-space code was never the cost; the system calls were. At
+  section 10's untimed rate (2,000 per second, so every step is its own wait) the relay made 25.0
+  system calls per connection before (m5tr1: accept4 2, recvfrom 5, epoll_pwait2 5, sendto 2,
+  setsockopt 2, shutdown 2, close 2, epoll_ctl 2, connect, socket, getsockopt) against nginx's 22.4
+  (its epoll_wait 4.4, recvfrom 4, writev 2, ioctl and getsockopt 1 each) and HAProxy's 44.1 (16
+  of them clock_gettime); after round 1, 20.6 (HTTP/1.1; m5tr2: recvfrom 3.2, setsockopt 1,
+  shutdown 1, no getsockopt) and after round 2, 20.6 and 21.1 (HTTP/1.1 and TLS, replay; m5tr3).
+- **Criterion 3: met.** Every session of round 1 and round 2 is at least 1.05 against both proxies
+  in both protocols (the smallest, 1.0738, HTTP/1.1 against nginx in round 1; 1.0764 in round 2).
+  The margin over nginx is about 7.4 to 11%, over HAProxy about 9 to 12%, in development sessions;
+  section 4.4's test at R_M = 16 decides.
+
+### Criterion 4: the suite under the four builds
+
+Each check is a lab job (`checks_job.sh`: a fresh clone of the lab remote at the commit, then
+`~/lab/p3/sancheck.sh` with Debug and ASan+UBSan at once, then TSan and MSan at once; clang 22.1.8,
+`ctest -V -j 8`; report lines counted with the lab's shared pattern). Development checks, not
+records.
+
+| Job | Commit | Debug | ASan+UBSan | TSan | MSan | Warnings, report lines |
+|---|---|---|---|---|---|---|
+| m5chk1 | deaabfe (round 1) | 381 of 383 | 381 of 383 | 381 of 383 | 381 of 383 | 1 (a range-loop copy in a test), 0 |
+| m5chk2 | 666a6b7 | 383 of 383 | 383 of 383 | 383 of 383 | 381 of 383 | 0, 0 |
+| m5chk3 | 333d846 | 380 of 383 | 381 of 383 | 381 of 383 | 380 of 383 | 0, 0 |
+| m5chk4 | ac84f2d (round 2, measured) | 383 of 383 | 383 of 383 | 383 of 383 | 383 of 383 | 0, 0 |
+| m5chk5 | 681c58e (systrace.py's connect check) | 383 of 383 | 383 of 383 | 383 of 383 | 383 of 383 | 0, 0 |
+
+- m5chk1: `handlers.tls_deferred` failed on both backends in every build: its last input changed
+  byte 5, so one-port mode's detector rejected it before any handler (a test error; c8e588a). The
+  code measured as round 1 is unchanged by the fix.
+- m5chk2 (MSan) and m5chk3 (Debug, MSan): `run.test_runner` (the THP signal test: the wrapper's TERM
+  landed before its fork of the job) and `run.test_competitors` (the integration probe's stub did
+  not start: the other build of the pair held its fixed port), failures of two suites run at once
+  (ac84f2d).
+- m5chk3: `case.HC13.epoll.relay.peek` and `case.HC19.epoll.relay.peek` in every build: 333d846's
+  short read left a FIN unseen (0aa639e). That commit was never measured: chain c4, which would
+  have measured it, was stopped by SIGTERM before its first window.
+- 383 tests: M4b-2's 375 and `clienthello.scan`, `handlers.tls_deferred` (two backends),
+  `server.kernel_nodelay_inherited`, `server.binary_record` (two backends), `server.cases_by_port`
+  (two backends).
+- Log sha256 (L, `~/lab/p3/m5/check/681c58e/`): debug-681c58e.build.log
+  42bedaf9f94915266715cd2753fd31806055e9462df0006b4e61dd7ffb5438cc, debug-681c58e.ctest.log
+  926b25de097389b177b33032aa00048b00eb4484aca437a5a7da02c0a5174b3a, asan-681c58e.build.log
+  27612d2d187d08f669bf4c7eacd8bd70651516d78941b72560c95ce3b05030d6, asan-681c58e.ctest.log
+  749b54943879994ec0bd210c9443f3167300db685251bbef1500f963c3ff552a, tsan-681c58e.build.log
+  94e5916e8ab8426ca56e9b0e594a5c2832ceb65b6562b3c0cd9d320f2e7f16dd, tsan-681c58e.ctest.log
+  8f794042bc5266eb94826e99c9d1b23441ed0a725ddf2e91dd713fdcde30009e, msan-681c58e.build.log
+  6729b9fb2623376b99e683fc00d1494bae94f3d6363f1b48505e9c72775abdd6, msan-681c58e.ctest.log
+  9ca9314f1967a1b876f5e0fe75553acac6ed3c1af263d8d2d2ebb00b8cd10bec.
+- Log sha256 (L, `~/lab/p3/m5/check/ac84f2d/`): debug-ac84f2d.build.log
+  ed9e56e0ae80548ad4fd553a0a57289a6bc008a053a94bc157fc8bd0bae99c92, debug-ac84f2d.ctest.log
+  da86841400dfa90988661954bbbee8212af5aa872bca281749e06faa40b359fb, asan-ac84f2d.build.log
+  b62e7126cec10ee248ed32ac3d41249fe896449ee33a19a77c5435fe955f9a7e, asan-ac84f2d.ctest.log
+  61d3819ea097fc9fe4e7fb7bd0afcb1831cbb3f0a74966d0d87a6c090ff42c07, tsan-ac84f2d.build.log
+  3a2e148719889e1c5d6a7809550109299ef65acfbef0bb750617cd48ecb55d2c, tsan-ac84f2d.ctest.log
+  6b032200ff64008b58ffdc735187c164f31ba100dccfc3da2166236111c77c52, msan-ac84f2d.build.log
+  52c825d369f7ce7cd4837348a4d418ef97e87b5f5aed303d347a987fd09649c3, msan-ac84f2d.ctest.log
+  06d1d65ead56d2a906e37300c888a6b782239033946339ff99809a1cea5d95b8.
+- W: not built or run in M5. `handlers.cpp` (the TLS deferral and the receive counters) and
+  `bench/cases` (opcase case's library code) compile on W too; M6b's merge of `m6b-windows` with
+  main must build them and run W's suite.
+- **Criterion 4: met at the end, not after every change.** ac84f2d, the code of round 2's
+  measurements, and 681c58e, the last commit, are green in all four builds (383 of 383, 0
+  warnings, 0 report lines). Three
+  intermediate commits were not: deaabfe (round 1's measured code) failed a test whose input was
+  wrong, not the product; 666a6b7 failed a runner test of two suites at once; 333d846 broke the
+  relay in peek mode and was never measured. The suite ran on four commits; 2127a8a, 23eae82,
+  e69e860, c8e588a and 0aa639e were checked only as parts of the commits after them. Every
+  engineering timing is journaled as development (below).
+
+### Both detection modes stay engineered
+
+Both modes remain flag values of the one binary, and no default is written into the code or decided
+by M5: the runners take `--detect`, with replay as the proposed default of section 2.1 until rule E
+picks per backend on the frozen binary after the pilot entry. Peek was measured only option against
+option, as development data that decides nothing: in B3 (m5b3a2, m5b3b: the relay silent 7,560.4 on
+epoll and 7,527.6 on io_uring, partial 8,725.1 and 8,804.9, where replay held 7,804.5, 8,189.5,
+8,086.3 and 8,436.9; in-process partial 11,345.9 and 11,681.4) and in the untimed counters (above).
+It was not timed in M3, and nothing of peek against replay was timed under load. Every change of M5
+was made in both modes' paths where they share code, and the relay's changes were checked in both
+(the counters, and `case.*.relay.peek` in every build).
+
+### Carried items
+
+- **WL8's per-connection record** (deaabfe). `oneport --record PATH` writes one JSON line per event
+  of the server's test hooks: each connection's end of detection (outcome, class, deciding byte,
+  the passes of accept, end, last read and half-close, accept, timer start and end times, bytes
+  seen and held, wakeups, SO_RCVLOWAT sets and resets, the PROXY source, the timed event with its
+  deadline, wait return and pass), each relayed connection's route, and each close, every time in
+  nanoseconds of the server's steady clock, which on L is CLOCK_MONOTONIC, the clock of `opcase`'s
+  write times. A hard-case run against the server in its own process matches them to `opcase`'s
+  transcripts by the client's local port. Without `--record` no hook is set and nothing changes;
+  it is never set in a measured window. `describe()` prints `record`. Test `server.binary_record`
+  (both backends): the binary with `--record`, one HTTP/1.1 exchange, SIGTERM; the record holds the
+  connection's detection line (classified, HTTP/1.1) keyed by the client's port, its accept no
+  earlier than the client's connect began and its decision no earlier than its write, and its close
+  line.
+- **`opcase case`** (deaabfe, `bench/cases/run_cases.cpp`): the hard cases of Appendix A against
+  any system by port. `--hc K` runs case K's variants in their fixed order (`--variant` selects by
+  id prefix), `--replicates R` times each, a variant whose setup needs the PROXY header against
+  `--proxy-port`, every other against `--port`; the timers default to section 1's 3 s, GAP_SPLIT
+  and G to the suite's stand-ins until the pilot entry sets them (`--gap-split-ms`, `--g-ms`), and
+  every wait to `T_OBS` = 60 s (`--wait-ms`). One JSON line per run: the variant, its frozen
+  expectation (setup, outcome, class, when, reply, deciding byte) and the transcript (local port,
+  connect times, each write's time, bytes sent, the reply's bytes, first byte and end, EOF or reset,
+  the TLS result), every time on CLOCK_MONOTONIC. It judges nothing; section 10's runner, which
+  starts each system in the setup a variant names and judges the outcome, comes after the pilot
+  entry. Test `server.cases_by_port`: HC1's HTTP/1.1 variant against the server, its line.
+- **sslh-ev's M3 cells**, as the frozen rules decide them: no M5 work and no M5 window. Every
+  sslh-ev window of M3 fails section 7's 0.1% error rule as configured (sslh 2.3.1's defect with
+  libev's reused descriptors; revision log, "sslh-ev's stalled exchanges"), so both cells will
+  have fewer than R_M valid sessions, enter Holm with p = 1 (section 4.1) and be "not shown"
+  (section 12), and the narrowing order puts M3 first. sslh-ev's B3 cells are the subject of the
+  note under the exit criteria.
+
+### The exit criteria, after round 2
+
+| Criterion | State | Figures (development data) |
+|---|---|---|
+| 1. Counter deltas | met | replay: 0 extra system calls and 0 extra copies per connection in every cell; peek: +1 MSG_PEEK on epoll, +1 POLL_ADD, +1 MSG_PEEK and +1 `io_uring_enter` on io_uring; timing-dependent counts inside the dedicated arm's spread but one (MQTT, epoll, peek: EOF reads +0.0035) |
+| 2. B3 relay at 1.25 | met against nginx, HAProxy, Envoy, caddy-l4 (both cases, both backends; least 1.320); not met against sslh-ev (0.927 to 1.000) | the server's W cannot fall below its Ks, which sslh-ev's W barely exceeds (the note under the criteria) |
+| 3. M3 at 1.05 against nginx and HAProxy | met | every session of round 2: nginx 1.0764 to 1.1142, HAProxy 1.0906 to 1.1226 |
+| 4. Four sanitizers after every change | met at the end, not after every change | ac84f2d (m5chk4) and 681c58e (m5chk5) green in all four builds; deaabfe, 666a6b7 and 333d846 were not |
+| 5. Two rounds | used both | round 1 (deaabfe), round 2 (ac84f2d) |
+
+M5 stops here with one gap, recorded: criterion 2 against sslh-ev, out of reach by construction.
+The frozen order decides what follows from the confirmatory runs, not from these data: if sslh-ev's
+four B3 cells fail section 4.4's test, B3 narrows (section 12) to the competitors and cases the
+server beats; M3 comes first in that order, and these development data give it no sign of needing
+to narrow against nginx and HAProxy.
+
+### Readings, and changes against the proposal's text (for the coordinator)
+
+None of these changes a frozen rule; each is listed so the code freeze can log what it needs.
+1. Criterion 1 for relay dispatch. Dedicated mode has no relay (only a detecting listener relays,
+   `enter_handler`), so the relay has no one-port against dedicated delta. Its rows are given per
+   relayed connection in each detection mode, and peek against replay is the check of "exactly the
+   MSG_PEEK (or poll) operations the design adds".
+2. The revision log's M3 entry, item 2, lists "the two `TCP_NODELAY` of a relayed connection" among
+   the `setsockopt` calls counted. Its rule (every `setsockopt` on a connection's socket is counted;
+   a listener's options, set once at start, are not) stands; since 23eae82 a relayed connection
+   makes one, its backend's, and the relaying listener's is set once at start and inherited. The
+   example list is now out of date; the code freeze's entry can say so.
+3. Proposal I11 and I15 name `IORING_OP_RECV` for io_uring's receives; since 666a6b7 they are
+   `IORING_OP_READ` on the socket (why, above). The frozen text names no opcode: section 2.1 counts
+   "submissions by opcode", and section 1(b) and section 11 speak of a receive posted with a
+   provided buffer, which READ is. For the coordinator to accept, or to send back.
+4. Section 2.1's memory bounds hold as frozen: in-process with replay the handler's buffer from the
+   first byte (the TLS handler's state now comes later, the buffer does not change); in
+   pass-through the partial ClientHello, at most B_CH, now in storage sized to the records it needs
+   next (at most the message and 5 bytes per record, M2b's reading 3).
+5. M2b's reading 1 (the relay passes each side's end on as a half-close and closes when both have
+   ended) holds: the end that comes last is passed on by `close()`'s FIN rather than by a
+   `shutdown()` before it; the bytes either peer sees do not change.
+
+### Design choices of M5
+
+| Name | Value | Where | Reason |
+|---|---|---|---|
+| Counter repeats | 3 per cell and mode, interleaved | `trace_job2.sh` (`systrace.py --repeat`) | the dedicated arm's own spread beside one-port's distance from it |
+| Integration test ports | shifted by 400 times (CRC-32 of the build tree mod 16) | `test_competitors.port_shift` | two suites at once do not bind each other's ports |
+| Profile | perf record -g at 4999 Hz for 4 s after 1.5 s of load | `perfrec.py` | about 20,000 samples of the front's one core |
+| Profile port | 24200, the stub 10 above | `perfrec.PORT` | off the ephemeral range, apart from the other runners' ports |
+| B3 development order | per proxy and case: the proxy, the relay on epoll, on io_uring, the proxy | `c5.sh` (m5b3c) | the host's drift within a job falls on both arms |
+| Parked ClientHello storage | the record bytes the reassembly needs next | `Worker::hello_room` | the records a pending connection has, no more |
+
+### How the jobs ran, and what went wrong
+
+- Every job ran under `lab_job.sh` (the lab lock, the clock floor, THP at `madvise`, NOTRACK), from
+  `~/lab/p3/m5/src`, a clone of the lab remote, in chains of jobs (`c1.sh` to `c5.sh`, kept in
+  `~/lab/p3/m5/`). Each chain's results came back over one ssh session opened before its B3
+  windows, so no new TCP connection reached L while a B3 window measured (section 7's TIME-WAIT
+  rule counts the host); two ssh calls during m5b3c's build came before its first baseline, which
+  waits until the host holds no TIME-WAIT socket.
+- Chain c1 was launched with its arguments typed into L's login shell, zsh, whose history modifiers
+  (`$R:s...`, `$R:h...`) ate every argument written as `$R:...`: m5b3a and m5perf1 ran their proxy
+  windows and profiles but lost most of the server's; m5b3a2 and m5perf2 ran them again. Every later
+  chain is a bash script.
+- Chain c3 (666a6b7) was stopped after its checks, before any window, to add 333d846; chain c4
+  (333d846) was stopped by SIGTERM to its process group during its B3 job's start, before any
+  window, when its checks failed. Every setting came back (the records' `restored` true). Chain c5
+  (ac84f2d) ran to its end.
+
+### Lab journal and raw data
+
+Ten lines in the Papers repo's `lab/journal.jsonl` (Papers 0c4d67d and 6b82bb0, local, not pushed),
+each marked development: m5b3a, m5perf1, m5b3a2, m5perf2, m5m3a (before, 6bb6484), m5b3b, m5perf3,
+m5m3b (round 1, deaabfe), m5b3c and m5m3c (round 2, ac84f2d). No line for the untimed counter checks
+(m5tr1 to m5tr3: counts, never a time or a rate), the checks (m5chk1 to m5chk4), or the stopped
+chains (no window ran). Everything stays on L under `~/lab/p3/m5/`, archived in
+`~/lab/runs-archive/p3-m5-20261003T194756.tar.gz` (sha256
+0ca57c74b29e2d8d5998a0531e89a2426a63b0ea560fc17187cb8f1b1aa0a182, beside it in a `.sha256` file;
+5,993 members; made under the lab lock, job m5arch); build trees, source clones and the check
+builds are left out.
+
 ## Follow-ups outside this repository
 
 - `lab/bin/test_report_pattern.sh` lists the record writers by path. Done: Papers commit cf80eea
@@ -3809,6 +4304,11 @@ relay on io_uring had not run in B3.
   5846aaf (local, not pushed), each marked development.
 - M4b-2's readings of the frozen text and its open items (the Rust harness's TSan suppression; the
   server's in-process footprint with a partial ClientHello) are for the coordinator (M4b-2).
+- M5's lab journal: 10 lines in the Papers repo's `lab/journal.jsonl`, Papers commits 0c4d67d and
+  6b82bb0 (local, not pushed), each marked development.
+- M5's items for the coordinator: proposal I11's and I15's `IORING_OP_RECV`, now `IORING_OP_READ`; the
+  revision log's M3 item 2 example list; M4b-1's readings still unlogged (M5, "Readings, and changes
+  against the proposal's text").
 
 ## What M1 starts from
 
@@ -4035,3 +4535,30 @@ relay on io_uring had not run in B3.
   read the JDK's latest LTS build again (25.0.5 is due in October); write out the heap bounds again
   from L's MemTotal with the pinned JDK; read caddy-l4's pin and Netty's allocators again.
 - Nothing in M4b-2 blocks M5.
+
+## What M7 starts from
+
+- The code at 681c58e (ac84f2d's server, generators and harnesses; 681c58e changed only
+  `systrace.py`'s check), green in all four builds on L (m5chk5). M5's exit criteria stand as in
+  M5's table: 1, 3 and 5 met; 2 met against nginx, HAProxy, Envoy and caddy-l4, not against
+  sslh-ev (out of reach by construction, recorded); 4 met at the end.
+- For the coordinator before the freeze (M5, "Readings, and changes against the proposal's text"):
+  io_uring's receives are `IORING_OP_READ` where proposal I11 and I15 say `IORING_OP_RECV`; the
+  revision log's M3 item 2 still says "the two `TCP_NODELAY` of a relayed connection" (now one,
+  the listener's inherited); and M4b-1's nine readings are still not in the revision log.
+- M7 must still: write the records driver with the harness targets as `coverage.json` names them,
+  each harness's inputs hash from `bench/competitors/harness_inputs.py` and hyper-util's TSan run
+  with `TSAN_OPTIONS=suppressions=` its `tsan.supp`; fix the seeds of section 4.7 and
+  `ANALYSIS_COMMIT` (section 8, step 2); record the values engineering set (`K_SRC`, `N_ACCEPTEX`,
+  `RELAY_BUF`, the background counts, l, the pins); read the JDK's latest LTS build again (25.0.5),
+  the heap bounds, the slab caches in sysfs, caddy-l4's pin and Netty's allocators (M4b-2's list).
+- W: M5 changed `bench/server/handlers.cpp` (the TLS deferral, the receive counters), which IOCP
+  compiles, and added `bench/cases/run_cases.cpp` and `bench/server/record.cpp` to libraries W
+  builds; none of it was built or run on W. M6b's merge with main must build them and run W's suite.
+- Not done in M5, as before: `RELAY_BUF` beside each proxy's default, `IORING_OP_SEND`, and whether
+  `IORING_OP_SPLICE` runs in the kernel's worker threads (rule E's relay copy stays user space as
+  proposed); more than one worker on IOCP (M6b).
+- Ready for the runs after the pilot entry: `oneport --record` and `opcase case` for WL8's hard-case
+  runs and the competitors' descriptive table (section 10), whose runner, which starts each system
+  in the setup a variant names and judges the outcome, is still to write.
+- Nothing in M5 blocks M7.
