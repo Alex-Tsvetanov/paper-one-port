@@ -1,0 +1,105 @@
+\section{Threats to Validity}\label{sec:threats}
+
+This section lists the threats known before any confirmatory data. Threats that the results reveal
+belong to Section~\ref{sec:discussion}.
+
+\subsection{Scope}\label{sec:threat-scope}
+
+Every claim is about one server, as built, on two hosts, over loopback. A network between client
+and server would add latency and interrupt work that loopback does not have, and both would dilute
+the cost of detection further. The cost claims hold only for load of one protocol at a time; the
+mixed-protocol cell is secondary. Each claim is made per protocol, backend and host, never pooled.
+
+The TLS cells of the cost family have little power to show the cost of detection, since the
+handshake dominates each connection; they are not read as evidence about it. In the SSH cells the
+server speaks at accept in dedicated mode, but only after the client's first bytes in one-port
+mode. So the two arms do not exchange messages in the same order. M1 on IOCP compares replay with
+a peek that switches to replay at its first undecided read, because Windows offers no low-water
+mark. It measures the limits of the interface as much as the idea.
+
+\subsection{Engineering before the Freeze}\label{sec:threat-engineering}
+
+The server was engineered until it won where it could, against the proxies and libraries, on
+development data, before the code freeze. Those runs could not time one-port mode against
+dedicated mode. The A/A pilot that sizes the cost family holds no one-port data. So neither the
+margin nor \RC{} could be tuned to a cost contrast. The design choices of the relay and of the
+footprint test were informed by development runs against the competitors. The confirmatory runs
+are new data on the frozen binary, but a reader should weigh that history.
+
+\subsection{The Footprint Test}\label{sec:threat-footprint}
+
+$W$ is the footprint of each system as configured, not of its detection design alone. Two
+residuals of the socket-buffer accounting remain, and both sit with a system that leaves bytes
+queued. Such systems are nginx and Envoy in the partial-ClientHello case, through their peek
+paths, and the server only where its detection mode is peek. The first raises that system's $W$ and the second lowers
+it. In the silent case neither applies.
+
+On L one socket-buffer cache is merged with two caches that hold neither sockets nor socket
+buffers. Their growth is subtracted with the cache's. Growth caused by the host favours neither
+arm, since each session runs $XYYX$ with $X$ drawn, and a drift that is linear within a session
+falls on both arms alike. Growth that a system causes itself goes with its arm, and randomisation
+does not remove it. Three things bound it, though none is a test. Each window's processes start
+and pass the probe before the baseline. The co-tenants grow only when the kernel creates workqueue
+pools or chained scatter-gather lists. And the shared cache's growth is reported per arm beside
+every cell. In the silent case no system leaves a byte queued, so that growth is read directly.
+
+The server's $W$ is at least its own $K_s$, most of which is the memory of the two loopback socket
+ends that \Kbase{} measures. Against a competitor whose own footprint is close to a bare socket's,
+no change to the server can reach the margin of B3. Such a cell is reported as not shown.
+
+The JVM and Go systems hold memory that their collectors manage. Each is collected before every
+reading, and its cells are descriptive.
+
+\subsection{Windows}\label{sec:threat-w}
+
+W's frozen procedure names a CPU frequency counter, tested against a known load before the code
+freeze. If no counter passes that test, W's windows are validated without a frequency rule: a
+change of clock speed within a W session would then go undetected.
+\ForAlex{The first test, in M6b, did not pass: under its control the counter did not move, and
+neither did a spinner's work rate (design/status-m6b.md). A retest with a capped plan is prepared.
+State the outcome here once it is in the revision log.}
+
+On W the server's CPU time comes from the process times that Windows reports. Windows may charge
+that time in whole clock ticks, of \WTickMs{}~ms on W, to the thread that runs at each tick. If it
+does, then at a low server load the change over a window is a sample, not a sum. This would affect
+only WL4 on W, a secondary metric.
+\ForAlex{M6c's development runs on W saw exactly this: every server CPU time of the W A/A job was a
+whole multiple of the tick (design/status-m6b.md on branch \texttt{m6b-windows}). The W runner
+there (commit 485d7ae, not merged into main) also records the server's processor cycles. Which
+value is W's WL4 is open for the coordinator.}
+
+\ForAlex{Two more readings of M6b are not yet in the revision log: on W, opgen sets
+\texttt{SO\_REUSE\_UNICASTPORT} in place of \texttt{IP\_BIND\_ADDRESS\_NO\_PORT}, and W has no
+counter of listen overflows, so a refused connection shows only as a failed connect. M6c also found
+that W's churn of the protocols whose client closes first may be bound by the generator. Decide
+which of these the paper states.}
+
+\subsection{Cells at Risk of Not Running}\label{sec:threat-cells}
+
+In M2's TLS cells, the back end that terminates TLS may be the relay arm's limit in closed loop.
+Its cores would then run busier than the rule for back-end cores allows, every rate session would
+be invalid, and the cell would have no rate. By the frozen rule such a cell runs no window and
+enters Holm with \PIsOne{}, and M2's claim narrows to HTTP/1.1.
+\ForAlex{The coordinator's decision on M2's TLS cells is open (design/status.md, M7d).}
+
+TLS with session resumption is not run, for the reason given in Section~\ref{sec:secondary}.
+
+sslh-ev version \SslhVersion{} sets up its event watcher for a descriptor number only the first
+time it sees that number~\cite{sslh2026}. A connection accepted onto a number closed in the same
+pass of its loop can then go unread. Its churn windows may fail the error rule, and its cells of M3
+would enter Holm with \PIsOne{}. The narrowing order then applies.
+
+\subsection{Competitors and Instruments}\label{sec:threat-instruments}
+
+Each competitor runs the configuration its project documents for the compared feature. A better
+configuration may exist that we did not find. HAProxy's client, server and connect timeouts stay
+at its default, which is none. Envoy's M3 and B3 configurations hold the TLS inspector and not the
+HTTP inspector, since no route of theirs reads HTTP.
+
+The pre-specification cites Linux source lines at tag \KernelTag. The runs use kernel \KernelL. The
+revision log records that each cited line is unchanged in content there; the distribution's own
+patches on top of the tag were not compared.
+
+The generator's closed loop holds \ConnSlots{} connections per server core, so a closed-loop cell
+measures throughput at that concurrency only. The open loop measures the time to first byte from
+each exchange's due time, so a stall of the generator shows as latency rather than hiding.

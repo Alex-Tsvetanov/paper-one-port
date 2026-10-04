@@ -1,0 +1,196 @@
+% P3: one listening socket for every protocol, its cost, its robustness and its mechanisms; for MDPI
+% Future Internet, on MDPI's class (paper/TEMPLATE.md).
+% Every number in the text comes from a macro: the design constants from ../results/design-macros.tex
+% (paper/design_macros.py, read from hypotheses.md and bench/cmake/pins.cmake), the results from
+% ../results/macros.tex (analysis/macros.py, from the frozen analysis). Before the results exist,
+% paper/result-placeholders.tex stands in for the second file in a draft build only.
+\documentclass[futureinternet,article,submit,oneauthor]{Definitions/mdpi}
+
+% MDPI internal commands, as template.tex sets them for a submission.
+\firstpage{1}
+\makeatletter
+\setcounter{page}{\@firstpage}
+\makeatother
+\pubvolume{1}
+\issuenum{1}
+\articlenumber{0}
+\pubyear{2026}
+\copyrightyear{2026}
+\datereceived{ }
+\daterevised{ }
+\dateaccepted{ }
+\datepublished{ }
+
+% Something only Alex can supply or decide. Find them with: grep -n "TODO\|ForAlex\|Pending" *.tex.
+% A draft build prints them in colour; with \submissiontrue they print nothing, and each one
+% leaves a warning in the log, so a submission build still lists what is missing.
+\newif\ifsubmission
+\submissionfalse
+\newcommand{\TODO}[1]{\ifsubmission\PackageWarning{main}{a TODO is left in the text}\else
+  \textcolor{red}{[TODO: #1]}\fi}
+\newcommand{\ForAlex}[1]{\ifsubmission\PackageWarning{main}{a ForAlex note is left in the text}\else
+  \textcolor{blue}{[For Alex: #1]}\fi}
+% A result that the frozen analysis will write (a name of analysis/macros.py), or a section that
+% waits for the results.
+\newcommand{\Pending}[1]{\ifsubmission\PackageError{main}{a pending result is left in the text}{}\else
+  \textcolor{red!70!black}{\textbf{[pending: #1]}}\fi}
+
+% The design constants, always; the results, once analysis/macros.py has written them. A draft
+% build without them takes the placeholders; a submission build without them stops.
+\input{../results/design-macros}
+\IfFileExists{../results/macros.tex}{\input{../results/macros}}{%
+  \ifsubmission\PackageError{main}{../results/macros.tex is missing}{}\else\input{result-placeholders}\fi}
+
+% A run-in heading at the start of a paragraph; MDPI's \paragraph sets its heading on a line of
+% its own.
+\newcommand{\runin}[1]{\textit{#1}\enspace}
+% The server, its programs and its flags.
+\newcommand{\oneport}{\texttt{oneport}}
+\newcommand{\opgen}{\texttt{opgen}}
+\newcommand{\opcase}{\texttt{opcase}}
+\newcommand{\ophold}{\texttt{ophold}}
+\newcommand{\flag}[1]{\texttt{#1}}
+% Timers and names of the frozen text.
+\newcommand{\Tfb}{\ensuremath{T_{\mathrm{fb}}}}
+\newcommand{\Tdec}{\ensuremath{T_{\mathrm{dec}}}}
+\newcommand{\Thdr}{\ensuremath{T_{\mathrm{hdr}}}}
+\newcommand{\Bdec}{\ensuremath{B_{\mathrm{dec}}}}
+\newcommand{\Bch}{\ensuremath{B_{\mathrm{CH}}}}
+\newcommand{\RC}{\ensuremath{R_{C}}}
+\newcommand{\mC}{\ensuremath{m_{C}}}
+\newcommand{\Kbase}{\ensuremath{K_{\mathrm{BASE}}}}
+\newcommand{\name}[1]{\texttt{#1}}
+% Names that contain digits, kept out of the prose so that every digit there is a number from the
+% macro files (check_text.py).
+\newcommand{\CipherSuite}{\texttt{TLS\_AES\_128\_GCM\_SHA256}}
+\newcommand{\SigScheme}{\texttt{ecdsa\_secp256r1\_sha256}}
+\newcommand{\GroupX}{X25519}
+\newcommand{\NoTickets}{\texttt{SSL\_CTX\_set\_num\_tickets(ctx, 0)}}
+\newcommand{\EpollWaitTwo}{\texttt{epoll\_pwait2}}
+\newcommand{\SshLine}{\texttt{SSH-2.0-oneport}}
+\newcommand{\LoopbackNet}{127.0.0.0/8}
+% Formulas of the frozen statistics whose constants are part of their notation.
+\newcommand{\IntervalLevel}{\ensuremath{1-2\alpha}}
+\newcommand{\RerunCap}{\ensuremath{\lceil R/4 \rceil}}
+\newcommand{\DnineRule}{\ensuremath{2^{-R} < \alpha/m}}
+\newcommand{\SignNull}{\ensuremath{X \sim \mathrm{Binomial}(R, 1/2)}}
+\newcommand{\ClipRange}{\ensuremath{[1/(2B),\, 1-1/(2B)]}}
+\newcommand{\HolmLevel}{\ensuremath{\alpha_j = \alpha/(m_C - j + 1)}}
+\newcommand{\PminusOne}{\ensuremath{P-1}}
+\newcommand{\Bandwidth}{\ensuremath{b = \SilvermanA \cdot \min\bigl(1,\, \mathrm{IQR}(e)/(\SilvermanB\, s)\bigr)
+  \cdot P^{-1/\SilvermanC}}}
+\newcommand{\UpperSd}{\ensuremath{s_U = s\sqrt{(P-1)/q}}}
+\newcommand{\SimScale}{\ensuremath{s_U/\sqrt{1+b^2}}}
+\newcommand{\LogRatio}{\ensuremath{y_i = \log r_i}}
+% A cell that cannot be tested enters Holm's procedure with this p-value.
+\newcommand{\PIsOne}{\ensuremath{p = 1}}
+% B3: a session without a ratio; the start of a B3 window; the BCa's bound on its bias correction.
+\newcommand{\Qzero}{\ensuremath{Q = 0}}
+\newcommand{\Tzero}{\ensuremath{t = 0}}
+\newcommand{\ZzeroBound}{\ensuremath{|z_0| < \BcaZzeroMax}}
+% A kernel slab cache's name that holds digits.
+\newcommand{\SgPool}{\texttt{sgpool-16}}
+% A long hexadecimal string in typewriter type that may break anywhere.
+\newcommand{\hex}[1]{\texttt{\expandafter\seqsplit\expandafter{#1}}}
+% The hyphen of a page range in references.bib: BibTeX sees the comma of its argument and prints
+% "pp.", LaTeX prints a hyphen, and mdpi.bst's dashify never sees one (paper/TEMPLATE.md).
+\newcommand{\bibhyph}[1]{-}
+% natbib, which the class loads with sort&compress, joins a range of citations such as [3, 4, 5]
+% with a range dash. Alex's rule allows no range dash, so the range takes a hyphen: [3-5].
+% The pattern is built from two \string- so that this file holds no double hyphen.
+\makeatletter
+\begingroup
+\edef\x{\endgroup
+  \noexpand\patchcmd{\noexpand\NAT@citexnum}%
+    {\noexpand\def@NAT@last@yr{\string-\string-\noexpand\NAT@penalty}}%
+    {\noexpand\def@NAT@last@yr{-\noexpand\NAT@penalty}}{}%
+    {\noexpand\PackageError{main}{natbib's citation range could not be patched}{}}}
+\x
+\let\@citex\NAT@citexnum
+\makeatother
+
+\emergencystretch=3em
+
+\Title{One Listener for Every Protocol: First-Bytes Demultiplexing}
+
+\newcommand{\orcidauthorA}{0009-0001-8369-150X}
+
+\Author{Alex I. Tsvetanov \orcidA{}}
+
+\AuthorNames{Alex I. Tsvetanov}
+
+\address[1]{Faculty of Computer Systems and Technologies, Technical University of Sofia,
+ul.~Professor Georgi Bradistilov 11, Sofia, Bulgaria; atsvetanov@tu-sofia.bg}
+
+% With the class option oneauthor, mdpi.cls prints no correspondence line, so the e-mail is in
+% the address above as well.
+\corres{Correspondence: atsvetanov@tu-sofia.bg}
+
+\abstract{\Pending{the abstract, written after the results}
+\ForAlex{The title is the working title of bib/own.bib. The frozen text gives no title.
+Confirm it, or choose another once the results are in.}}
+
+\keyword{protocol detection; port unification; first-bytes demultiplexing; TLS; HTTP/2; MQTT;
+PROXY protocol; epoll; io\_uring; I/O completion ports; equivalence testing; benchmarking}
+
+\begin{document}
+
+\input{sec-introduction}
+\input{sec-related}
+\input{sec-design}
+\input{sec-method}
+\input{sec-threats}
+\input{sec-results}
+\input{sec-discussion}
+\input{sec-conclusions}
+
+\vspace{6pt}
+
+\authorcontributions{Conceptualization, A.I.T.; methodology, A.I.T.; software, A.I.T.;
+validation, A.I.T.; formal analysis, A.I.T.; investigation, A.I.T.; resources, A.I.T.; data
+curation, A.I.T.; writing, original draft preparation, A.I.T.; writing, review and editing,
+A.I.T.; visualization, A.I.T.; supervision, A.I.T.; project administration, A.I.T.; funding
+acquisition, A.I.T. The author has read and agreed to the published version of the manuscript.}
+
+\funding{The publication of this paper was financially supported by the scientific research
+sector of the Technical University of Sofia.}
+
+\institutionalreview{Not applicable.}
+
+\informedconsent{Not applicable.}
+
+\dataavailability{The pre-specification with its revision log, the server, the generators, the
+competitors' configurations, the analysis and the generated macro files will be made available
+in the paper's repository. Raw outputs are archived with their SHA-256 and will be made available
+with it. \ForAlex{the public link and DOI of the paper's repository and of the archives; the
+repository of papers that holds the sanitizer records.}}
+
+\acknowledgments{The author would like to thank the scientific research sector of the Technical
+University of Sofia for financial support for publishing the present paper.
+\ForAlex{MDPI asks authors to disclose the use of generative AI. The wording MDPI asks for is in
+the acknowledgments placeholder of its LaTeX template (template.tex in MDPI\_template\_ACS.zip,
+class mdpi.cls v6.5a): ``During the preparation of this manuscript/study, the author(s) used [tool
+name, version information] for the purposes of [description of use]. The authors have reviewed
+and edited the output and take full responsibility for the content of this publication.'' MDPI's
+policy pages are at \url{https://www.mdpi.com/ethics}; that page refused a scripted request, so
+the wording above was taken from the template, not from the page. Two drafts, neither final,
+yours to choose or rewrite, with the tool's version filled in:
+(a) ``During the preparation of this study, the author used Claude (Anthropic, [version]) for the
+purposes of writing and testing the software, running the analysis, and drafting and editing the
+text. The author has reviewed and edited the output and takes full responsibility for the content
+of this publication.''
+(b) ``During the preparation of this manuscript, the author used AI coding and writing assistants
+(Anthropic's Claude, [version]) to implement and test the server and its harness and to draft the
+text. The author has reviewed and edited the output and takes full responsibility for the content
+of this publication.''}}
+
+\conflictsofinterest{The author declares no conflicts of interest. The funder had no role in the
+design of the study; in the collection, analyses, or interpretation of data; in the writing of
+the manuscript; or in the decision to publish the results.}
+
+\begin{adjustwidth}{-\extralength}{0cm}
+\reftitle{References}
+\bibliography{references}
+\PublishersNote{}
+\end{adjustwidth}
+\end{document}

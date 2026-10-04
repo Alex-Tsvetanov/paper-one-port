@@ -1,0 +1,237 @@
+\section{The Server}\label{sec:design}
+
+\oneport{} is the paper's own minimal server, written in C++23 and built with CMake. This section
+describes it as the frozen design specifies it and as the code implements it. It holds exactly the
+features the hypotheses study, and nothing more.
+
+\subsection{Structure}\label{sec:structure}
+
+One binary takes four flags: the mode (one-port, dedicated or stub), the detection mode (replay or
+peek), the dispatch mode (in-process or relay) and the backend (epoll, io\_uring or IOCP). A
+process runs one backend. It runs one worker thread per server core; the primary cells use one
+core. The event loop of each worker derives from the minimal loop of an earlier study by the same
+author~\cite{tsvetanov2026wake}. From it come the io\_uring ring on raw system calls, created for
+a single issuer with deferred task work and enabled on the worker. So do the rules for memory that
+the kernel fills, under MemorySanitizer, the stop paths and the IOCP port setup. Sockets, timers,
+detection, handlers and counters are new.
+
+A connection's state is a tagged union of handler states, and dispatch is a switch on the tag,
+with no virtual call. A dedicated listener sets the tag at accept; a one-port listener sets it
+when detection classifies the connection. From then on both modes run the same code. The mode
+flag is read once, by the listener setup. A structural test fails if any other source file reads
+it, so the handlers cannot differ between the modes.
+
+\subsection{Listeners}\label{sec:listeners}
+
+In one-port mode a process has one listening TCP socket. When several workers serve it, they share
+it: on epoll each worker's set holds it with \texttt{EPOLLEXCLUSIVE}, and on io\_uring each
+worker's ring holds a multishot accept on it. On IOCP every listener keeps \NAcceptex{}
+\texttt{AcceptEx} requests outstanding, without a receive buffer, in both
+modes~\cite{microsoft2026acceptex}. A group of \texttt{SO\_REUSEPORT} sockets, one per worker, is
+a second layout that the binary also builds.
+\ForAlex{As built, the server on IOCP runs one worker and refuses more (design/status.md, M6a).
+The frozen secondary analyses include a cell with two server cores on IOCP. This draft states the
+frozen text; the choice among the options M6a lists is open.} In dedicated mode a process opens one listening socket per
+protocol (HTTP/1.1, h2c, TLS, MQTT, SSH and SMTP) on consecutive ports. It has no detection, no
+detection timer and no detection budget. The backend, the workers, the handlers, the buffers and
+the PROXY setting are the same in both modes. That is the whole difference between them, and it
+is what the cost family measures.
+
+\subsection{The Detection Table}\label{sec:table}
+
+Each matcher is a \texttt{constexpr} descriptor. Its function maps the bytes received so far to
+one of three answers: yes, no, or more needed. It also states the fewest and the most bytes it
+needs to say yes, and the set of first bytes it can accept. The set is derived from the function, so the two cannot
+disagree. Table~\ref{tab:matchers} gives the matchers as frozen. The methods of HTTP/1.1 are the
+eight of HTTP semantics~\cite{fielding2022rfc9110} and PATCH~\cite{dusseault2010rfc5789}.
+
+\begin{table}[H]
+\caption{The detection table, as frozen. The PROXY parser is not part of the table; it runs before
+it, on a listener configured for PROXY only.\label{tab:matchers}}
+\centering\small
+\begin{tabularx}{\textwidth}{@{}l X l@{}}
+\toprule
+\textbf{Matcher} & \textbf{Accepts} & \textbf{Decides at} \\
+\midrule
+TLS & first byte \texttt{0x16}; second byte \texttt{0x03}; third byte any; a record length of at
+most \TlsRecordMax{}; sixth byte \texttt{0x01}, a ClientHello~\cite{rescorla2018rfc8446} &
+\TlsNeed{} bytes \\
+h2c & the preface of \HtwocNeed{} bytes, exactly~\cite{thomson2022rfc9113} & \HtwocNeed{} bytes,
+or the first byte that differs \\
+HTTP/1.1 & at most one leading empty line, then one of the nine methods, then exactly one
+space~\cite{fielding2022rfc9112} & at most \HttpNeedMax{} bytes \\
+SSH & \texttt{SSH-}~\cite{ylonen2006rfc4253} & \SshNeed{} bytes \\
+MQTT & first byte \texttt{0x10}, a CONNECT; a Remaining Length of \MqttRlMin{} to \MqttRlMax{}
+bytes; then the protocol name \texttt{MQTT} with its length, and the level of MQTT~3.1.1 or of
+MQTT~5.0~\cite{banks2014mqtt311,banks2019mqtt5} & \MqttNeedMin{} to \MqttNeedMax{} bytes \\
+PROXY v1, v2 & v2 needs \ProxyVtwoNeed{} bytes with the first \ProxyVtwoMatch{} matching; v1
+needs \ProxyVoneNeed{} with the first \ProxyVoneMatch{} equal to \texttt{PROXY}; a prefix that
+cannot match closes the connection; a v2 header longer than \ProxyVtwoMax{} bytes is
+rejected~\cite{tarreau2026proxy} & then the whole header \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+From the table the compiler builds an array of all byte values that maps a first byte to its
+candidate matchers. Within a bucket, the matcher with the smaller need runs first, for speed only.
+Checks at compile time run every matcher over a corpus of samples built from the
+specifications' grammars. Each sample is accepted by its own matcher. No matcher accepts a prefix
+of another protocol's sample. Running each bucket in reverse order changes no decision on the
+corpus. The first-byte sets equal those of the frozen table. A build that broke any of these
+would not compile, so on the corpus the classes are prefix-disjoint and the order of the table
+cannot change a decision. The test suite runs the same corpus again at run time, split at every
+position.
+
+Classification keeps no state between calls. The bytes stay where the detection mode keeps them
+(Section~\ref{sec:modes}), and the table runs on all of them each time more arrive. So a signature
+fed in any split gets the decision it gets in one write. An empty candidate set after the first
+byte rejects the connection at once. Two budgets are compile-time constants. An undecided
+connection may hold at most \Bdec{} = \BDec{} bytes after any PROXY header. A ClientHello
+reassembled in pass-through may hold at most \Bch{} = \BCh{} bytes. A connection that exceeds a budget while it
+is undecided is rejected. On a listener configured for PROXY, the header is parsed first and
+consumed exactly, so the table sees the first application byte. That order removes the overlap of
+the binary PROXY header with HTTP/1.1's leading empty line.
+
+\subsection{Detection Modes}\label{sec:modes}
+
+\runin{Replay.} The first read goes into the buffer the handler would read into in dedicated mode.
+The matchers run on it, and the handler then parses the same buffer from its start. No byte is
+copied for the replay.
+
+\runin{Peek.} The bytes are copied with \texttt{MSG\_PEEK} into a scratch buffer of the worker and
+stay in the kernel. The handler later reads them as in dedicated mode. An undecided peek sets
+\texttt{SO\_RCVLOWAT} to the fewest bytes in all with which some candidate could still say yes.
+The socket then reports readiness again only when that many bytes are queued~\cite{man2026socket}.
+Before the handler reads, one more call sets the mark back to one byte.
+
+The backends realise the two modes differently.
+\begin{itemize}
+\item \textbf{epoll.} Every connection is registered edge-triggered with \texttt{EPOLLRDHUP}, in
+both modes~\cite{man2026epoll}. A readiness event is followed by a synchronous receive (replay) or
+peek. \texttt{EPOLLRDHUP} reports a peer that shut down writing, which a peek alone cannot show
+while bytes are queued.
+\item \textbf{io\_uring.} In replay, a read on the socket is posted with a buffer that the kernel
+selects from a ring of provided buffers when data arrives~\cite{man2026iouring}. A pending read
+therefore holds no buffer of its own. The opcode is \texttt{IORING\_OP\_READ}, a reading the
+revision log records. In peek, the worker posts a poll for readable data or a half-close, then
+peeks synchronously. A test pins that a poll armed again after an undecided peek completes only
+at the low-water mark.
+\item \textbf{IOCP.} A zero-byte \texttt{WSARecv} serves as the readiness signal, followed by a
+synchronous receive or peek on the non-blocking socket~\cite{microsoft2026wsarecv}. Windows has
+no \texttt{SO\_RCVLOWAT}, so nothing can wait in the kernel for more bytes. An undecided peek
+therefore switches the connection to replay: the queued bytes are read into the handler's buffer
+at once and matching continues there. The counters record each switch.
+\end{itemize}
+Each backend has one default detection mode, used by every cost and robustness cell. The proposed
+default is replay on all three backends. Rule~E (Section~\ref{sec:order}) may change it per
+backend after the pilot.
+
+\runin{Memory of a pending connection.} By design, a pending connection holds its state, which is
+fixed in size, and no data buffer while no byte has arrived, on every backend. With replay it
+holds the handler's buffer from the first byte on; with peek, nothing in user space. In
+pass-through it holds the partial ClientHello, at most \Bch{}. The test suite audits these bounds. IOCP has a second
+receive form that posts the handler's buffer with the first \texttt{WSARecv}. It holds a buffer
+while no byte has arrived, so it breaks the bound; it is built only for one secondary cell,
+reported with that violation.
+
+\subsection{Timers and the Decision Deadline}\label{sec:timers}
+
+Three timers bound detection. The silence timer \Tfb, the decision deadline \Tdec{} and the PROXY
+header deadline \Thdr{} are each \TimerS{}~s, a design choice. The PROXY specification asks for at
+least that long~\cite{tarreau2026proxy}, and it is caddy-l4's default matching
+timeout~\cite{caddyl42026}. \Tfb{} and \Tdec{} start together, at accept, or on a PROXY listener
+when the header is complete. A listener may name one fallback protocol. The frozen rules are these.
+\begin{enumerate}[label=(\alph*)]
+\item A connection that has delivered no application byte when \Tfb{} expires goes to the fallback
+handler. It goes in the first loop pass that handles the expiry, never earlier, unless the check
+of (b) finds a byte.
+\item Every loop pass handles all of its completions and readiness events before any expiry.
+Before every fallback dispatch the server checks for a byte without waiting. Where no receive
+was posted with a buffer it peeks one byte with \texttt{MSG\_PEEK}; where one was, it reaps
+completions without waiting. If it finds a byte, the bytes alone decide the connection.
+\item After a fallback dispatch, the byte transcript in both directions equals that of the same
+client against the fallback's dedicated port. Only the timing differs.
+\item A connection with at least one byte that no matcher has decided at \Tdec{} is closed as
+undecided. It never goes to the fallback.
+\item A connection whose bytes rule out every matcher is closed at once as rejected.
+\item A connection that is silent at \Tdec{}, on a listener without a fallback, is closed as silent.
+\item A client whose first byte is delivered after \Tfb{} goes to the fallback. That is the defined
+price of the boundary, not an error.
+\item A connection whose peer shuts down writing before a decision is closed at once: undecided
+if it delivered a byte, silent if not.
+\end{enumerate}
+In relay dispatch a TLS connection is classified at its sixth byte, but its route needs the whole
+ClientHello. \Tdec{} stays armed until the route is chosen, so it bounds that wait too.
+
+\runin{The deadline queue.} Every pending connection of a listener waits under the same
+durations, so its deadlines arrive in accept order. One intrusive first-in, first-out list per
+listener and timer therefore keeps them sorted, with constant-time arming, cancelling and expiry.
+The loop bounds each wait by the earliest head deadline: \EpollWaitTwo{} with a time
+specification, the io\_uring wait with its timeout, and \texttt{GetQueuedCompletionStatusEx} in
+whole milliseconds. After every wait the loop reads the clock again. If no deadline has passed it
+waits again, so no timed event is handled early. For each timed event the server records its
+deadline, when its wait returned and which pass handled it.
+
+\subsection{Dispatch}\label{sec:dispatch}
+
+\runin{In-process.} The classified connection stays on its worker, and its handler takes over.
+TLS is terminated in the server.
+
+\runin{Relay.} Relay dispatch exists on Linux only. The front opens a loopback connection to the
+back-end port of the connection's class, writes any bytes replay has read, and copies both ways.
+A side's end is passed on as a half-close, and the connection closes when both directions have
+ended; a reset on one side closes the other by reset. For TLS the front never terminates. Its own
+parser reassembles the ClientHello across records, up to \Bch{}, and routes by its server name
+and ALPN list (pass-through). The relay copies through user-space buffers of \RelayBuf{} bytes
+per direction, or with \texttt{splice}; rule~E chooses per backend.
+
+\runin{Stub mode.} The back end of the comparisons with the proxies is the server in stub mode:
+one port per class, and the least work that completes an exchange. HTTP/1.1 gets the handler's
+response. On the TLS port the stub reads one TLS record, writes a body of \BodyBytes{} bytes and
+closes; it never makes a handshake.
+
+\subsection{Handlers and TLS}\label{sec:handlers}
+
+Every handler is the same code in both modes, and each is minimal. HTTP/1.1 is the server's own
+parser; it answers status \texttt{200} with a body of \BodyBytes{} bytes. A request line that
+breaks the detector's grammar is closed without a response in both modes, so the modes agree on
+invalid input. HTTP/2 runs through nghttp2 version \NghttpVersion~\cite{nghttp22026}. MQTT answers
+CONNECT with CONNACK and PINGREQ with PINGRESP, and closes on DISCONNECT. SSH sends its identification line \SshLine{} on entry, reads the
+client's line and closes. SMTP, reached only as a fallback or on its dedicated port, answers
+\texttt{220}, then \texttt{250} to EHLO, \texttt{221} to QUIT and \texttt{500} to anything
+else~\cite{klensin2008rfc5321}.
+
+TLS runs through OpenSSL from its \OpensslSeries{} long-term support series, pinned at release
+\OpensslVersion{} and built from source on both hosts~\cite{openssl2026}. The settings are the
+same in the server, the back end and the generator. They are TLS~1.3 only, the cipher suite
+\CipherSuite, the signature scheme \SigScheme{} and the group \GroupX{} only. There are no session
+tickets (\NoTickets), no session cache and no early data. The cost cells offer ALPN
+\texttt{http/1.1}. The loop owns the socket on every backend and gives OpenSSL its bytes through a
+BIO of the worker's own. io\_uring and IOCP complete operations that the library cannot issue
+itself.
+
+\subsection{Counters}\label{sec:counters}
+
+Every build counts, per worker, in plain integers without atomics, in both modes. It counts
+operations by kind: accept, receive, peek, zero-byte receive, send, \texttt{setsockopt} and the
+check of rule (b). It also counts \texttt{io\_uring\_enter} calls, submissions by opcode and
+\texttt{GetQueuedCompletionStatusEx} calls. Further counters hold the switches from peek to replay
+and the payload bytes across the boundary between user and kernel space, by direction. Others hold
+the bytes copied in user space, the wakeups per connection during detection, the outcomes per class
+and the timed events above. The counters run in every arm, so they cost the same on
+both sides of each contrast.
+
+\subsection{Generators and the Holder}\label{sec:generators}
+
+Three first-party programs drive and observe the server. \opgen{} generates load: scripted
+exchanges per protocol, a new connection per exchange or kept-alive connections, closed and open
+loop, and the time to the first response byte. It binds each source address with
+\texttt{IP\_BIND\_ADDRESS\_NO\_PORT}, and each window takes the next unused block of
+\KSrc{} addresses of \LoopbackNet{}, never reused within \TimeWaitS{}~s.
+\ForAlex{On W, opgen sets \texttt{SO\_REUSE\_UNICASTPORT} before the bind instead, since Windows
+has no \texttt{IP\_BIND\_ADDRESS\_NO\_PORT}. That is M6b's reading 3 (design/status-m6b.md), not
+yet in the revision log; this draft states the frozen text.} \opcase{} runs each hard
+case, and the openings of the footprint test, as a script of writes and gaps, one write per chunk
+with \texttt{TCP\_NODELAY}. It records each write's time on the server's clock. \ophold{} accepts
+connections and holds them without reading or polling them. It measures the kernel's memory for a
+bare held socket.
