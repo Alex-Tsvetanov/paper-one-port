@@ -16,7 +16,7 @@ has run.
 | M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
 | M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) merged into main at its 74dc539 in fa8be6d, 2026-10-04 (below, "M7c follow-up"; `design/status-m6b.md`); W's runners open |
-| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); M7d and M7e done, 2026-10-04; the freeze session stopped in W's checks, 2026-10-04 (below, "M7 freeze session": a test fix, 7a4063c; W in use); the freeze itself open |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); M7d and M7e done, 2026-10-04; the freeze session stopped in W's checks, 2026-10-04 (below, "M7 freeze session": a test fix, 7a4063c; W in use); the code freeze declared, 2026-10-05: CODE_FREEZE = ff2679c (below, "M7 freeze night") |
 
 ## Engineering constraints
 
@@ -6082,6 +6082,8 @@ from clean clones of `origin` under `C:\Users\alext\lab\p3\m7f\`.
 |---|---|
 | 1fca359 | fix(bench): W's job-start quiet gate at 90% mean idle, 90% per CPU and 10% per process (Alex's decision), logged before any pilot data |
 | 20c01b9 | fix(tests): on IOCP the suite waits 250 ms after a server's start before its first client; coverage.json: no third-party library needs a Windows gap |
+| ddd9d6a | fix(tests): on Windows the generator tests check the form of the workers' CPU time |
+| ff2679c | fix(bench): records_job_w.ps1's gate step runs its Python steps inside cmd.exe (CODE_FREEZE) |
 
 ### 1. W's quiet check, 00:20 to 00:46
 
@@ -6199,15 +6201,100 @@ directories of their own (`aliases` 0) listed under their own names; `skbuff_fcl
 to `:0000512` (`aliases` 2; linked names pool_workqueue, sgpool-16, skbuff_fclone_cache), which
 `/proc/slabinfo` lists as pool_workqueue; page size 4096. Unchanged from WL7's reading.
 
-### 6. Where it stands
+### 6. Two more fixes found by W's checks (ddd9d6a, ff2679c)
 
-W's chain, run 4 (pid 21168, 01:09:12): the same six steps at 20c01b9 (`m7f\src-20c01b9`, whose
-`wjob.py` has the 90/90/10 gate; `check\20c01b9`; `dryrun-20c01b9`), each with `--allow-noisy`.
-Its first preflight passed the new gate (mean idle 96.6%, `quiet` true). L: chk12 green at 20c01b9;
-the sanitizer records at 20c01b9 started at 01:12:00 (job rec1, `records_job.sh` from a fresh clone,
-`REPO_URL` the paper's repository), ahead of W's chain: a test-only change moves no measured
-binary's inputs hash, so if W's checks forced a later test-only commit, these records would still
-cover its measured binaries.
+W's chain, run 4 (pid 21168, 01:09:12, at 20c01b9): `suite1` passed the new gate (mean idle 96.6%);
+Debug 165 of 165, ASan 164 of 165: `gen.keepalive.tls.IOCP` failed its check "the workers' CPU
+time" (`tests/gen_tests.cpp`, `r.cpu_s > 0`). opgen reads each worker's CPU time with
+`GetThreadTimes` (`bench/gen/opgen.cpp`, `clock_s`), which advances on the clock tick (15.625 ms)
+and charges each tick to the thread that runs then; over the test's 100 ms window two keep-alive
+workers that mostly wait, beside the server's worker in the same process, can read 0. HC22 passed
+at 20c01b9 in both builds. The fix, test only (ddd9d6a): on Windows the check asks for the form
+(two values, a sum of at least 0); Linux's check is unchanged. W's chain, run 5 (pid 12672, 01:15:03,
+at ddd9d6a): `suite1` Debug 165 of 165 and ASan 165 of 165 (0 warnings, 0 report lines; logs in
+`m7f\check\ddd9d6a\`); then `dry1` stopped at the gate step: `records_job_w.ps1` ran
+`build_inputs.py` from PowerShell with `$ErrorActionPreference` "Stop", and the summary line that
+`build_inputs.py` writes to standard error became a terminating error. The fix (ff2679c): the gate
+step's three Python steps run inside cmd.exe, as the release step's build does; tested at once on
+the dry run's output (`-DryRun -Only gate`: `gate-W.json` written, every one of the 10 targets
+covered by the dry-run record, `citable` false). No compiled input changed in ff2679c.
+
+### 7. W's functional checks (run 6) and the rows' checks
+
+W's chain, run 6 (pid 30860, 01:22:28 to 01:48:09; steps wf1 to wf4 at ddd9d6a on the dry run's
+build, `dryrun-ddd9d6a\build-release`; each step's preflight passed the 90/90/10 gate, so none ran
+as a functional check by wjob's rule, and each was launched with `--allow-noisy` all the same):
+
+| Step | What | Outcome |
+|---|---|---|
+| wf1 | `wpilot_run.py`, dev seed 8201, C1 HTTP/1.1, C1 MQTT, C2 TLS, C3 MQTT, one session each; timer part 3 runs; split part 2 replicates at 5 and 100 ms | 16 of 16 windows valid; the warm-up 4 windows, 113.9 s; λ for C3 MQTT from the C1 session; 3 timer runs valid (lateness 8.65 to 12.82 ms); 4 split replicates valid, each with 2 receives that returned payload |
+| wf2 | `wcost_run.py`, dev seed 8202, C1 HTTP/1.1 | the dedicated windows valid (17,021 to 17,096 connections per second), every one-port window a development stub, the session and its rerun |
+| wf3 | `ws_run.py`, dev seed 8203, the mixed cell, SSH C1, TLS with ALPN h2 | SSH and ALPN h2 dedicated windows valid; the mixed cell's 4 dedicated windows invalid by section 7's generator rule (below) |
+| wf4 | `whardcase_run.py`, IOCP replay and peek in-process, 2 replicates, development G 100 ms and gap 10 ms | 328 variant entries, 0 with a failing run |
+
+`devcheck.py` (from `src-ddd9d6a`) over every row of wf1 to wf4 with the dry run's `gate-W.json` and
+`dev-seeds-w.json`: ok; 707 rows bound to the gate, 0 refused, 16 stub rows, the analysis accepted
+every family's rows, and the pilot check ran on 31 rows (`m7f\devcheck-ddd9d6a\devcheck.json`, sha256
+ea0493d953adc339976c98417b54f192feec647b645d45d26647e69f973774a0). `ksrc_scan_w.py`: 22 row files,
+2,468 rows since 2026-10-03 08:36:23, no failed connect (log sha256
+bffb73150c8040281f92d6dc9c99c621bad12b746c98cc534d2a61da2a896bbb). Every valid row that ran a binary
+carries `cycles_per_exchange` and `cpu_shares`; each job's warm-up record shows 80 s and no fault.
+Row files (sha256), `m7f\wfunc\`: pilot windows
+acc219d4782123f19a01aa3afb599c2c9836d065da9d8b92712ee28bbf32821c, parts
+78f93e62286b7ccbf02a47e0614fbb96d0fe490a0ea4a9c43bda3ac4ad215554; cost
+5909046ac90a32d6cad48c58248e6657db8bcc208044dc459946de8fdb8fb809; s
+2cba70011732f2a5dcc73ac4f4e1a13ce78763fb1c4ebe0608fca2df6c6fc6dc; hard
+32c05211641e3c6a167b7718cc4b6651ab9c535c1a7ff270a5f4c0bd496e44ce.
+
+For Alex (not changed tonight): on W the mixed cell's own generator, on CPUs 2 to 5 by M7e's
+placement (the entry "The job's warm-up and W's runners (M7e)", item 4), was 97.5% to 99.1% busy
+(opgen's own share 98.5%), with the server's CPU 100% busy, so every dedicated window of the cell
+was invalid by section 7's generator rule. The cell is secondary (section 10) and decides nothing;
+as it stands, its W cell will report invalid windows with this reason. A wider generator placement
+would be a new design choice, logged; it was not made.
+
+### 8. The code freeze
+
+On L, lab job frz2 (`~/lab/p3/m7g/freeze_l.sh`, sha256
+0643e23c12f76cbba7d428c4c4a3e4e79be505e6966d5878065b461b0522681b: `checks_job.sh` at the commit,
+then, if every build is green, `records_job.sh` from a fresh clone with `REPO_URL` the paper's
+repository), at ff2679c, 01:23:11 to 01:37:10: the suite in four builds (0 warnings, 399 of 399, 0
+report lines each; logs in `check/ff2679c/`, sha256: debug build
+dd48dd1072bf363efd7340cf926d3975e6a99f50fb5e7a48d21d4a7b7e71732e, ctest
+847ac710a4c2225cdbcd068ee027504a4e9630ed58118e3f7f30030188b51dbf; asan build
+aa71a0409bad746dbe944d276dabbada9391f2aea6a14d44e5517f60648d89ac, ctest
+b798a66b098aaf777e6483c9265e53a40de7b5fa4d180a443440412bf6b3be26; tsan build
+8516c6226b457858038b39cb0dbbe6fc0037059cf8e9b8faa1e30a048adcae1b, ctest
+8ccc57675663ff88cfdaf966000287ca3be0732b5cbadd3df78ddb6cb6040aaf; msan build
+791880cd2c5b48ba6c5e7cc9e4de94d4e7ca0054d2745f4a1bcb3e67cecb17fb, ctest
+9e4a3c7bdd4da497602fe6bcfa98f953b61c503a98595c1d8870fed61b8e90da), then the seven records, all
+green, and the gate (`records-ff2679c/`). Earlier the same night: rec1, the records at 20c01b9
+(01:12:00 to 01:20:48, all seven green), superseded because ddd9d6a changed the suite target's
+inputs hash; and frz1 at ddd9d6a, stopped by SIGTERM to its process group 3 minutes in (01:23:06, exit
+143; the clock floor, THP and NOTRACK set back) when ff2679c moved the freeze. Found then: two
+servers that a Python test of the Debug suite had started in sessions of their own (pids 543858 and
+543861, ports 4200 and 4210 to 4215) outlived the process group's SIGTERM; they were stopped by
+their pids before frz2's Debug suite reached their ports. A suite stopped this way can leave such
+servers; the next job should check `ss -ltnp` for `oneport` first.
+
+On W, W lab job recw1 (`records_job_w.ps1` at ff2679c from a clean clone `m7f\src-ff2679c`, 01:49:41
+to 01:51:41, passed the 90/90/10 gate at a mean idle of 96.9%): the Release build (22 s), the MSVC
+ASan record `oneport-ff2679cc8-W-asan` (green; 0 warnings, 165 of 165, 0 report lines), and the gate
+(`gate-W.json`, every target covered, citable). W's binaries are not byte for byte those of the dry
+run's build at ddd9d6a (oneport 749d0209c112 against 3d85ac13fcac), as MSVC embeds the build's
+paths; the pilot and every frozen W run use `m7g\records-ff2679c-W\build-release`.
+
+Netty's allocators, read again (lab job netty1, `probe.py --system netty --kind b3` on the frozen
+Release build; `nettyprobe.sh` sha256 0499b529c3683738698c5af72cf966dfa38d355a9efb4b2ea69170d3d448bd61):
+AdaptiveByteBufAllocator and AdaptiveRecvByteBufAllocator, unchanged. `lab/bin/test_report_pattern.sh`
+passes on the Papers repo with the new records.
+
+CODE_FREEZE = ff2679c, logged with section 9.1's values, the records and the gates in the revision
+log's entry "The code freeze".
+
+### 9. Where it stands
+
+The code freeze is declared (ff2679c). Next: the A/A pilots on L and W, in dedicated mode only.
 
 ## M7 checklist
 
