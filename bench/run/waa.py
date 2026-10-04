@@ -165,7 +165,8 @@ def main(argv=None) -> int:
             sid = f"{c['cell']}-s{s:02d}"
             x = rng.choice(["A", "B"])
             y = "B" if x == "A" else "A"
-            session = {"job": a.job, "id": sid, "fingerprint": fp, "x": x, "lab_plan": fp["lab_plan"], "frequency": fp["frequency"]}
+            session = {"job": a.job, "id": sid, "fingerprint": fp, "x": x, "lab_plan": fp["lab_plan"], "frequency": fp["frequency"],
+                       "cycle_rate": fp.get("cycle_rate")}
             if not fp.get("pinned"):
                 print(f"{sid}: host not as W's procedure sets it: power {fp['power']['problems']}, cores {fp['core_problems']}", flush=True)
             for pos, arm in enumerate([x, y, y, x]):

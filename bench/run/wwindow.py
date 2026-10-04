@@ -196,7 +196,7 @@ def wait_time_wait(limit: int = TW_START_MAX, max_wait: float = TW_WAIT_MAX_S) -
 
 
 def server_snapshot(h) -> dict:
-    snap = {"t": time.monotonic(), "cpu_s": wsys.process_cpu_s(h)}
+    snap = {"t": time.monotonic(), "cpu_s": wsys.process_cpu_s(h), "cycles": wsys.process_cycles(h)}
     snap.update(wsys.process_memory(h))
     return snap
 
@@ -356,6 +356,16 @@ def finish(row: dict, g: dict | None, snaps: dict, session: dict, reasons: list[
         s0, s1, cpus = snaps["s0"], snaps["s1"], snaps["cpus"]["cpus"]
         row["server_cpu_s"] = s1["cpu_s"] - s0["cpu_s"]  # WL4: user + kernel time of the server process
         row["cpu_us_per_exchange"] = 1e6 * row["server_cpu_s"] / exchanges if exchanges else None
+        if "cycles" in s0 and "cycles" in s1:
+            # The server's cycles (wsys.process_cycles), beside GetProcessTimes' server_cpu_s, which
+            # moves in 15.625 ms ticks and so is a sample at a low load (M6c).
+            row["server_cycles"] = s1["cycles"] - s0["cycles"]
+            row["cycles_per_exchange"] = row["server_cycles"] / exchanges if exchanges else None
+            # W's WL4 value is the cycles (revision log, "W before the code freeze", item 4); in time,
+            # through the session's cycle rate (wsys.cycle_rate). A ratio of two arms needs neither.
+            rate = (session.get("cycle_rate") or {}).get("cycles_per_s")
+            if rate and row["cycles_per_exchange"] is not None:
+                row["cycles_us_per_exchange"] = 1e6 * row["cycles_per_exchange"] / rate
         row["rss_kb"], row["peak_rss_kb"] = s1.get("working_set_kb"), s1.get("peak_working_set_kb")
         row["marker_span_s"] = snaps["cpus"]["span_s"]
         row["cpu_readings"] = cpus
@@ -433,7 +443,7 @@ def session_frequency(seconds: int = 3) -> dict:
 def fingerprint() -> dict:
     """Section 7's per-session record on W: the power plan read back (the active plan and section 2's
     values), the timer resolution, Defender's and Windows Update's state, the core layout check,
-    and the frequency counter's session reading."""
+    the frequency counter's session reading, and the cycle counter's rate on the server's CPU."""
     lab = wpower.lab_plan_guid()
     fp = {"host": os.environ.get("COMPUTERNAME", "W"), "lab_plan": lab, "functional_job": os.environ.get("ONEPORT_W_FUNCTIONAL") == "1",
           "job": os.environ.get("ONEPORT_W_JOB")}
@@ -451,5 +461,9 @@ def fingerprint() -> dict:
     cores = wsys.core_layout()
     fp["core_problems"] = wsys.check_core_layout(cores)
     fp["frequency"] = session_frequency()
+    try:
+        fp["cycle_rate"] = wsys.cycle_rate(SERVER_CPUS)
+    except (OSError, subprocess.SubprocessError) as e:
+        fp["cycle_rate"] = {"error": repr(e)}
     fp["pinned"] = not fp["power"]["problems"] and not fp["core_problems"]
     return fp

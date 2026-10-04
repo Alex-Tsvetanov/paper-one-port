@@ -798,3 +798,358 @@ detached through WMI (`m6b\wlaunch.ps1`), pid 22372:
   refusal of each then success; the A/A window already past; the stop file; the cutoff during a
   running job (stop asked, job exit 130); the retest refused until its no-start time; a retest that
   fails outright (not tried again).
+
+## M6c (2026-10-04, from 03:56 +0300): why W's h2c and MQTT churn cells are slow and noisy
+
+The night launcher ran the W A/A job waa2 (`C:\Users\alext\lab\p3\w-aa\waa2\`; ended 02:31:35,
+`m6b\wnight.done`). Its wide cells were churn h2c and MQTT (session ratios 0.818 to 1.249 and 0.750
+to 1.277), keep-alive h2c, open h2c and open MQTT. `rates.json` holds the open-loop rates, half the
+median session mean of each churn cell (`waa.py`, `RATE_FRAC`): 2,414 (h2c), 2,370 (MQTT), 8,445
+(HTTP/1.1); the churn windows themselves ran 4,081 to 6,047 (h2c), 4,034 to 6,099 (MQTT) and 16,263
+to 17,096 (HTTP/1.1) connections per second. M6c's task: find the cause with waa2's binaries, fix it
+in first-party code if no frozen rule is touched, re-run those cells.
+
+Outcome: the cause of the churn cells is found; no fix was made, because each fix that works
+changes a frozen rule (below); no code changed, so the suite was not run again and no A/A re-run was
+started or prepared.
+
+### How (development data, never citable; W not checked quiet)
+
+- Rates and TCP counters: waa2's own Release binaries (`C:\Users\alext\lab\p3\build-0698947`,
+  `oneport.exe` and `opgen.exe`), the server in dedicated mode on CPU 10 as the window runner starts
+  it (`wwindow.start_server`), opgen on CPUs 2 to 9, warm-up 1 s and window 5 s unless noted, a new
+  source block per case, the host's TIME-WAIT count waited down below 1,000 first as the runner does
+  (not in diag4's and diag5's later runs, which ran back to back).
+  TCP counters: `GetTcpStatisticsEx` before and after each case (`wsys.tcp_stats`).
+- Per call and per exchange: a diagnostic opgen built from a copy of `src-0698947` with one file
+  changed (`m6c\diag-worker_win.patch`, lab only, never committed): the time and count of every
+  socket call of a worker thread (WSASocketW, the setsockopt calls, bind, ConnectEx, send, recv, the
+  zero-byte WSARecv, closesocket, GetQueuedCompletionStatusEx), each exchange's record (begin, first
+  byte, end) written to a file, and three switches used only to test causes: no
+  `SO_REUSE_UNICASTPORT`, close by reset (`SO_LINGER` on, zero timeout), and source ports chosen by
+  opgen. The server stayed waa2's binary throughout.
+- Driver `m6c\diag.py`, summaries `m6c\summ.py`; each case directory holds opgen's report, the
+  per-thread call totals (`stderr.txt`) and the records (`w*.csv`).
+
+### What the data shows
+
+1. The generator, not the server, sets the rate. diag1 (waa2's binaries): churn h2c 5,466/s with
+   opgen's CPUs 45.5% busy; churn MQTT 5,652/s, 45.8%; churn HTTP/1.1 16,651/s, 81.2%. The server's
+   CPU time over the run was 2.781 s (h2c) and 2.828 s (MQTT) against 5.781 s (HTTP/1.1). In waa2's
+   rows the server was 33% to 54% busy in churn h2c, 30% to 46% in churn MQTT and 94% to 98% in
+   churn HTTP/1.1.
+2. The time goes outside the measured exchange, in bind and closesocket. With 8 connections (one per
+   thread) churn h2c ran 3,914/s while its exchanges took 0.208 ms at the median (diag1): each thread
+   spent most of a cycle between exchanges. Per connection, mean time in the call (diag2, 8 threads,
+   64 connections): h2c bind 719 us and closesocket 680 us; MQTT 454 and 477 us; HTTP/1.1 104 and
+   113 us. ConnectEx was 136 to 168 us in all three, WSASocketW 27 to 29 us.
+3. Their cost grows with the host's TIME-WAIT count. diag4, MQTT, 8 threads, four runs back to back
+   without the wait: TIME-WAIT 1 to 10,198: bind 237 us, closesocket 251 us, 9,850/s; 10,204 to
+   16,429: 533 and 615 us, 5,820/s; 16,438 to 28,882: 980 and 876 us, 3,856/s; 28,900 to 32,018:
+   1,353 and 1,204 us, 2,834/s. Each run used a new source block, so the count that matters is the
+   host's, not one address's; K_SRC 1 against 16 gave 5,528 and 5,652/s (diag1).
+4. The kernel serializes it across threads. One thread (diag5, 8 connections on CPU 2): closesocket
+   14 us, bind 67 to 132 us, ConnectEx 108 to 112 us, the thread 99% to 100% busy, 3,175 to 4,176/s.
+   With 8 threads closesocket takes 251 to 1,204 us (diag4), so it waits behind the binds, and the 8
+   threads reach 1.8 to 2.4 times one thread's rate at a similar TIME-WAIT count (one thread 4,176/s
+   from 68 to 4,212 and 3,175/s from 4,212 to 13,891; eight threads 9,850/s from 1 to 10,198 and
+   5,820/s from 10,204 to 16,429).
+5. Why h2c and MQTT and not HTTP/1.1: WL1 has their client close first, so each connection leaves a
+   TIME-WAIT socket on the generator's side (an ephemeral port of a source address); HTTP/1.1's
+   server closes first and its TIME-WAIT sockets hold the listener's port. HTTP/1.1 churn ended with
+   97,658 TIME-WAIT sockets and its bind stayed at 104 us (diag2): the cost follows the TIME-WAIT
+   sockets that hold client ports. Closing by reset (diag3, MQTT) left no TIME-WAIT socket (count 0
+   at the end), and the rate rose to 16,748/s with bind 105 us and closesocket 118 us, the server-bound
+   rate of HTTP/1.1. Without `SO_REUSE_UNICASTPORT` nothing changed (diag3: MQTT 4,083/s, bind 664 us;
+   h2c 4,654/s, bind 543 us). Source ports chosen by opgen helped in part (diag6: MQTT 8,204/s, h2c
+   9,206/s, bind 194 and 166 us, the server's CPU time 4.766 and 5.250 s over the run).
+6. No timer quantum. The exchange-time histograms are smooth (diag2, churn h2c, 28,790 exchanges:
+   9,023 in [4, 8) ms, 7,410 in [8, 12), 5,146 in [12, 15), 1,379 in [15, 16), 1,351 in [16, 17),
+   2,390 in [17, 20), 15 in [31, 33)); no cluster at 15.6 ms or its multiples. The exchange is long
+   at 64 connections because a thread's completions wait while it is inside another connection's
+   bind or closesocket.
+7. Calls per connection are as designed. Generator (diag2): one WSASocketW, bind, ConnectEx,
+   zero-byte WSARecv and recv, two sends (h2c: the preface, SETTINGS and HEADERS, then GOAWAY; MQTT:
+   CONNECT, then DISCONNECT), one closesocket. Server (waa2's `per_connection`): two zero-byte
+   receives, two receives and one send per connection, `recv_eof` 0: it answers in one write (h2c 70
+   bytes, MQTT's CONNACK 4) and closes on reading GOAWAY or DISCONNECT, without waiting for the
+   client's FIN. Socket options, from the code (not read back with getsockopt): opgen sets
+   non-blocking, `SO_REUSE_UNICASTPORT` and `TCP_NODELAY`; the server's dedicated listeners set only
+   `SO_EXCLUSIVEADDRUSE` (`server.cpp` sets `TCP_NODELAY` only on relaying listeners), so accepted
+   sockets have no `TCP_NODELAY` to inherit; with one send per connection Nagle cannot delay it.
+8. The retransmissions fit simultaneous closes, outside the exchange (an inference from the counts,
+   not a capture): when the server's FIN leaves before the client's FIN arrives, both ends keep a
+   TIME-WAIT socket and one FIN is sent again. The TIME-WAIT count above one per connection was close
+   to the retransmitted segments (diag1, excess
+   against RetransSegs): h2c 645 and 611; MQTT 2,384 and 2,268; h2c with 8 connections 11,044 and
+   10,941; h2c with one connection 7,671 and 7,619; MQTT at K_SRC 1, 1,561 and 1,940. The fewer the
+   connections, the more often the server is first. In waa2, retransmitted segments per connection
+   (RetransSegs over ActiveOpens) were 0.010 to 0.019 (churn h2c), 0.053 to 0.095 (churn MQTT), 0.67
+   to 0.91 (open h2c) and 0.68 to 0.78 (open MQTT).
+9. Linux, same code: L's bind uses `IP_BIND_ADDRESS_NO_PORT`, and M3 found these cells server-bound
+   from K_SRC 4 (hypotheses.md, revision log, the `K_SRC` entry: MQTT 32,507/s, h2c 28,846/s, the
+   server 100% busy). Not run on L in M6c.
+
+What this does not explain: the spread between windows of churn h2c and MQTT is not explained by
+the TIME-WAIT count at the window's start (correlation with the metric -0.28 and 0.03 over waa2's 24
+windows each; start counts 0 to 978); keep-alive h2c (TIME-WAIT 0 to 327 at start and end) and the
+open cells' CPU per exchange are not explained by this cause and stay open.
+
+### Why no fix
+
+- Close by reset: removes the cause on W (item 5) and diag7 confirms the rate on fresh servers
+  (MQTT 16,605/s, h2c 16,235/s). But the server then rarely reads the client's last message: it
+  received 1,408,718 bytes over 99,583 MQTT connections (14.1 per connection; with a graceful close
+  waa2's server received 16.0, CONNECT and DISCONNECT) and 5,355,761 over 90,652 h2c connections
+  (59.1; graceful 76.0, the opening and GOAWAY). So the server's work per exchange changes, and the
+  revision log's description of these cells ("clients close first and so keep a TIME-WAIT socket per
+  connection") would no longer hold on W.
+- Source ports chosen by opgen: departs from section 2.4's bind ("bound with
+  `IP_BIND_ADDRESS_NO_PORT`", port chosen at connect) and leaves the cells generator-bound (item 5).
+- A half-close or a later closesocket still leaves the client's TIME-WAIT socket, so it cannot
+  remove the cost; not built. Reusing sockets with DisconnectEx was not tried.
+
+WL1's table (client closes first) and section 2.4 are frozen, so the choice is Alex's.
+
+### Readings for the revision log (the coordinator's; none was added to hypotheses.md)
+
+1. On W, WL1's churn h2c and MQTT measure the generator: Windows' bind and closesocket in opgen
+   cost more as the host's client-side TIME-WAIT sockets grow, serialized across threads, and the
+   server stays 30% to 54% busy. Section 7's generator rule (90% busy) does not catch it, because the
+   generator's threads wait in the kernel (45% busy). W's open-loop rates for h2c and MQTT, half the
+   churn cell's rate, inherit this bound.
+2. The server closes on GOAWAY and DISCONNECT without waiting for the client's FIN, so a share of
+   connections close simultaneously and leave TIME-WAIT on both ends with one FIN sent again (item 8).
+   The server code is shared, so L may show it too; not checked.
+3. No seed was used in M6c and no A/A window ran.
+
+### What needs Alex
+
+- A decision for W's client-close-first churn cells, each with its evidence above: (a) a Windows
+  reading of WL1's close, by reset, which changes what the server reads; (b) a Windows reading of
+  section 2.4's bind, partial at best; (c) W's churn h2c and MQTT (and the open-loop rates derived
+  from them) reported as generator-bound, outside W's cost family.
+- Keep-alive h2c's and the open cells' spreads need their own look.
+
+### Where M6c stopped (2026-10-04)
+
+No code changed; nothing was launched. Every process id this session recorded (32, in
+`m6c\diag*\pids.txt`: the diagnostic servers and opgen runs) has ended. Alex's plan "ChrisTitus -
+Ultimate Power Plan" is active (`powercfg /getactivescheme`). `m6c\src-diag` and `m6c\build-diag`
+are the diagnostic copy and its build.
+
+### Records (C:\Users\alext\lab\p3\m6c\)
+
+    e191df3782c87a5e91568453529756f21c1d28697b684abb02e38d797e70fa5e  diag-worker_win.patch
+    36f82f837939b6cfa30157c1d0b61888eb825ba42940bf12cce74eb8447c3b9c  diag.py
+    747f111b4d1ebe5c45a17b9e44f3de1dbf45b299a2b4af27996bb802c0b7b718  summ.py
+    1f30213a4dc52e11eb05a1c43536a1393caca21605351f1c1e042aa78c91efad  bdiag.cmd
+    73224b598e2634bd3d2f2ebbb2b7f1e49a4aa489621d5828e5f1852827104aab  build-diag\bench\gen\opgen.exe
+    435e847508e7ad3fa8b0ddda2c9876f49d2acb9931b2fb3b3c5211197da1b28d  diag1\results.json
+    eefb711d04e344007ec904aba539d1168de76a790c803897cbbb1ebe638a0cb0  diag2\results.json
+    0d19b601b52b5dbb0f6662bbe2f5e6783a7a9c0f248f14929fefd20472961d03  diag3\results.json
+    ce2ae7b6d028402dc488a24e3c12e648f6e8c494c0881314e3996e758f80e5d1  diag4\results.json
+    9c7a62ac165b476605bae5706e1ed5b98e136465f8575088f573bb8b841a9e7f  diag5\results.json
+    9228dee122566f27375ae2b25956a1feb6cd430338ea750057fe04499440e7a4  diag6\results.json
+    0444a491d3f928b4ba74529f57f917964792ab7c58438ce74b3547f648707a33  diag7-mqtt\results.json
+    cc24fba88e0d319a028ef0f0cf0b679be4a0baaa7475d972169a9b7c6f723c40  diag7-h2c\results.json
+    e970e77aa1fc98724a877cc1643cc041db8d55bc9becb7ea9e47c5165a5bfd04  diag1\summary.txt
+    3c1ef4d08794780fcf7cc3a044f017248f95413226ebb5b07ea30fc595c3f6a5  diag2\summary.txt
+    c7a2cff8c9e1a9d566d24cf4cbbb4d9288c733d167fc0be593ec2ba2af8396e8  diag3\summary.txt
+    4bfd5715bf5b434930b9d3bc951c02b969f60e91f56d4cd02eefa89d3f5b209e  diag4\summary.txt
+    0e683665ef413105621aaed5d654612d94023333b6c09af416209eb2f65cc618  diag5\summary.txt
+    9e613e72a4234da9595fbcc984be0002bfe4ea7c86dadd64931df7744f4550bd  diag6\summary.txt
+    efd440f8d537fda519cc305adb222eb455db9e37c2a89c5505d368434c8273d0  diag7-mqtt\summary.txt
+    4befb627f63af43008ec6d4f073271457a0f1158f74061a44c650b9403ddc459  diag7-h2c\summary.txt
+    e88b50380f279ff31968a6d7a89abddc4025a53727cd2e6c6fd003ffe96ad47a  diag7-mqtt\server.out
+    46952f8ad1d4de2a1742624f6a04f7fb938fd7201a9cc4a8a8d00d248a81261b  diag7-h2c\server.out
+
+## M6c, continued (the coordinator's follow-up, 2026-10-04 from 04:25 +0300)
+
+The churn h2c and MQTT decision went to Alex. The follow-up: (1) is the server's close at once on
+GOAWAY and DISCONNECT faithful to WL1, with the alternative tested; (2) the causes of keep-alive
+h2c's spread and of the open cells' CPU per exchange; (3) a re-run only with a committed fix that
+can start before 07:15. W only, dedicated mode only in anything timed, development data, never
+citable; W not checked quiet.
+
+### 1. The server's close on GOAWAY and DISCONNECT
+
+What the texts say:
+- Frozen: WL1's table has the client close first for h2c and MQTT; section 2.1's handlers are "h2
+  through nghttp2" and "MQTT (CONNECT and CONNACK, PINGREQ and PINGRESP, DISCONNECT)". Neither says
+  when the server closes after the client's last message. The proposal (not frozen), I26: MQTT
+  "Closes on DISCONNECT (s3.14)".
+- nghttp2 1.70.0, read in the pinned archive (`C:\Users\alext\opt\src\nghttp2-1.70.0.tar.xz`,
+  sha256 e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2),
+  `lib/nghttp2_session.c` line 7146: `nghttp2_session_want_read` returns 0 when no stream is active
+  and a GOAWAY was sent or received ("we are done with this session"). The handler closes when
+  `want_read` and `want_write` are both 0 (`h2.cpp`, `finished`; `handlers.cpp`, `app_step`).
+- MQTT 3.1.1 and 5.0, section 3.14.4, and RFC 9113 section 6.8, from memory, not read again in this
+  session (no outbound access): after DISCONNECT the client must close the network connection, and
+  the server, on receipt, should close it if the client has not already done so; a receiver of
+  GOAWAY must not open new streams, and no rule sets when a server closes after a client's GOAWAY
+  with no stream left. To be checked against the texts.
+
+Reading: the server's close at once follows nghttp2's contract and I26, and is what MQTT's 3.14.4
+recommends as recalled. WL1's column describes the generator, which closes right after its last
+write without reading further, as opgen does. The frozen text does not ask the server to wait for
+the client's FIN, so no committed change.
+
+The alternative, tested: a diagnostic switch in `m6c\src-diag` (`m6c\diag-server.patch`, lab only,
+`ONEPORT_DIAG_WAIT_EOF`): after DISCONNECT, or once nghttp2 is done, the server reads on until the
+client's end and then closes; a byte after DISCONNECT closes at once. Both variants ran the server
+from `m6c\build-diag` (0698947's code plus the switch, `oneport.exe` sha256 4fbc0314, below); with
+the switch unset it is the built behaviour. waa2's opgen, one fresh server per run, the two variants
+alternated; open loop at waa2's rates (3 sessions), churn (2). The runs of item 2 used waa2's own
+binaries.
+"CPU" is the server's GetProcessTimes over the whole run per connection, a sample at this load
+(item 2 below).
+
+| Cell, close | Retransmits per connection | TIME-WAIT above one per connection | Server bytes in, receives, EOF reads per connection | CPU us per connection | TTFB median us, or rate |
+|---|---|---|---|---|---|
+| open h2c, at once | 0.761, 0.810, 0.849 | 0.702, 0.818, 0.855 | 76.0, 2.0, 0.0 | 85.8, 94.9, 93.0 | 320.2, 326.8, 323.5 |
+| open h2c, after EOF | 0, 0, 0 | 0.000 | 76.0, 3.0, 1.0 | 117.0, 125.6, 108.8 | 325.6, 328.4, 305.7 |
+| open MQTT, at once | 0.663, 0.756, 0.676 | 0.669, 0.746, 0.686 | 16.0, 2.0, 0.0 | 94.6, 67.5, 84.4 | 312.9, 312.3, 315.4 |
+| open MQTT, after EOF | 0, 0, 0 | -0.005 to 0.000 | 16.0, 3.0, 1.0 | 101.4, 87.3, 83.3 | 304.3, 301.0, 308.1 |
+| churn h2c, at once | 0.021, 0.012 | 0.022, 0.012 | 76.0, 2.0, 0.0 | 90.4, 83.6 | 5,509 and 4,006/s |
+| churn h2c, after EOF | 0, 0 | -0.001, 0.000 | 76.0, 3.0, 1.0 | 97.9, 96.0 | 4,502 and 5,621/s |
+| churn MQTT, at once | 0.038, 0.035 | 0.014, 0.036 | 16.0, 2.0, 0.0 | 72.6, 80.0 | 5,737 and 5,837/s |
+| churn MQTT, after EOF | 0, 0 | 0.000, -0.031 | 16.0, 3.0, 1.0 | 88.7, 78.8 | 3,882 and 4,027/s |
+
+So waiting for the client's end removes the retransmits and the second TIME-WAIT socket, which lie
+outside the exchange, and nothing the paper measures improves: it adds a receive per connection
+(WL5: 3 against 2), raises open h2c's CPU per connection (108.8 to 125.6 us against 85.8 to 94.9),
+and the CPU spread stays as wide. The churn rates are generator-bound in both variants (M6c above),
+so they show no direction. The server reads the client's last message in both variants (bytes in
+76.0 and 16.0).
+
+Linux, by reading the code: the same `apps.cpp` and `handlers.cpp` path (`commit`, `close_conn`)
+ends in `close()`, so the server closes at once there too; the difference is timing. On epoll,
+`read_into` reads on while `EPOLLRDHUP` is set, so a FIN that has arrived is read in the same pass,
+and in M5 the dedicated arm read an EOF on 0.9486 to 0.9842 of connections (design/status.md, the
+per-connection counters at ac84f2d): on L the client's FIN had arrived before the server's close on
+about 95% to 98% of connections. The IOCP path passes no such flag, reads once, and W's EOF reads
+are 0; the retransmits say the FIN had not arrived in 67% to 91% of open connections. L's share of
+simultaneous closes is bounded by its 2% to 5%, not measured.
+
+### 2. The open cells' CPU per exchange, and keep-alive h2c
+
+Open cells. All 288 values of `server_cpu_s` in waa2 are whole multiples of 1/64 s (15.625 ms);
+an open h2c window holds 54 to 88 of them, an open MQTT window 46 to 69. Runs `m6c\acct` (waa2's binaries, 3 fresh servers per cell,
+3 open runs per server, `m6c\diag2.py` reading `QueryProcessCycleTime` beside `GetProcessTimes`):
+- GetProcessTimes over cycles, both as seconds (cycles at 3.95e9 per second, from the busy runs
+  below): 0.841 to 1.168 in the 18 open runs (server about 20% busy), 0.993 to 1.007 in the 24
+  keep-alive runs (server busy). So GetProcessTimes charges whole ticks to the thread running at
+  each tick: at a low load its change over a window is a sample, not a sum.
+- Per exchange, GetProcessTimes against cycles: open h2c 75.45 to 96.75 us (max/min 1.282, CV 7.0%)
+  against 324.87 to 369.84 thousand cycles (1.138, CV 4.0%); open MQTT 67.50 to 89.98 us (1.333,
+  11.2%) against 284.88 to 343.00 thousand (1.204, 5.6%). The sampling holds most of the variance
+  of the reported value.
+- The rest is real and not per process: within one server, MQTT ran 343.00, 298.34 and 284.88
+  thousand cycles per exchange (s1), as wide as between servers. A cycle-based value would not sit
+  inside [0.98, 1.02] from this data either.
+
+Committed (485d7ae): the W window runner records the server's cycles beside GetProcessTimes
+(`wsys.process_cycles`; rows `server_cycles` and `cycles_per_exchange`), as L records schedstat
+beside utime + stime. `server_cpu_s` and `cpu_us_per_exchange` are unchanged; which value is W's
+WL4 is a reading of revision-log item 7 for the coordinator. No conversion in the runner; the
+counter ran at 3.94e9 to 3.95e9 per busy second (ka-s4: 15,751,306,375 cycles over 4.0 s of process
+time, 15,747,485,935 over 3.984375 s). test_wrunner: the row's two fields, and the counter growing
+across a 50 ms busy loop; 17 of 19 checks passed before the change and 19 of 19 after.
+
+Keep-alive h2c. Server-bound in all 24 waa2 windows (busy 1.000), so requests per second are one
+over the CPU per request. Operations per request are the same in every window (receives 1.00014 to
+1.00016, sends 1.0, 26.01 bytes in and 38.005 out). The first three windows of the whole job
+(session s02, positions 0 to 2, 00:25:19 to 00:25:31) took 14.19 to 14.64 us per request; the other
+21 took 12.95 to 13.61. In `m6c\ka` (4 fresh servers, 3 runs of each protocol per server, 3 s),
+h2c took 13.04 to 14.13 us per request (max/min 1.084, cycles CV 2.1%) and HTTP/1.1 11.08 to 11.90
+(1.074, CV 1.7%), within one server as much as between: on this W, h2c keep-alive is not noisier
+than HTTP/1.1. The first windows' cause is not established; they were the job's first windows.
+
+### The suite on W at 485d7ae (development checks, not records)
+
+From the exported copy `C:\Users\alext\lab\p3\m6b\check\src-485d7ae` (`git archive`), with M6b's
+`check.cmd` (MSVC 19.51.36246.0, Build Tools 18, Ninja, `ctest -V -j 4`, ASan with
+`ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1` in the vcvars64
+environment). Report lines: lines of the ctest log matching the shared report pattern
+(`bench/oneport_record.py`, `REPORT`).
+
+| Build | Build warnings | CTest | Test time | Report lines |
+|---|---|---|---|---|
+| Debug (release libraries) | 0 | 160 passed, 0 failed | 52.27 s | 0 |
+| ASan (`-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address`) | 0 | 160 passed, 0 failed | 55.78 s | 0 |
+
+`run.test_wrunner` passed in both (19 of 19 checks). The ASan build is instrumented: its `opgen.exe`
+and `oneport_tests.exe` name `clang_rt.asan_dynamic-x86_64.dll`; the Debug `opgen.exe` does not.
+The C++ code is the same as at 2b6aed0; 485d7ae changes three Python files.
+
+### Re-run: prepared, not started
+
+The committed change records a field and does not change a reported metric, and the cycle spread
+above would not bring the open cells inside the margin, so there is no fix to re-run; nothing was
+started. Prepared at 485d7ae, so that the coordinator can have the A/A spread of the open cells in
+cycles if wanted:
+- Source: `C:\Users\alext\lab\p3\src-485d7ae`, a git clone of the work tree checked out at 485d7ae
+  (detached, clean), as for waa1.
+- Release build: `C:\Users\alext\lab\p3\build-485d7ae` (`m6b\release.cmd`, MSVC 19.51.36246.0), 0
+  warnings, its suite 160 of 160 (`m6c\release-485d7ae.build.log.ctest`). sha256: `oneport.exe`
+  e6563cda2e4e6b8a7bbb2487aae42029577a060c6af3fa0fe9c4969fabf3418f, `opgen.exe`
+  8252be36260b7ee7894f001b67341c63c7731950b2bd6887d648c7de34d4739b.
+- The command (72 windows, a quarter of waa2's 288, which ran from 00:25 to 02:31):
+
+    "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-485d7ae\bench\run\wjob.py run --dir C:\Users\alext\lab\p3\w-aa --name waa3 -- "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-485d7ae\bench\run\waa.py --build C:\Users\alext\lab\p3\build-485d7ae --out C:\Users\alext\lab\p3\w-aa\waa3 --job waa3 --cells keepalive:h2c,open:h2c,open:mqtt --sessions 6 --seed 7901 --k-src 16 --rates C:\Users\alext\lab\p3\w-aa\waa2\rates.json
+
+The job's summary (`aa.py`, `secondary_ratio`) reads `cpu_us_per_exchange` only; the session ratios
+of `cycles_per_exchange` would be read from the rows. Seed 7901: not in {861, 20261003, 7701 to
+7714, 7801, 7802}, and found in neither this repo's design
+files nor the Papers repo's `lab/journal.jsonl`. Churn h2c and MQTT are left out until Alex decides
+them. To run it unattended, `wnight.py` would need the cells, seed and rates as options (they are
+constants) and a way to skip the frequency retest, which completed in waa2's night.
+
+### Readings for the revision log (follow-up; the coordinator's, none added to hypotheses.md)
+
+1. The server closes on DISCONNECT, and once nghttp2 is done after GOAWAY, without waiting for the
+   client's FIN, on both platforms and in both modes (shared handlers). WL1 and section 2.1 allow
+   it, and I26 says it for MQTT. On W the FIN had not arrived in 67% to 91% of open connections,
+   which leaves TIME-WAIT on both ends and one retransmitted FIN; outside the exchange.
+2. W's GetProcessTimes is a tick sample (15.625 ms ticks) at a low server load: in open cells most
+   of the spread of `cpu_us_per_exchange` is this sampling. W's rows now carry the server's cycles
+   beside it (485d7ae). The rest, CV 4% to 6% per run in cycles, is real.
+3. The A/A job's first windows may need a discarded warm-up window: waa2's first three were 6% to 9%
+   slower than the rest of keep-alive h2c, with the same operations per request.
+4. Seed 7901 is proposed for the next W development job; unused so far.
+
+### Where the follow-up stopped
+
+Committed: 485d7ae (the runner's cycles) and this section; pushed to `origin` only. Nothing was
+launched. All 126 process ids recorded in `m6c\*\pids.txt` (the diagnostic servers and opgen runs of
+both parts of M6c) have ended; every server of the follow-up's 31 runs stopped by its event with exit
+0. One recorded id (29748, a server of `m6c\ka\ka-s4`) now belongs to a Windows
+`SearchProtocolHost.exe`, a reuse of the number, not a process of this session. Alex's plan
+"ChrisTitus - Ultimate Power Plan" is active (`powercfg /getactivescheme`).
+
+### Records (C:\Users\alext\lab\p3\m6c\), follow-up
+
+    6f30554f8f940bd55dcc03fbdd1e417705068752845c56537066f9a50d8fdd0a  diag-server.patch
+    f48808c90c7afb512664884d9046fef7c4347ea394590c7de904d8025ed63a4b  diag2.py
+    5a34a223425fdd7c528a9ce4fa6d0e30610ce88fc10d74688bb35cba467c7494  batch.py
+    358b909c0cf085f58df3b8e7336cca0f0c83b1cb4422e0d2a7c702bbb073f010  eofsum.py
+    0ba5538920030ddccbd9a4431bf9cdb68ff498735c5acfa3f8059bc845b9f9bb  acctsum.py
+    455af2e72a97d3c3e434c38c41df36d5e9a59ce0bda2228516fb2437669aba8d  eof1-specs.json
+    5a05c5cc107daf617d87d2ca8f7a2a47fb9d1d7334ee29e287d23a6e27ad326a  acct-specs.json
+    f2c81407521fda221e053f2b0ab82b878cd43b29f1f58ffd8a2fb5e95e0fd87a  ka-specs.json
+    c53a93d279776850c335dce0d7a6b0ffb0162df3c06412f49c4b7f7629b65373  eof1\eofsum.json
+    cfe06ccae38f3831ab10e33a902468e0012d08a7a3efb97b86e11e0482c64360  eof1\eofsum.txt
+    fe0950bbc8cdaab9fc5d9ba84ed3285921f2b2bdde7a99a869d1ad5a90a24fe1  acct\acctsum.txt
+    fb04159fe16dc3ef7ac0b8244729931d8fdf4046e8d55d677a3e762589a7d451  ka\acctsum.txt
+    4fbc03140590f1a60b0b10eea4a697eda2bccd1c7c49b0d9d0b5e9c235102db8  build-diag\bench\server\oneport.exe
+    424cc7162547b307ad5325df16f23553d0fec46939caf2821542ba95a98dc890  release-485d7ae.build.log
+    9aa95b8c93f9eb9b478879be67de8652169bf8a4da5322985ad93ef5273b6a2c  release-485d7ae.build.log.ctest
+
+And in `C:\Users\alext\lab\p3\m6b\check\485d7ae\`:
+
+    86d043fd9d6c3e4ae3f84caabec30e5cad0eefbd6cc87eb67788ffb10599c172  debug-485d7ae.build.log
+    e13cae16a9ae93ae6f19736c064e773b0c79d7d8af4cb251f888b72fd66aeac2  debug-485d7ae.ctest.log
+    f210e0f001152804cacd44ed9d8f81d053e09420bbe445098f057c6b918abfec  asan-485d7ae.build.log
+    81684ea569df9e844ed679b3e4b74fd2eb54d2c2d65cabf5c866d80e45d0bc73  asan-485d7ae.ctest.log
+    5f82fc284253a86b92a39d55a190aeecbc262f0761feb28f268624522c41234c  summary.txt
