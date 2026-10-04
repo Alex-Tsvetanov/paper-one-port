@@ -5423,6 +5423,211 @@ In the M7 checklist's order:
    code freeze's entry (item 11), each entry with the tokens the runners look for; every lab job
    at nice 0.
 
+## M7d, 2026-10-04: the pre-freeze items on L
+
+The M7 checklist's items that need L only, before the code freeze: M2's backend listener, M7c's
+open items 4, 6, 7 and 9, the pins re-read, the slab re-read, section 9.1's values, the final
+`bench/coverage.json`, and the seeds entry. CODE_FREEZE is not declared. Nothing here is a result:
+the one timed job (m2l) is development data, journaled as such. Every job on L ran under
+`lab_job.sh` at nice 0, launched from bash, from fresh clones of the lab remote under
+`~/lab/p3/m7d/`; the reads (pins, slab, scans, the draw) ran under the lab lock. The
+`one-port-m6b` work tree was not touched, and W (this session's host) was used for git and
+editing only.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 64f4c98 | feat(run): M2's dedicated backend takes a listener layout (shared or a SO_REUSEPORT group); --dev-backend-listener for a development comparison (the rule of the choice in its message, before the comparison ran) |
+| 1bc1e53 | feat(run): M2's dedicated backend runs its two workers in a SO_REUSEPORT group; a frozen M run checks the M7d entry; a test |
+| 9d7aa15 | docs: hypotheses.md revision log, the pre-freeze items on L (M7d) |
+| 8057e52 | chore: coverage.json drops the declared gap "OpenSSL under TSan"; build_deps.sh's comment on the UBSan ignorelist |
+| 45d8b03 | docs: hypotheses.md revision log, the seeds of section 4.7 (M7d): the procedure, written before the draw |
+| 2e6b539 | docs: hypotheses.md revision log, the seeds: the draw on L and its values; design/seeds.json |
+
+Then this section's commit. Papers: 7a838e6, the lab journal's 2 lines for job m2l (development),
+then the bump of `papers/one-port`.
+
+### 1. M2's backend listener (revision log, entry "The pre-freeze items on L (M7d)", item 1)
+
+What the frozen text says: section 4.1 puts the hand-off backend on CPUs 10 and 12, section 2.1
+runs one worker per server core, and 5.3 gives M2's relay arm "a backend that terminates" TLS.
+No line names the backend's listener. The Words give dedicated mode "one listening socket per
+protocol", but section 10 calls the `SO_REUSEPORT` group "one-port mode", whose Words are "one
+listening TCP socket per process", so the text counts a group on one port as that port's
+listening socket. Section 11's "two workers on the shared listener" is the TSan suite's setting.
+So the choice is open (a reading, logged with the choice).
+
+Which cells use which backend (`handoff.start_stub`):
+- the dedicated-mode backend, two workers: M2's relay arm only, in both parts of the M runner;
+- the stub, two workers: M3, B3's relay systems, section 10's relay cells on io_uring, rule E's
+  relay-copy sessions, perfrec and systrace; fixed by the M4a entry, item 8, and unchanged;
+- the hard cases' relay backend: one worker (`hardcase_run.py`, no `--workers`), so no layout.
+So the choice touches no competitor's cell. The stub's balance in earlier development rows (e2e1's and
+e2e2's M3 against nginx and relay on io_uring against nginx, e2e2's rule E relay copy): its two
+cores were 1.6% to 38.8% busy, uneven but far below section 7's 90%; an observation only.
+
+The rule, fixed in 64f4c98's message before the job: adopt the group if the text leaves the
+listener open and the group balances the backend's two workers; report validity and the
+closed-loop rate beside it; never read WL6's CPU per connection (M2's metric).
+
+Job m2l (`~/lab/p3/m7d/m2l_job.sh`, sha256
+57e73a538b27414ec604fee5f75b86f8dcb844565cbd6c4bcbf9ba2b72157b1c; one-port 64f4c98 on dryrun9's
+`build-release`, oneport 4c64edc2 and opgen a25faa11, the dry-run gate's): the m2-rate part, the
+four M2 cells of L, 6 sessions each with the runner's reruns (at most 2), 112 windows per layout,
+first the shared listener (dev seed 8101), then the group (dev seed 8102). Both arms are one-port
+fronts (in-process against relay), so no one-port window against dedicated mode and no window
+against a competitor. devcheck: 224 rows bound to dryrun9's gate (a dry run, not citable), 0
+refused. Summary (`m2l_summary.py`, sha256
+14974de01d4dec13784fb9934e233e2373a8e6a9f79e7affe2b62f54426cf64e; output
+5276f87e7e6f8e9235bb5993f1bd16bf314c02ddf377688b9c6572058e90afd0), relay windows only for the
+backend; "share" is core 10's share of the two backend cores' busy time:
+
+| Cell | Layout | Valid sessions | Share | Busier backend core | Relay arm, conn/s | In-process arm, conn/s |
+|---|---|---|---|---|---|---|
+| HTTP/1.1, epoll | shared | 6 of 6 | 0.009 to 0.626 | at most 43.0% | 13,627.6 to 13,753.2 | 43,834.2 to 44,211.6 |
+| HTTP/1.1, epoll | group | 6 of 6 | 0.487 to 0.509 | at most 24.4% | 13,759.6 to 13,836.6 | 44,139.1 to 44,413.3 |
+| HTTP/1.1, io_uring | shared | 6 of 6 | 0.217 to 0.763 | at most 29.6% | 14,842.2 to 14,994.8 | 51,652.6 to 52,325.2 |
+| HTTP/1.1, io_uring | group | 6 of 6 | 0.486 to 0.512 | at most 22.4% | 14,809.4 to 14,935.6 | 51,845.3 to 52,366.4 |
+| TLS, epoll | shared | 0 of 8 | 0.401 to 0.501 | 99.2% to 99.8% | 6,330.9 to 7,628.9 | 3,817.0 to 3,855.8 |
+| TLS, epoll | group | 0 of 8 | 0.492 to 0.499 | 99.0% to 100.0% | 7,448.7 to 7,558.1 | 3,827.2 to 3,866.6 |
+| TLS, io_uring | shared | 0 of 8 | 0.000 to 0.010 | 99.4% to 100.4% | 3,926.0 to 3,974.7 | 3,902.8 to 3,940.6 |
+| TLS, io_uring | group | 0 of 8 | 0.493 to 0.500 | 99.2% to 100.0% | 7,640.5 to 7,739.3 | 3,900.0 to 3,952.8 |
+
+In the HTTP/1.1 cells the relay arm is front-bound (the front 99.6% to 100.2% busy) and slower
+than the in-process arm, so it sets M2_RATE (development values: 6,840.8 and 7,447.1 with the
+shared listener, 6,900.5 and 7,434.2 with the group, epoll and io_uring). In the TLS cells every
+relay window was invalid by section 7's backend rule under both layouts (with the group both
+cores 96.8% to 100.0% busy), every in-process window was valid, and no session was valid, so
+`m2_rates.json` has no rate for either TLS cell under either layout.
+
+Decision: the group balances the workers, so it is adopted (1bc1e53), labelled a design choice:
+`m_run.M2_BACKEND_LISTENER = "reuseport"` in both parts; `--dev-backend-listener` stays for
+development comparisons and a frozen run refuses it; a frozen M run, in either part, refuses to
+start unless the revision log holds the entry "The pre-freeze items on L (M7d), before the code
+freeze" (`freeze_guard.M7D_ITEMS`); rows name `backend_listener` and the backend's command. Test:
+`test_m2_backend_listener` (test_frozen.py, now 41 checks): the M2 cells carry the group in both
+parts and M3's the stub with the shared listener, the window hands the layout to the backend,
+`start_stub` refuses the group for the stub and any other layout, and both frozen parts refuse
+`--dev-backend-listener`. From a fresh clone at 1bc1e53 on L: test_frozen 41 of 41, test_runner
+63 of 63.
+
+### 2. M7c's open items 4, 6, 7 and 9 (same entry, items 2 to 5)
+
+| M7c item | Label | Settled as |
+|---|---|---|
+| 4, rule E's computation | reading | "favours" is strictly above in every one of at least 6 valid sessions (a tie counts against, as in 4.2); at most 2 reruns (⌈6/4⌉); "its operations per connection" the sum over section 2.1's kinds per accepted connection, averaged over the arm's valid windows, an equal sum not higher; detection in the in-process placement, the relay copy in the hand-off placement |
+| 6, the detection flag in dedicated mode | design choice | both arms get rule E's default; inert in dedicated mode (`Worker::peeks` reads it only for a listener that detects, and no dedicated listener detects); keeps the cost and pilot command lines equal but for mode and port (5.1 "same binary", 4.6 "same binary and flags") |
+| 7, M7c's design choices | each labelled | (a) K_BASE's 4 extra windows: reading with a design choice, no B3 decision depends on K_BASE; (b) the 20 s script wait (`SERVER_WAIT_MS`), (c) one server per listener setup per entry, (d) one reference transcript per variant and entry, (f) stub sessions rerun (development only): design choices; (e) the competitors' rows' field: reading of section 10's descriptive table |
+| 9, `runlib.HOST` is L | neither | a statement of what the L runners cover; W's runner is the open half of checklist item 2 |
+
+### 3. Pins, slab, section 9.1's values, coverage.json (same entry, items 6 to 9)
+
+Files on L, `~/lab/p3/m7d/` (sha256): `pins_read.sh` 9cddd1dde42efe5daf13fddbb48ecae125b7216198d78c241baa83259e155c73,
+its log 07a6739109270e4b919ec3802119d23a5158dc9f609ebd69ac72221a47560fa8; `pins_read2.sh`
+7a53ec0a41499a89b075414ed9c6472802ba3cfdc4839493967445a911ea5d92, its log
+f0baa971d8a85a2ec769ec0dd0f03ef94c4cdc3661789818daa60a0fce1e68c1; `slab_read.sh`
+9a2d4e95113212ecbb93c3c900de9fb3928664a7510bfc635c80f41666af7acc, its log
+cd73e15c2e1bbf8106cef142a4da5c44914c19a7347590850c5c6f2d584f2dcf; `ksrc_scan2.py`
+64ecf61529077b98499b6806a08575b75fe4684bd7a4ad124567fd4b8b557577, its log
+577efee64acc804c3a007a61d71267a52afae47c1ba083ddbef203acf7b346f4; `ossl_check.sh`
+72701e05c1a91ecd0516044d7329c73a07b05b855c5093afc46171d83133256a, its log
+8da18fb0a4be326e3cdc3b36b5aa6faa4580d1e15cb6e1bd1d7cad9b495ed142; `rustpkg.log`
+97218de79b6bfc0c50c9e9c0d217a77f886d53ab55f579ae0bf4bd7e5942828b. (A first scan, `ksrc_scan.py`,
+matched every key holding "connect", counts of connects included; its second pass reads only the
+keys that record a failed connect.)
+
+- Pins (read 2026-10-04 04:48 and 04:49 +0300): no pin changes. Every pinned version is still the
+  latest of its line (OpenSSL 3.5.9, nghttp2 v1.70.0, nginx stable 1.30.5, HAProxy 3.4.6, Envoy
+  1.39.2, xcaddy 0.4.7, caddy-l4 v0.1.2 at 42db5690 and master's head, sslh v2.3.1, Netty
+  4.2.18.Final, Jetty 12.1.13, cmux v0.1.5, hyper-util 0.1.21); Temurin 25's latest GA build is
+  still 25.0.4.1+1 (25.0.5 not published), so the checklist's rule stands: read again on the
+  freeze day. Two readings logged: Caddy v2.11.6 and v2.11.7 do not move caddy-l4's pin (Caddy's
+  version is the one caddy-l4 v0.1.2's go.mod requires, and the text named v2.11.4 a day after
+  v2.11.6 came out); Rust 1.99.0 does not move the toolchain's pin (section 9.1 has no "latest"
+  rule for it). No competitor's configuration changed.
+- Slab (read 04:50 +0300, as root, read only): as WL7 and the 12:11 re-read of 2026-10-03.
+- Section 9.1's values for the code freeze's entry: `K_SRC` 16 (no failed connect in 3,528 rows of
+  129 row files since the M3 entry), `N_ACCEPTEX` 64, `RELAY_BUF` 4096, `N_BG_*` 64, ℓ 206.
+- coverage.json: "OpenSSL under TSan" removed (8057e52) after the revision log recorded that
+  OpenSSL ran under TSan (954 object files of the tsan flavour's `libcrypto.a` and 90 of its
+  `libssl.a` call `__tsan_func_entry`; chk5's TSan build linked them and passed 398 of 398). Every
+  other gap read true; the Windows gap waits for W's build of the merged tree.
+
+### 4. The seeds entry (revision log, "The seeds of section 4.7 (M7d), before the code freeze")
+
+The procedure was committed (45d8b03) before the draw; the draw ran once on L at 05:29:12 +0300
+(`seeds/draw_seeds.py` 4d0e205f4c361e029428e3faf950de2e7597d21e4264e045af6f97af30ed82aa, its log
+84412a89fb561959b55285af0b4fbd8fe026cfa2972174b503265f2c2f38e1a5): `secrets.randbits(32)` per name
+in 4.7's order, excluding every integer of the Papers journal at 7a838e6 and of one-port's four
+status files at 45d8b03 (5,634 integers with the named development seeds); each first call was
+kept. `design/seeds.json` (2e6b539), sha256
+3a2dd43623aa96190b5b3fac737d96af5a8fabed9853a82233c3a3c9f4c35b3e, equal byte for byte to the
+draw's file. Checked on L from a fresh clone at 2e6b539: `runlib.load_seeds` and
+`analysis/cells.check_seeds` accept it (14 names), `freeze_guard.lines_with` finds its sha256 on
+exactly one revision-log line with "seed", and `check_entries` finds both entry headings the M
+runner needs. No run uses these seeds before CODE_FREEZE.
+
+### The suite in four builds
+
+`~/lab/p3/m7d/checks_job.sh` (M7c's script, the paths moved to `~/lab/p3/m7d/check/`; sha256
+68d4fbf1c5723bbf77230cc8df52385b38d04457408c31832f7135c8a2e2f24f), job chk6 at 2e6b539, which holds
+M7d's three commits that change code or the suite's inputs (64f4c98, 1bc1e53, 8057e52): Debug,
+ASan+UBSan, TSan and MSan each built with 0 warnings and passed 398 of 398 tests with 0 report
+lines. 398 is chk5's count: `run.test_frozen` is one test, now of 41 checks (41 of 41 in every
+build). As before, three logs (ASan+UBSan, TSan, MSan) show a thread's exception from
+`run.test_runner`'s stand-in stub, which passed; it matches no report pattern. Logs (sha256),
+`~/lab/p3/m7d/check/2e6b539/`: debug build
+05a3ddf92e3d40c41223ef0fac0b7359bce4b02ff20aeebd4ded7d5b7277bf96, ctest
+f50487127cb3edbe55b8ba62572f0437c310b57f705c8e3fc45174fde650fd14; asan build
+4f810344ad570cce5c691b4a694caa33f7d999b76585df2b62a847c6e721993a, ctest
+72cf542aab430bc6d4c9c5cdd8de93ba7b64dd44988d5228c53398c0e0b7ca4b; tsan build
+3f62f0320d6e7799e45d6a881063377aa7d615a75fb8f74ec2204b4d7e2540cc, ctest
+3034a5961b85d871b63ef227241777d18997619d39c8c7d0fb513251d4f0d2a6; msan build
+7a0daa0216982ba486a35b25e178aa89ad92f13317a370208e243dd4b9f62fd6, ctest
+d98706c79dab0ace1def253af063b734c35e94a8016d0a277847c508d0f94044.
+
+### For the coordinator and Alex
+
+1. M2's TLS cells. The listener was not the cause: with the backend balanced, both of its cores
+   are 96.8% to 100.0% busy in every closed-loop relay window, because the backend that
+   terminates TLS is the relay arm's limit (the relay arm then runs about twice the in-process
+   arm's rate). So under section 7's backend rule no TLS rate session is valid on either backend,
+   `M2_RATE` cannot be computed by 9.3's rule as read (M7c's reading 5: valid sessions), and the
+   follow-up's item 6 applies to both TLS cells: not run, p = 1, M2's claim narrows to HTTP/1.1.
+   Changing that needs a decision on how the rate sessions apply section 7 (for example, whether
+   WL6's "the smaller of its two arms' median" may take the in-process arm's valid windows when
+   every relay window is invalid only by the backend rule). It changes what M2 can claim, so it
+   was not decided here.
+2. The Caddy reading (revision log, M7d item 6 (a)) keeps caddy-l4 on Caddy v2.11.4. The other
+   reading would move Caddy to v2.11.7 under section 2.3's rule; v2.11.6's notes list breaking
+   changes from security hardening (default idle read and write timeouts among them), and whether
+   any reaches the layer4 app was not established, so that reading would need caddy-l4 rebuilt
+   and its probes, route checks and B3 feasibility run again.
+3. Proposal I4 says the `SO_REUSEPORT` layout "is measured only in the secondary 2-core cells".
+   That sentence is not in the frozen text, and M2's relay arm now measures its backend's CPU in
+   a group (M7d item 1), as M7c's item 5 flagged I24.
+4. L: Arch's `rust` is now 1:1.99.0-1. A `pacman -Syu` on L before the records would replace the
+   pinned 1:1.98.1-1 (its package is still in pacman's cache).
+5. Development seeds used in M7d: 8101 and 8102 (job m2l), excluded from the drawn seeds.
+
+### What the freeze still needs
+
+In the M7 checklist's order:
+1. The coordinator's answer on M2's TLS cells (item 1 above), or none: then they stay not run.
+2. W's half of checklist item 2: any later `m6b-windows` commits merged; Debug and MSVC ASan of
+   the merged tree with the whole suite (W has built none of M7c's C++, of the merge or of
+   236ee3c), with Alex's yes when W is free; W's runners, writing the same rows; the Windows
+   coverage gap settled by that build.
+3. On the day of the freeze, before its commit: the pins read again (the JDK first: 25.0.5, if
+   published by then, is pinned by the checklist's rule, with the Java harnesses rebuilt, their
+   probes and route checks, and the heap bounds; Netty's allocator read again with it), every
+   change logged.
+4. `CODE_FREEZE` (item 8), the records at it on L and W (item 9), the gates (item 10), and the code
+   freeze's entry (item 11) naming section 9.1's values as M7d item 8 lists them, the slab as
+   M7d item 7 read it (or a re-read that day), and the pins as frozen.
+5. Then the pilot on L and W with `design/seeds.json`, and the rest in section 8's order.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
@@ -5446,9 +5651,11 @@ gave, the reason is in the item. Each item names what decides it.
      port and the placement logged (13004bc, items 1, 2, 7 and 8).
    - Resolved (13004bc): M7c's items 1, 2, 3 and 5 for the coordinator (the mixed cell, B3's
      other-mode dispatch, the TLS variants, M2's rate), logged as the entry "M7c's open items,
-     before the code freeze", the runners changed to match. Open: M7c's items 4, 6, 7 and 9, and
-     M2's TLS backend ("M7c follow-up", "For the coordinator"), before item 8, since the runners
-     are frozen with the tests.
+     before the code freeze", the runners changed to match.
+   - Resolved (9d7aa15, 1bc1e53): M7c's items 4, 6, 7 and 9, and M2's backend listener (a
+     `SO_REUSEPORT` group), logged as the entry "The pre-freeze items on L (M7d)" ("M7d"). Open:
+     M2's TLS cells, whose rate sessions are invalid under either listener ("M7d", "For the
+     coordinator and Alex", item 1), before item 8.
 2. **The final merge of `m6b-windows`** into main, then the build of the merged tree:
    - Merged at 74dc539 (fa8be6d, "M7c follow-up"); a later commit of the branch needs another
      merge.
@@ -5477,30 +5684,38 @@ gave, the reason is in the item. Each item names what decides it.
      the survey's), caddy-l4's commit (Appendix B: "read again at the code freeze"), xcaddy, the
      Rust toolchain; Netty's allocators read again (M4b-2's reading 11). A changed library is
      rebuilt in every flavour (`build_deps.sh` on L, `build_deps.ps1` on W) before item 9.
+   - Read on 2026-10-04 at 04:48 +0300 (M7d, logged in its entry, item 6): no pin changes;
+     Temurin 25.0.5 not published; Caddy's v2.11.6 and v2.11.7 and Rust 1.99.0 do not move a pin
+     (two readings). Read again on the freeze day, the JDK first.
 4. **The `/sys/kernel/slab/` re-read on L** (section 9.1): as root, read only: that
    `/proc/slabinfo` exists; for skbuff_head_cache, skbuff_fclone_cache and skbuff_small_head, the
    name `/proc/slabinfo` lists each under and the co-tenants of a merged one (the links in
    `/sys/kernel/slab/`, `aliases`); the page size. Compared with WL7's reading and the re-read of
    2026-10-03 12:11 (the entry "Host change before the code freeze", item 1); a difference is
-   handled by WL7's rule for merged caches and logged.
+   handled by WL7's rule for merged caches and logged. Done on 2026-10-04 at 04:50 +0300 (M7d,
+   its entry's item 7): unchanged.
 5. **The seeds entry** (sections 4.7, 8 step 2 and 9.1): one revision-log entry fixing every seed,
    `SEED_ORDER_C_L`, `SEED_ORDER_C_W`, `SEED_ORDER_B_L`, `SEED_ORDER_M_L`, `SEED_ORDER_M_W`,
    `SEED_ORDER_S_L`, `SEED_ORDER_S_W`, `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`,
    `SEED_BOOT_S`, `SEED_PILOT_L`, `SEED_PILOT_W` and `SEED_SIM`, each checked against the Papers
    repo's `lab/journal.jsonl` as used by no earlier run, committed before the code-freeze commit
-   and never changed after.
+   and never changed after. Done (M7d): the entry "The seeds of section 4.7 (M7d)", its procedure
+   in 45d8b03 before the draw, its values and `design/seeds.json` in 2e6b539.
 6. **The values engineering set**, ready for the code freeze's entry (section 9.1): `K_SRC` = 16
    (logged, M3 entry item 9), `N_ACCEPTEX` = 64 (M6a), `RELAY_BUF` = 4096 bytes per direction
    beside each proxy's default, the three background counts, 64 each (logged, entry "The code
    freeze's preparation (M7)", item 2), ℓ from `tests/fixtures/tls/clienthello.hex`, and the pins
-   as item 3 leaves them.
+   as item 3 leaves them. Read in M7d (its entry's item 8): `K_SRC` 16 holds (no failed connect
+   since the M3 entry), `N_ACCEPTEX` 64, `RELAY_BUF` 4096, the counts 64, ℓ 206.
 7. **The final `bench/coverage.json`**, in the freeze commit: every declared gap of section 11 as
    now, plus what item 2 decides (any third-party library W cannot build with MSVC's ASan, which
    section 11 asks to declare "before the code freeze"); the harnesses' leak check runs since
    97a5363, so it needs no gap. One
    gap may go: OpenSSL's tsan flavour is built with `-fsanitize=thread` (`build_deps.sh`), so if
    the TSan record is green, section 11 lets the revision log record that OpenSSL ran under TSan
-   and the gap "OpenSSL under TSan" is removed.
+   and the gap "OpenSSL under TSan" is removed. Done in M7d (its entry's item 9; 8057e52): the
+   suite passed under TSan with the instrumented OpenSSL, the gap is removed, every other gap read
+   true; the Windows gap waits for item 2's W build.
 8. **The code-freeze commit, `CODE_FREEZE`** (section 8 step 3): one commit of the server, the
    generators, the holder, the harnesses, the pins and the tests, with the suite passing on L
    (four builds) and W (Debug, ASan). From then on no commit may touch a first-party input
@@ -5585,6 +5800,10 @@ gave, the reason is in the item. Each item names what decides it.
   ae30f03, 1 lab-journal line (e2e4, development); then a bump to this section's commit. Logged:
   the entries "M7c's open items, before the code freeze" and "ANALYSIS_COMMIT, before the code
   freeze". For the coordinator: "M7c follow-up", "For the coordinator".
+- M7d: Papers 7a838e6, 2 lab-journal lines (job m2l, development); then a bump to this section's
+  commit. Logged: the entries "The pre-freeze items on L (M7d), before the code freeze" and "The
+  seeds of section 4.7 (M7d), before the code freeze". For the coordinator and Alex: "M7d", "For
+  the coordinator and Alex".
 
 ## What M1 starts from
 
