@@ -818,7 +818,8 @@ started or prepared.
 - Rates and TCP counters: waa2's own Release binaries (`C:\Users\alext\lab\p3\build-0698947`,
   `oneport.exe` and `opgen.exe`), the server in dedicated mode on CPU 10 as the window runner starts
   it (`wwindow.start_server`), opgen on CPUs 2 to 9, warm-up 1 s and window 5 s unless noted, a new
-  source block per case, the host's TIME-WAIT count waited down below 1,000 first (as the runner).
+  source block per case, the host's TIME-WAIT count waited down below 1,000 first as the runner does
+  (not in diag4's and diag5's later runs, which ran back to back).
   TCP counters: `GetTcpStatisticsEx` before and after each case (`wsys.tcp_stats`).
 - Per call and per exchange: a diagnostic opgen built from a copy of `src-0698947` with one file
   changed (`m6c\diag-worker_win.patch`, lab only, never committed): the time and count of every
