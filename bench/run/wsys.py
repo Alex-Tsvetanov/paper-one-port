@@ -347,6 +347,34 @@ if IS_WINDOWS:
             raise
         return proc
 
+    def cycle_rate(cpus=SERVER_CPUS, settle_s: float = 0.3, span_s: float = 1.0) -> dict:
+        """The cycle counter's rate: QueryProcessCycleTime's cycles per second of wall time
+        (time.perf_counter, QueryPerformanceCounter), over a busy loop pinned to `cpus`, the
+        server's CPU. It is the factor that turns W's cycle counts into time (hypotheses.md,
+        revision log, "W before the code freeze", item 4). The loop is a process of its own
+        (`wsys.py spin`), started pinned, since the runner's own process is held to the
+        housekeeping CPUs. `cpu_s` is the loop's GetProcessTimes over the same span, a check that
+        it was busy throughout (whole 15.625 ms ticks, so about 1 in 64)."""
+        spin_s = settle_s + span_s + 1.0
+        p = start_pinned([sys.executable, os.path.abspath(__file__), "spin", str(spin_s)], cpus,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        h = open_process(p.pid)
+        try:
+            time.sleep(settle_s)
+            c0, t0, u0 = process_cycles(h), time.perf_counter(), process_cpu_s(h)
+            time.sleep(span_s)
+            c1, t1, u1 = process_cycles(h), time.perf_counter(), process_cpu_s(h)
+        finally:
+            close_handle(h)
+            try:
+                p.wait(timeout=spin_s + 10.0)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+        wall = t1 - t0
+        return {"cycles_per_s": (c1 - c0) / wall, "cycles": c1 - c0, "wall_s": wall, "cpu_s": u1 - u0, "cpus": list(cpus),
+                "spinner_exit": p.returncode}
+
     def set_named_event(name: str) -> bool:
         """Sets an existing named event; False if it cannot be opened."""
         h = kernel32.OpenEventW(EVENT_MODIFY_STATE, False, name)

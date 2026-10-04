@@ -24,6 +24,7 @@ sys.path.insert(0, str(HERE))
 
 import waa  # noqa: E402
 import wfreq  # noqa: E402
+import wnight  # noqa: E402
 import window  # noqa: E402
 import wpower  # noqa: E402
 import wsys  # noqa: E402
@@ -210,6 +211,10 @@ def window_metric_and_rules():
     assert abs(r["server_cpu_s"] - 4.9) < 1e-9 and abs(r["cpu_us_per_exchange"] - 98.0) < 1e-9
     # The server's cycles are recorded beside WL4's value and change nothing in it (M6c).
     assert r["server_cycles"] == 2_000_000_000 and r["cycles_per_exchange"] == 40000.0
+    # In time only through the session's cycle rate (M6d); without one there is no such field.
+    assert "cycles_us_per_exchange" not in r
+    rc = wwindow.finish(row(), report(), snaps(), dict(SESSION, cycle_rate={"cycles_per_s": 4.0e9}), [])
+    assert abs(rc["cycles_us_per_exchange"] - 10.0) < 1e-9 and rc["cpu_us_per_exchange"] == r["cpu_us_per_exchange"]
     assert abs(r["server_cores_busy"] - 0.999) < 1e-9 and r["gen_cpus_busy_pct"] == 50.0 and r["gen_cpu_pct_rule"] == 50.0
     assert r["irq_server"] == 5000.0 and r["irq_generator"] == 40000.0
     assert r["per_connection"]["recv_calls"] == 1.0 and r["rss_kb"] == 9100 and r["peak_rss_kb"] == 9200
@@ -324,6 +329,51 @@ def windows_readings():
         wsys.close_handle(h)
     assert wsys.time_wait_count() >= 0
     assert not wsys.set_named_event("Local\\oneport-test-no-such-event")
+
+
+@check
+def cycle_rate_reading():
+    """The cycle counter's rate over a pinned busy loop (wsys.cycle_rate, M6d): above 1e9 per
+    second, and the loop busy through the span by GetProcessTimes (whole ticks, so near 1)."""
+    if not wsys.IS_WINDOWS:
+        return "skipped: not Windows"
+    r = wsys.cycle_rate([0], settle_s=0.3, span_s=0.5)
+    assert r["spinner_exit"] == 0, r
+    assert r["cycles_per_s"] > 1e9 and r["cycles"] > 0, r
+    assert 0.85 <= r["cpu_s"] / r["wall_s"] <= 1.15, r
+
+
+@check
+def night_options():
+    """wnight.py's A/A options (M6d): the defaults are waa2's job; the options reach waa.py, and
+    --no-retest marks the retest skipped, so only the A/A job is tried."""
+    base = ["--dir", "D", "--src", "S", "--build", "B"]
+    try:
+        wnight.parse(base)
+        raise AssertionError("no --freq-src and no --no-retest was accepted")
+    except SystemExit:
+        pass
+    n = wnight.Night(wnight.parse(base + ["--freq-src", "F"]))
+    cmd = n.aa_cmd()
+    assert n.retest == "pending" and "--rates" not in cmd
+    assert cmd[cmd.index("--cells") + 1] == wnight.CELLS and cmd[cmd.index("--seed") + 1] == str(wnight.SEED)
+    assert cmd[cmd.index("--sessions") + 1] == str(wnight.SESSIONS) and cmd[cmd.index("--k-src") + 1] == str(wnight.K_SRC)
+    with tempfile.TemporaryDirectory() as d:
+        rates = Path(d) / "rates.json"
+        rates.write_text("{}")
+        a = wnight.parse(base + ["--no-retest", "--cells", "keepalive:h2c,open:h2c", "--sessions", "6", "--seed", "7901",
+                                 "--k-src", "16", "--rates", str(rates), "--aa-name", "waa3"])
+        n = wnight.Night(a)
+        cmd = n.aa_cmd()
+        assert n.retest == "skipped"
+        assert cmd[cmd.index("--cells") + 1] == "keepalive:h2c,open:h2c" and cmd[cmd.index("--seed") + 1] == "7901"
+        assert cmd[cmd.index("--rates") + 1] == str(rates) and cmd[cmd.index("--job") + 1] == "waa3"
+        assert a.wpower == Path("S") / "bench" / "run" / "wpower.py"
+        try:
+            wnight.parse(base + ["--no-retest", "--rates", str(Path(d) / "missing.json")])
+            raise AssertionError("a missing rates file was accepted")
+        except SystemExit:
+            pass
 
 
 @check

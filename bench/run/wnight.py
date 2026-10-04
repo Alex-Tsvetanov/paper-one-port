@@ -6,10 +6,15 @@ checks, and tries again later while W is not quiet. It weakens nothing: the quie
 thresholds and every other check are the scripts' own; it never elevates and never ends a process
 by its name.
 
-    wnight.py --dir DIR --src SRC --build BUILD --freq-src FREQSRC [--first-delay-s 600] [--retry-s 600]
-              [--settle-s 120] [--no-aa-after 2026-10-04T05:00] [--no-start-after 2026-10-04T07:45]
+    wnight.py --dir DIR --src SRC --build BUILD (--freq-src FREQSRC | --no-retest) [--first-delay-s 600]
+              [--retry-s 600] [--settle-s 120] [--no-aa-after 2026-10-04T05:00] [--no-start-after 2026-10-04T07:45]
               [--cutoff 2026-10-04T08:00] [--aa-dir C:\\Users\\alext\\lab\\p3\\w-aa] [--aa-name waa2]
+              [--cells CELLS] [--sessions 6] [--seed 861] [--k-src 16] [--rates RATES_JSON]
               [--freq-out DIR] [--wjob PATH] [--waa PATH] [--wfreq PATH]
+
+The A/A job's cells, sessions, seed and K_SRC default to waa2's (M6b); --rates passes an earlier
+job's open-loop rates to waa.py. --no-retest skips the frequency retest (M6d: it completed in
+waa2's night); the retest then counts as done and the launcher tries the A/A job alone.
 
 Files in DIR: wnight.pid (this process), wnight.log (JSON lines, one event each), wnight.done (how
 it ended, JSON), and the stop file wnight.stop, which makes it exit at the next loop (checked also
@@ -76,7 +81,8 @@ class Night:
         self.dir: Path = a.dir
         self.log_path = self.dir / "wnight.log"
         self.stop_path = self.dir / "wnight.stop"
-        self.retest = "pending"   # pending, completed, failed, out_of_time
+        # pending, completed, failed, out_of_time; skipped with --no-retest
+        self.retest = "skipped" if getattr(a, "no_retest", False) else "pending"
         self.aa = "pending"       # pending, ran, cannot_run, out_of_time
         self.aa_refusals = 0
 
@@ -165,7 +171,8 @@ class Night:
         d, n = self.a.aa_dir, self.a.aa_name
         return [sys.executable, str(self.a.wjob), "run", "--dir", str(d), "--name", n, "--",
                 sys.executable, str(self.a.waa), "--build", str(self.a.build), "--out", str(d / n), "--job", n,
-                "--cells", CELLS, "--sessions", str(SESSIONS), "--seed", str(SEED), "--k-src", str(K_SRC)]
+                "--cells", self.a.cells, "--sessions", str(self.a.sessions), "--seed", str(self.a.seed),
+                "--k-src", str(self.a.k_src)] + (["--rates", str(self.a.rates)] if self.a.rates else [])
 
     def run_aa(self) -> str:
         """One attempt: "refused" (try again), "ran", "cannot_run" or "stopped_at_cutoff"."""
@@ -265,12 +272,19 @@ class Night:
                     return woke
 
 
-def main(argv=None) -> int:
+def parse(argv=None) -> argparse.Namespace:
+    """The options, with the defaults resolved; no file is written."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", type=Path, required=True)
     ap.add_argument("--src", type=Path, required=True, help="the A/A job's source copy (its bench/run scripts)")
     ap.add_argument("--build", type=Path, required=True)
-    ap.add_argument("--freq-src", type=Path, required=True, help="a copy with the retest code (wfreq.py --require-quiet)")
+    ap.add_argument("--freq-src", type=Path, help="a copy with the retest code (wfreq.py --require-quiet)")
+    ap.add_argument("--no-retest", action="store_true", help="skip the frequency retest")
+    ap.add_argument("--cells", default=CELLS)
+    ap.add_argument("--sessions", type=int, default=SESSIONS)
+    ap.add_argument("--seed", type=int, default=SEED)
+    ap.add_argument("--k-src", type=int, default=K_SRC)
+    ap.add_argument("--rates", type=Path, help="rates.json of an earlier job, passed to waa.py")
     ap.add_argument("--first-delay-s", type=float, default=600.0)
     ap.add_argument("--retry-s", type=float, default=600.0)
     ap.add_argument("--settle-s", type=float, default=120.0)
@@ -282,18 +296,28 @@ def main(argv=None) -> int:
     ap.add_argument("--freq-out", type=Path, default=Path(r"C:\Users\alext\lab\p3\m6b\freq"))
     ap.add_argument("--wjob", type=Path, help="default: SRC\\bench\\run\\wjob.py")
     ap.add_argument("--waa", type=Path, help="default: SRC\\bench\\run\\waa.py")
-    ap.add_argument("--wfreq", type=Path, help="default: FREQ_SRC\\bench\\run\\wfreq.py")
-    ap.add_argument("--wpower", type=Path, help="default: FREQ_SRC\\bench\\run\\wpower.py")
+    ap.add_argument("--wfreq", type=Path, help="default: FREQ_SRC (or SRC)\\bench\\run\\wfreq.py")
+    ap.add_argument("--wpower", type=Path, help="default: FREQ_SRC (or SRC)\\bench\\run\\wpower.py")
     a = ap.parse_args(argv)
+    if a.freq_src is None and not a.no_retest:
+        ap.error("--freq-src is required unless --no-retest")
+    if a.rates is not None and not a.rates.is_file():
+        ap.error(f"--rates {a.rates}: no such file")
+    tools = a.freq_src or a.src
     a.wjob = a.wjob or a.src / "bench" / "run" / "wjob.py"
     a.waa = a.waa or a.src / "bench" / "run" / "waa.py"
-    a.wfreq = a.wfreq or a.freq_src / "bench" / "run" / "wfreq.py"
-    a.wpower = a.wpower or a.freq_src / "bench" / "run" / "wpower.py"
+    a.wfreq = a.wfreq or tools / "bench" / "run" / "wfreq.py"
+    a.wpower = a.wpower or tools / "bench" / "run" / "wpower.py"
     a.no_aa_after = local_time(a.no_aa_after)
     a.no_start_after = local_time(a.no_start_after)
     a.cutoff = local_time(a.cutoff)
-    a.dir.mkdir(parents=True, exist_ok=True)
     a.first_at = datetime.fromtimestamp(time.time() + a.first_delay_s).astimezone()
+    return a
+
+
+def main(argv=None) -> int:
+    a = parse(argv)
+    a.dir.mkdir(parents=True, exist_ok=True)
     (a.dir / "wnight.pid").write_text(str(os.getpid()))
     night = Night(a)
     reason = None
