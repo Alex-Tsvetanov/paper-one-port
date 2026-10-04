@@ -110,9 +110,13 @@ def fake_window(cell: SS.Cell, arm: str, session: dict, position: int, clr) -> d
     return row
 
 
-def engine(runner: str, cells: list[SS.Cell], out: Path, win=fake_window, development=True, clearance=None, job="j1", stop=None, seed=11):
+def engine(runner: str, cells: list[SS.Cell], out: Path, win=fake_window, development=True, clearance=None, job="j1", stop=None, seed=11,
+           warmup_s: float = 0.0, clock=None, fingerprint=None):
+    """The session engine as the runners build it, with no warm-up phase unless a test asks for one
+    (the runners never set warmup_s, so theirs is SS.JOB_WARMUP_S)."""
+    kw = {"clock": clock} if clock is not None else {}
     return SS.Engine(runner, job, out, cells, SS.make_plan(cells, seed), win, lambda c, arm: prov(), development, clearance,
-                     log=lambda s: None, stop_after_sessions=stop)
+                     fingerprint=fingerprint, log=lambda s: None, stop_after_sessions=stop, warmup_s=warmup_s, **kw)
 
 
 def analysed(rows: list[dict], pilot: dict | None = None) -> dict:
@@ -425,6 +429,125 @@ class Engine(unittest.TestCase):
             e2.run()
             ss = pilot_sessions_of(e2.rows())
             self.assertEqual(sum(1 for s in ss if s.valid), 2)  # the cut session is rerun
+
+
+class FakeClock:
+    """A clock that each window moves on by `step` seconds."""
+
+    def __init__(self, step: float):
+        self.t, self.step = 1000.0, step
+
+    def __call__(self) -> float:
+        return self.t
+
+
+class JobWarmUp(unittest.TestCase):
+    """The job's warm-up (bench/run/sessions.py; the revision log's entry "The job's warm-up and W's
+    runners (M7e), before the code freeze"): a discarded phase of 80 s before the job's first session."""
+
+    def cells(self, r: int = 2) -> list[SS.Cell]:
+        return Engine.cells(self, r)
+
+    def recording(self, clock: FakeClock, calls: list, fail: bool = False):
+        def win(cell, arm, session, position, clr):
+            calls.append((session["id"], arm, position))
+            clock.t += clock.step
+            if fail and session.get("warmup"):
+                raise RuntimeError("the server did not start")
+            return fake_window(cell, arm, session, position, clr)
+        return win
+
+    def test_runners_take_the_frozen_length(self):
+        self.assertEqual(SS.JOB_WARMUP_S, 80.0)
+        self.assertEqual(SS.Engine.__dataclass_fields__["warmup_s"].default, SS.JOB_WARMUP_S)
+        for name in ("pilot_run", "cost_run", "b3_run", "m_run", "rule_e", "s_run", "wpilot_run", "wcost_run", "wm_run", "ws_run",
+                     "wrule_e"):
+            self.assertNotIn("warmup_s", (HERE / f"{name}.py").read_text(encoding="utf-8"), name)
+
+    def test_before_the_first_session_and_no_row(self):
+        clock, calls, fps = FakeClock(30.0), [], []
+
+        def fp():
+            fps.append(len(calls))
+            return {"mean_mhz": 3000.0}
+
+        with tempfile.TemporaryDirectory() as d:
+            e = engine("t", self.cells(), Path(d), win=self.recording(clock, calls), warmup_s=80.0, clock=clock, fingerprint=fp)
+            e.run()
+            rows = e.rows()
+            rec = json.loads((Path(d) / "warmup-t-j1.json").read_text())
+        warm = [c for c in calls if c[0] == "warmup-j1"]
+        self.assertEqual(len(warm), 3)                       # 0, 30, 60 s, then 90 >= 80 s
+        self.assertEqual(calls[:3], warm)                     # before every session window
+        first = SS.make_plan(self.cells(), 11).base[0]
+        x = SS.make_plan(self.cells(), 11).x_base[first]
+        self.assertEqual([c[1] for c in warm], [x, SS.other(x), x])
+        self.assertEqual(rec["cell"], first[0])
+        self.assertEqual((rec["ended_by"], len(rec["windows"]), rec["elapsed_s"]), ("length", 3, 90.0))
+        self.assertEqual(fps[:2], [0, 3])                     # the phase's own fingerprint, then the first session's after it
+        self.assertEqual(len(rows), 4 * 2 * 2)                # the sessions' windows only
+        self.assertFalse([r for r in rows if str(r.get("session", "")).startswith("warmup")])
+        self.assertNotIn("metric", json.dumps(rec["windows"]))
+
+    def test_order_and_rows_are_unchanged(self):
+        def strip(rows):
+            return [{k: v for k, v in r.items() if k not in ("fingerprint",)} for r in rows]
+
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            a = engine("t", self.cells(), Path(d1))
+            a.run()
+            clock = FakeClock(50.0)
+            b = engine("t", self.cells(), Path(d2), win=self.recording(clock, []), warmup_s=80.0, clock=clock)
+            b.run()
+            self.assertEqual(strip(a.rows()), strip(b.rows()))
+            self.assertFalse((Path(d1) / "warmup-t-j1.json").exists())
+
+    def test_never_a_stub(self):
+        clock, calls = FakeClock(30.0), []
+        cells = [c for c in cost_run.cost_cells(1, RULE_E, {}) if c.id == "C1.L.epoll.http1"]
+        with tempfile.TemporaryDirectory() as d:
+            e = engine("cost_run", cells, Path(d), win=self.recording(clock, calls), warmup_s=80.0, clock=clock)
+            e.run()
+            rec = json.loads((Path(d) / "warmup-cost_run-j1.json").read_text())
+        self.assertEqual(rec["arms"], ["B"])                  # the dedicated arm: arm A is one-port, a development stub
+        self.assertEqual(rec["stubbed_arms"], ["A"])
+        self.assertFalse([c for c in calls if c[1] == "A"])  # the window function never sees the one-port arm
+
+    def test_two_faults_end_it_early(self):
+        clock, calls = FakeClock(1.0), []
+        with tempfile.TemporaryDirectory() as d:
+            e = engine("t", self.cells(1), Path(d), win=self.recording(clock, calls, fail=True), warmup_s=80.0, clock=clock)
+            e.run()
+            rec = json.loads((Path(d) / "warmup-t-j1.json").read_text())
+            self.assertEqual(len(e.rows()), 8)
+        self.assertEqual(rec["ended_by"], f"{SS.JOB_WARMUP_MAX_FAULTS} driver faults in a row")
+        self.assertEqual([w["fault"] for w in rec["windows"]], [True, True])
+
+    def test_a_resumed_job_with_nothing_left_runs_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            engine("t", self.cells(1), Path(d)).run()
+            clock, calls = FakeClock(30.0), []
+            e2 = engine("t", self.cells(1), Path(d), win=self.recording(clock, calls), job="j2", warmup_s=80.0, clock=clock)
+            e2.run()
+            self.assertEqual(calls, [])
+            self.assertFalse((Path(d) / "warmup-t-j2.json").exists())
+
+    def test_a_signal_ends_it_with_its_record(self):
+        clock = FakeClock(30.0)
+
+        def stop(cell, arm, session, position, clr):
+            clock.t += clock.step
+            if session.get("warmup") and position == 1:
+                raise SystemExit(143)
+            return fake_window(cell, arm, session, position, clr)
+
+        with tempfile.TemporaryDirectory() as d:
+            e = engine("t", self.cells(1), Path(d), win=stop, warmup_s=80.0, clock=clock)
+            with self.assertRaises(SystemExit):
+                e.run()
+            rec = json.loads((Path(d) / "warmup-t-j1.json").read_text())
+            self.assertEqual(e.rows(), [])
+        self.assertEqual(rec["ended_by"], "a signal to the job")
 
 
 class NoOnePortAgainstDedicated(unittest.TestCase):

@@ -226,6 +226,20 @@ def window_metric_and_rules():
 
 
 @check
+def cpu_shares_named():
+    """Each window's CPU shares as named fields (M7e): the evidence for W's generator-bound churn
+    cells comes from the pilot's rows."""
+    r = wwindow.finish(row(), report(cpu_pct=45.5), snaps(gen_busy=47.0), dict(SESSION, cycle_rate={"cycles_per_s": 4.0e9}), [])
+    s = r["cpu_shares"]
+    assert abs(s["server_cpu_busy"] - 0.999) < 1e-9 and abs(s["server_process"] - 0.1) < 1e-9   # 2e9 cycles / (4e9 x 5 s)
+    assert s["generator_cpus_busy"] == 0.47 and s["generator_process"] == 0.455 and s["generator_cpus"] == list(range(2, 10))
+    assert wwindow.finish(row(), report(), snaps(), SESSION, [])["cpu_shares"]["server_process"] is None   # no cycle rate
+    # The mixed cell's generator on W reads its own CPUs (bench/run/wcellwin.py).
+    m = wwindow.finish(row(), report(), snaps(), SESSION, [], gen_cpus=(2, 3, 4, 5))
+    assert m["cpu_shares"]["generator_cpus"] == [2, 3, 4, 5] and m["irq_generator"] == 20000.0
+
+
+@check
 def window_invalid_reasons():
     def reasons(**kw):
         rw = row(kw.pop("workload", "churn"))

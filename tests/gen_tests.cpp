@@ -16,12 +16,13 @@
 //     one-port mode, whose T_dec closes it and the holder opens it again, and against dedicated ports;
 //   - gen.binaries: the opgen, opcase and ophold programs against the oneport program.
 // On Windows (M6b) the same loads and protocols run against the server on IOCP
-// (gen.<load>.<proto>.IOCP, gen.open_loop.IOCP, gen.probe.IOCP, gen.tls_h2_one_port.IOCP), and
-// Windows' own forms of the rest: gen.source_block and gen.failures with Winsock listeners (a
-// refused loopback connect is reported only after about 2 s on W, so its window is longer),
-// gen.pin_reuse_unicastport (the socket option opgen sets in place of IP_BIND_ADDRESS_NO_PORT,
-// tested before use), and gen.binaries with the oneport and opgen programs (opcase's and ophold's
-// programs are Linux only).
+// (gen.<load>.<proto>.IOCP, gen.open_loop.IOCP, gen.probe.IOCP, gen.tls_h2_one_port.IOCP, and since
+// M7e gen.hold.IOCP), and Windows' own forms of the rest: gen.source_block and gen.failures with
+// Winsock listeners (a refused loopback connect is reported only after about 2 s on W, so its
+// window is longer), gen.pin_reuse_unicastport (the socket option opgen sets in place of
+// IP_BIND_ADDRESS_NO_PORT, tested before use), and gen.binaries with the oneport, opgen and, since
+// M7e, opcase programs (opcase's case listing and its holder, stopped by its event; ophold's program
+// and opcase's B3 openings are Linux only).
 // Functional and untimed: no rate is asserted.
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -42,7 +43,9 @@
 
 #if defined(_WIN32) && defined(ONEPORT_HAVE_TLS)
 
+#include "apps.hpp"
 #include "harness.hpp"
+#include "hold.hpp"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -258,9 +261,8 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
-#if defined(__linux__)
-		// opcase's holder is built on Linux only (bench/cases/hold.hpp; the Linux block above includes
-		// it), and W's registry has no gen.hold.
+		// opcase's holder runs on Linux and, since M7e, on Windows (bench/cases/hold.hpp; each
+		// platform's block above includes it): gen.hold.<backend> and gen.hold.IOCP.
 
 		/// Runs opcase's holder (bench/cases/hold.hpp) for `run_for`, then stops it.
 		opcase::HoldResult hold_for(const opcase::HoldOptions& o, std::chrono::milliseconds run_for)
@@ -339,7 +341,6 @@ namespace oneport::test
 			}
 			return std::nullopt;
 		}
-#endif  // __linux__
 
 		/// Section 10's TLS variant with ALPN h2 against the server in one-port mode (one_load runs it
 		/// in dedicated mode): every connection classified TLS, every exchange h2 inside TLS. Untimed.
@@ -972,9 +973,10 @@ namespace oneport::test
 		Result win_binaries()
 		{
 			const std::vector<std::string>& p = extra_paths();
-			CHECK(!binary_path().empty() && p.size() == 1, "needs the oneport and opgen paths");
+			CHECK(!binary_path().empty() && p.size() == 2, "needs the oneport, opgen and opcase paths");
 			const std::string& oneport = binary_path();
 			const std::string& opgen = p[0];
+			const std::string& opcase = p[1];
 			WinProcess server;
 			CHECK(server.start({oneport, "--mode", "dedicated", "--detect", "replay", "--dispatch", "inproc", "--backend", "IOCP"}), "spawn oneport");
 			const long port = server.value_after("oneport: listening HTTP/1.1 127.0.0.1:");
@@ -990,6 +992,28 @@ namespace oneport::test
 			const std::string g = gen.snapshot();
 			CHECK(g.find("MEASURE_START ") != std::string::npos && g.find("MEASURE_END ") != std::string::npos, "no markers");
 			CHECK(g.find("\"ok\":true") != std::string::npos && g.find("\"connect_failures\":0") != std::string::npos, "the report");
+			// opcase on Windows (M7e): the hard cases' listing, which W's hard-case runner reads; the
+			// holder against the dedicated HTTP/1.1 port, stopped by its event as the W runner stops
+			// it; B3's openings refused (Linux only).
+			WinProcess list;
+			CHECK(list.start({opcase, "case", "--list", "--hc", "1"}), "spawn opcase case --list");
+			CHECK(list.wait() == 0 && list.snapshot().find("\"constants\"") != std::string::npos, "opcase case --list printed no constants line");
+			WinProcess hold;
+			CHECK(hold.start({opcase, "hold", "--ports", std::to_string(port), "--n", "3", "--src-base", "127.0.15.1", "--k-src", "2"}),
+			      "spawn opcase hold");
+			CHECK(hold.value_after("HOLD ") == 3, "the holder never held its 3");
+			HANDLE hold_stop = OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\oneport-stop-" + std::to_wstring(hold.pi.dwProcessId)).c_str());
+			CHECK(hold_stop != nullptr, "the holder's stop event could not be opened");
+			SetEvent(hold_stop);
+			CloseHandle(hold_stop);
+			CHECK(hold.wait(30000) == 0, "opcase hold's exit");
+			const std::string h = hold.snapshot();
+			CHECK(h.find("\"ok\": true") != std::string::npos && h.find("\"held_at_stop\": 3") != std::string::npos &&
+			          h.find("\"connect_failures\": 0") != std::string::npos && h.find("\"closed_by_peer\": 0") != std::string::npos,
+			      "the holder's report: " << h);
+			WinProcess open;
+			CHECK(open.start({opcase, "open", "--port", std::to_string(port), "--case", "silent"}), "spawn opcase open");
+			CHECK(open.wait() == 2, "opcase open is Linux only");
 			// The server stops on its event (bench/server/main.cpp), as the W window runner stops it.
 			HANDLE stop = OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\oneport-stop-" + std::to_wstring(server.pi.dwProcessId)).c_str());
 			CHECK(stop != nullptr, "the server's stop event could not be opened");
@@ -1056,6 +1080,7 @@ namespace oneport::test
 				r["gen.keepalive." + std::string(og::name(p)) + s] = on([p] { return one_load(p, og::Load::keepalive); });
 			}
 			r["gen.open_loop" + s] = on(open_loop);
+			r["gen.hold" + s] = on(hold);
 			r["gen.probe" + s] = on(probe);
 			r["gen.tls_h2_one_port" + s] = on(tls_h2_one_port);
 			r["gen.source_block"] = win_source_block;

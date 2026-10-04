@@ -56,7 +56,9 @@ import json
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -101,19 +103,19 @@ def timer_args(g_ms: int, gap_ms: int) -> list[str]:
             "--g-ms", str(g_ms)]
 
 
-def list_variants(build: Path, hc: int, g_ms: int, gap_ms: int) -> tuple[dict, list[dict]]:
-    rc, lines, err = opcase(build, ["--list", "--hc", str(hc)] + timer_args(g_ms, gap_ms), 60)
+def list_variants(build: Path, hc: int, g_ms: int, gap_ms: int, run: Callable | None = None) -> tuple[dict, list[dict]]:
+    rc, lines, err = (run or opcase)(build, ["--list", "--hc", str(hc)] + timer_args(g_ms, gap_ms), 60)
     if rc != 0 or not lines or "constants" not in lines[0]:
         raise window.WindowError(f"opcase case --list failed (exit {rc}): {err}")
     return lines[0]["constants"], lines[1:]
 
 
-def run_variant(build: Path, v: dict, port: int, g_ms: int, gap_ms: int, wait_ms: int) -> tuple[dict | None, str]:
+def run_variant(build: Path, v: dict, port: int, g_ms: int, gap_ms: int, wait_ms: int, run: Callable | None = None) -> tuple[dict | None, str]:
     args = ["--port", str(port), "--hc", str(v["hc"]), "--id", v["id"], "--replicates", "1", "--wait-ms", str(wait_ms)] + timer_args(g_ms, gap_ms)
     if v.get("needs_proxy"):
         args += ["--proxy-port", str(port)]
     try:
-        rc, lines, err = opcase(build, args, wait_ms / 1000 + 60)
+        rc, lines, err = (run or opcase)(build, args, wait_ms / 1000 + 60)
     except subprocess.TimeoutExpired:
         return None, "opcase did not end"
     line = next((ln for ln in lines if ln.get("id") == v["id"]), None)
@@ -281,8 +283,10 @@ def check_timed(ev: dict, t_ms: int) -> list[str]:
 
 
 def judge(v: dict, t: dict, reps: list[dict], relays: list[dict], ded: dict | None, detect: str, relay: bool,
-          backend_ports: dict[str, int], k: dict) -> dict:
-    """One replicate of a variant against the one-port server: B1 and B2 (check_run, check_route)."""
+          backend_ports: dict[str, int], k: dict, iocp: bool = False) -> dict:
+    """One replicate of a variant against the one-port server: B1 and B2 (check_run, check_route).
+    `iocp`: the server runs on IOCP, where an undecided peek switches the connection to replay and
+    replay's B2(d) bound applies to it (check_run's _WIN32 branch; the M6a entry, item 2)."""
     b1: list[str] = []
     b2: dict[str, list[str]] = {"a": [], "b": [], "c": [], "d": [], "e": []}
     out = {"b1": b1, "b2": b2}
@@ -329,7 +333,7 @@ def judge(v: dict, t: dict, reps: list[dict], relays: list[dict], ded: dict | No
             b2["a"].append(f"{'the fallback spoke' if when == 't_fb' else 'closed'} before {kind} on the client's clock")
     if v["expect"] == "classified" and r.get("end_pass") != r.get("last_read_pass"):
         b2["c"].append(f"classified in pass {r.get('end_pass')}, not in the pass of its byte")
-    bound = k["recv_buf"] if detect == "replay" else 0
+    bound = k["recv_buf"] if (detect == "replay" or (iocp and r.get("replayed"))) else 0
     if int(r.get("max_user_bytes") or 0) > bound:
         b2["d"].append(f"held {r.get('max_user_bytes')} payload bytes in user space while pending; the bound is {bound}")
     if r.get("buffer_while_silent"):
@@ -368,12 +372,29 @@ def judge(v: dict, t: dict, reps: list[dict], relays: list[dict], ded: dict | No
 # ---------------------------------------------------------------- part server
 
 
+@dataclass(frozen=True)
+class CaseProcs:
+    """How the server part starts its processes on a host (L's below; W's in whardcase_run.py), so
+    both hosts judge by the same code: opcase(build, args, timeout) -> (exit, JSON lines, the end of
+    its standard error); server(build, args, cpus, raw, tag, record) -> a Server; the system's CPUs
+    and the relay's backend's (section 4.1's hard-case placement)."""
+    opcase: Callable
+    server: Callable
+    system_cpus: tuple
+    backend_cpus: tuple
+
+
+LINUX_CASES = CaseProcs(opcase, Server, SYSTEM_CPUS, BACKEND_CPUS)
+
+
 class Entry:
     """The servers of one entry (backend, detection mode, dispatch), started when a variant first
     needs them, as the suite's Servers."""
 
-    def __init__(self, build: Path, backend: str, detect: str, dispatch: str, relay_copy: str, raw: Path, tag: str):
+    def __init__(self, build: Path, backend: str, detect: str, dispatch: str, relay_copy: str | None, raw: Path, tag: str,
+                 procs: CaseProcs | None = None):
         self.build, self.backend, self.detect, self.dispatch, self.relay_copy, self.raw, self.tag = build, backend, detect, dispatch, relay_copy, raw, tag
+        self.procs = procs or LINUX_CASES
         self.one_port: dict[str, Server] = {}
         self.dedicated: dict[bool, Server] = {}
         self.backend_server: Server | None = None
@@ -387,8 +408,8 @@ class Entry:
 
     def relay_backend(self) -> Server:
         if self.backend_server is None:
-            self.backend_server = Server(self.build, self.base("dedicated", RELAY_BACKEND_PORT, False), BACKEND_CPUS, self.raw,
-                                         f"{self.tag}-relay-backend", record=False)
+            self.backend_server = self.procs.server(self.build, self.base("dedicated", RELAY_BACKEND_PORT, False), self.procs.backend_cpus,
+                                                    self.raw, f"{self.tag}-relay-backend", record=False)
         return self.backend_server
 
     def server(self, setup: str) -> Server:
@@ -399,13 +420,14 @@ class Entry:
             if self.dispatch == "relay":
                 args[args.index("--dispatch") + 1] = "relay"
                 args += ["--relay-port", str(self.relay_backend().ports["HTTP/1.1"]), "--relay-copy", self.relay_copy]
-            self.one_port[setup] = Server(self.build, args, SYSTEM_CPUS, self.raw, f"{self.tag}-{setup.replace(', ', '-').replace(' ', '-')}")
+            self.one_port[setup] = self.procs.server(self.build, args, self.procs.system_cpus, self.raw,
+                                                     f"{self.tag}-{setup.replace(', ', '-').replace(' ', '-')}")
         return self.one_port[setup]
 
     def dedicated_server(self, proxy: bool) -> Server:
         if proxy not in self.dedicated:
-            self.dedicated[proxy] = Server(self.build, self.base("dedicated", DEDICATED_PORTS[proxy], proxy), SYSTEM_CPUS, self.raw,
-                                           f"{self.tag}-dedicated{'-proxy' if proxy else ''}", record=False)
+            self.dedicated[proxy] = self.procs.server(self.build, self.base("dedicated", DEDICATED_PORTS[proxy], proxy), self.procs.system_cpus,
+                                                      self.raw, f"{self.tag}-dedicated{'-proxy' if proxy else ''}", record=False)
         return self.dedicated[proxy]
 
     def stop(self) -> list[dict]:
@@ -442,8 +464,12 @@ def server_checks(name: str, code: int | None, c: dict, one_port: bool, relays: 
             "outcomes": outcomes}
 
 
-def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, clearance, emit) -> dict:
-    g = (pilot.get("G") or {}).get("L") or {}
+def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, clearance, emit, procs: CaseProcs | None = None,
+                host: str = "L") -> dict:
+    """B1 and B2 on `host`'s entries (a.entries), with G of `host` from the pilot entry (9.2: G_L or
+    G_W) and GAP_SPLIT; the processes by `procs` (L's by default)."""
+    procs = procs or LINUX_CASES
+    g = (pilot.get("G") or {}).get(host) or {}
     gap = (pilot.get("gap_split") or {}).get("GAP_SPLIT_ms")
     g_ms = g.get("G_ms")
     hc7 = bool(g.get("hc7_runs"))
@@ -454,19 +480,20 @@ def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, cl
     if gap is None:
         raise runlib.InputRefused("GAP_SPLIT is not in the pilot entry's output")
     if g_ms is None and hc7:
-        raise runlib.InputRefused("G_L is not in the pilot entry's output")
+        raise runlib.InputRefused(f"G_{host} is not in the pilot entry's output")
     prior = {(r["entry"], r["id"], r["replicate"]) for r in a.rows_prior if r.get("kind") == "hardcase"}
     (a.out / "raw").mkdir(parents=True, exist_ok=True)
     table: dict = {}
     for entry in a.entries:
         backend, detect, dispatch = entry.split(".")
-        e = Entry(a.build, backend, detect, dispatch, rule_e["relay_copy"][backend], a.out / "raw", f"{a.job}-{entry}")
+        e = Entry(a.build, backend, detect, dispatch, (rule_e.get("relay_copy") or {}).get(backend), a.out / "raw", f"{a.job}-{entry}",
+                  procs)
         try:
             for hc in a.cases:
                 if hc == 7 and not hc7:
-                    emit({"kind": "hardcase-skipped", "entry": entry, "hc": 7, "why": "9.2: no valid timer run on L, or G not below T_fb"})
+                    emit({"kind": "hardcase-skipped", "entry": entry, "hc": 7, "why": f"9.2: no valid timer run on {host}, or G not below T_fb"})
                     continue
-                k, variants = list_variants(a.build, hc, g_ms or 1, gap)
+                k, variants = list_variants(a.build, hc, g_ms or 1, gap, procs.opcase)
                 for v in variants:
                     todo = [rep for rep in range(1, a.replicates + 1) if (entry, v["id"], rep) not in prior]
                     if not todo:
@@ -475,11 +502,11 @@ def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, cl
                     try:
                         if v["reply"] == "dedicated":
                             d = e.dedicated_server(bool(v["needs_proxy"]))
-                            ded, why = run_variant(a.build, v, d.ports[v["dedicated"]], g_ms or 1, gap, SERVER_WAIT_MS)
+                            ded, why = run_variant(a.build, v, d.ports[v["dedicated"]], g_ms or 1, gap, SERVER_WAIT_MS, procs.opcase)
                             ded_bad = why or dedicated_is_real(v["dedicated"], v, ded, k)
                         if not ded_bad and v.get("dedicated_http_reply"):
                             d = e.dedicated_server(bool(v["needs_proxy"]))
-                            dt, why = run_variant(a.build, v, d.ports["HTTP/1.1"], g_ms or 1, gap, SERVER_WAIT_MS)
+                            dt, why = run_variant(a.build, v, d.ports["HTTP/1.1"], g_ms or 1, gap, SERVER_WAIT_MS, procs.opcase)
                             ded_bad = why or (check_reply(v["dedicated_http_reply"], dt, None, k) and
                                               "dedicated mode: " + check_reply(v["dedicated_http_reply"], dt, None, k))
                         srv = e.server(v["setup"])
@@ -497,7 +524,7 @@ def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, cl
                             row.update(passed=False, b1=[f"the one-port server exited ({srv.proc.returncode})"], b2={})
                             emit(row)
                             continue
-                        t, why = run_variant(a.build, v, srv.ports["one-port"], g_ms or 1, gap, SERVER_WAIT_MS)
+                        t, why = run_variant(a.build, v, srv.ports["one-port"], g_ms or 1, gap, SERVER_WAIT_MS, procs.opcase)
                         if t is None or not t.get("connected") or t.get("timed_out"):
                             row.update(passed=False, b1=[why or ("connect failed" if t and not t.get("connected") else "the client waited past its limit")],
                                        b2={}, transcript=t)
@@ -509,7 +536,7 @@ def part_server(a: argparse.Namespace, pilot: dict, rule_e: dict, prov: dict, cl
                             emit(row)
                             continue
                         bports = e.relay_backend().ports if dispatch == "relay" else {}
-                        res = judge(v, t, reps, relays, ded, detect, dispatch == "relay", bports, k)
+                        res = judge(v, t, reps, relays, ded, detect, dispatch == "relay", bports, k, iocp=backend == "IOCP")
                         failed_b2 = {x: y for x, y in res["b2"].items() if y}
                         row.update(res, passed=not res["b1"] and not failed_b2, b2_failed=sorted(failed_b2),
                                    transcript={x: t.get(x) for x in ("local_port", "before_connect_ns", "after_connect_ns", "write_ns", "sent",

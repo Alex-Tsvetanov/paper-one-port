@@ -46,19 +46,20 @@ BUILD = "oneport"
 ROOT_LABEL = "oneport"
 CONFIG_KEYS = ("CMAKE_BUILD_TYPE", "ONEPORT_BACKENDS")
 # Every first-party target, per host (CMakeLists.txt, bench/*/CMakeLists.txt, tests/CMakeLists.txt
-# at the code freeze's preparation). W builds no record_clienthello, opcase_bin or ophold (Linux
-# only, bench/cases/CMakeLists.txt).
-_COMMON = ("oneport", "oneport_server", "oneport_config", "oneport_loop", "oneport_tls", "opcase", "opgen",
+# at the code freeze's preparation). W builds no record_clienthello or ophold (Linux only,
+# bench/cases/CMakeLists.txt); it builds opcase_bin since M7e (the hard cases by port and the holder,
+# for W's runners).
+_COMMON = ("oneport", "oneport_server", "oneport_config", "oneport_loop", "oneport_tls", "opcase", "opcase_bin", "opgen",
            "opgen_core", "oneport_tests")
 TARGETS: dict[str, tuple[str, ...]] = {
-    "L": _COMMON + ("opcase_bin", "ophold", "record_clienthello"),
+    "L": _COMMON + ("ophold", "record_clienthello"),
     "W": _COMMON,
 }
 # The executables a window runs, per host, relative to the build directory.
 BINARIES: dict[str, dict[str, str]] = {
     "L": {"oneport": "bench/server/oneport", "opgen": "bench/gen/opgen", "opcase": "bench/cases/opcase",
           "ophold": "bench/cases/ophold"},
-    "W": {"oneport": "bench/server/oneport.exe", "opgen": "bench/gen/opgen.exe"},
+    "W": {"oneport": "bench/server/oneport.exe", "opgen": "bench/gen/opgen.exe", "opcase": "bench/cases/opcase.exe"},
 }
 # CMake writes each target's objects under CMakeFiles/<target>.dir/; an object rule's output ends
 # in .o or .obj (lab/bin/inputs_hash.py reads the compile database the same way).

@@ -40,7 +40,9 @@ import json
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -70,10 +72,13 @@ PART_WAIT_MS = 10_000      # opcase's limit on any wait of one run: T_hdr and a 
 RECORD_WAIT_S = 5.0
 
 
-def pilot_cells(r: int | None = None) -> list[SS.Cell]:
+def pilot_cells(r: int | None = None, host: str = "L") -> list[SS.Cell]:
+    """Every cost cell of `host` (6.1), A/A in dedicated mode; on W also churn h2c and churn MQTT,
+    which run in the pilot only (analysis/cells.py's COST_OUTSIDE_FAMILY: their C1 sessions give
+    WL2's lambda for the C3 cells of h2c and MQTT on W)."""
     cells = []
     for c in C.cost_cells():
-        if c.host != "L":
+        if c.host != host:
             continue
         wl = C.HYP_WORKLOAD[c.hyp]
         fields = {"workload": wl, "proto": c.proto, "backend": c.backend, "mode": "dedicated"}
@@ -83,6 +88,19 @@ def pilot_cells(r: int | None = None) -> list[SS.Cell]:
 
 
 # ---------------------------------------------------------------- the parts
+
+
+@dataclass(frozen=True)
+class PartProcs:
+    """How the parts start and stop their processes on a host (L's below; W's in wpilot_run.py), so
+    both hosts write the same rows by the same code: start(build, backend, proxy, raw, tag, record)
+    -> (process, its lines, ports by listener name, command); opcase(build, port, hc, variant, extra,
+    proxy_port) -> (exit, the run's JSON line, the end of its standard error); stop(process, lines)
+    -> (exit, every line); priority(pid) -> the server's priority as the row records it."""
+    start: Callable
+    opcase: Callable
+    stop: Callable
+    priority: Callable
 
 
 def start_part_server(build: Path, backend: str, proxy: bool, raw: Path, tag: str, record: Path | None):
@@ -127,7 +145,8 @@ def record_lines(path: Path, offset: int) -> tuple[list[dict], int]:
     return lines, offset + cut
 
 
-def timer_part(build: Path, backend: str, runs: int, done: set, raw: Path, emit, job: str) -> None:
+def timer_part(build: Path, backend: str, runs: int, done: set, raw: Path, emit, job: str, procs: PartProcs | None = None) -> None:
+    procs = procs or LINUX_PARTS
     tag = f"timer-{backend}-{job}"
     record = raw / f"{tag}.record.jsonl"
     srv = out = None
@@ -137,14 +156,14 @@ def timer_part(build: Path, backend: str, runs: int, done: set, raw: Path, emit,
         return
     try:
         try:
-            srv, out, ports, _ = start_part_server(build, backend, True, raw, tag, record)
+            srv, out, ports, _ = procs.start(build, backend, True, raw, tag, record)
         except Exception as e:  # noqa: BLE001 - every run of this server is excluded, with the reason
             for run in todo:
                 emit({"part": "timer", "backend": backend, "mode": "dedicated", "run": run, "valid": False,
                       "invalid_reasons": [f"the server failed to start: {e!r}"]})
             return
         port = ports[window.LISTENER["http1"]]
-        prio = window.priority_state(srv.pid)  # the server's nice and timer slack (M7c)
+        prio = procs.priority(srv.pid)  # the server's nice and timer slack on L (M7c)
         offset = 0
         for run in todo:
             row = {"part": "timer", "backend": backend, "mode": "dedicated", "run": run, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -155,7 +174,7 @@ def timer_part(build: Path, backend: str, runs: int, done: set, raw: Path, emit,
                 emit(dict(row, valid=False, invalid_reasons=reasons))
                 continue
             try:
-                rc, line, err = opcase_run(build, port, 12, "HC12", ["--t-hdr-ms", str(T_HDR_MS)], proxy_port=port)
+                rc, line, err = procs.opcase(build, port, 12, "HC12", ["--t-hdr-ms", str(T_HDR_MS)], proxy_port=port)
             except Exception as e:  # noqa: BLE001 - recorded in the row
                 emit(dict(row, valid=False, invalid_reasons=[f"opcase failed: {e!r}"]))
                 continue
@@ -187,11 +206,13 @@ def timer_part(build: Path, backend: str, runs: int, done: set, raw: Path, emit,
             emit(dict(row, valid=True, invalid_reasons=[]))
     finally:
         if srv is not None:
-            code, _ = window.stop_process(srv, out)
+            code, _ = procs.stop(srv, out)
             emit({"part": "timer-server", "backend": backend, "server_exit": code, "record": str(record)}, meta=True)
 
 
-def split_part(build: Path, backend: str, gaps: tuple[int, ...], replicates: int, done: set, raw: Path, emit, job: str) -> None:
+def split_part(build: Path, backend: str, gaps: tuple[int, ...], replicates: int, done: set, raw: Path, emit, job: str,
+               procs: PartProcs | None = None) -> None:
+    procs = procs or LINUX_PARTS
     for gap in gaps:
         for rep in range(1, replicates + 1):
             if (backend, gap, rep) in done:
@@ -203,8 +224,8 @@ def split_part(build: Path, backend: str, gaps: tuple[int, ...], replicates: int
             srv = out = None
             line = None
             try:
-                srv, out, ports, _ = start_part_server(build, backend, False, raw, tag, None)
-                rc, line, err = opcase_run(build, ports[window.LISTENER["http1"]], 2, SPLIT_VARIANT, ["--gap-split-ms", str(gap)])
+                srv, out, ports, _ = procs.start(build, backend, False, raw, tag, None)
+                rc, line, err = procs.opcase(build, ports[window.LISTENER["http1"]], 2, SPLIT_VARIANT, ["--gap-split-ms", str(gap)])
                 row["opcase_exit"] = rc
                 if line is None or not line.get("connected"):
                     reasons.append(f"opcase failed (exit {rc}): {err}")
@@ -212,7 +233,7 @@ def split_part(build: Path, backend: str, gaps: tuple[int, ...], replicates: int
             except Exception as e:  # noqa: BLE001 - recorded in the row
                 reasons.append(f"driver error: {e!r}")
             finally:
-                code, lines = (window.stop_process(srv, out) if srv is not None else (None, []))
+                code, lines = (procs.stop(srv, out) if srv is not None else (None, []))
             row["server_exit"] = code
             c = window.parse_counters(lines)
             row["server_counters"] = {k: c.get(k) for k in ("accepted", "closed", "recv_calls", "recv_eof", "recv_again", "bytes_received")}
@@ -225,6 +246,9 @@ def split_part(build: Path, backend: str, gaps: tuple[int, ...], replicates: int
             if line is not None:
                 row["write_ns"] = line.get("write_ns")
             emit(dict(row, valid=not reasons, invalid_reasons=reasons))
+
+
+LINUX_PARTS = PartProcs(start_part_server, opcase_run, window.stop_process, window.priority_state)
 
 
 def run_parts(a: argparse.Namespace, prov: dict, clearance) -> None:
@@ -261,10 +285,10 @@ def run_parts(a: argparse.Namespace, prov: dict, clearance) -> None:
 # ---------------------------------------------------------------- the sessions
 
 
-def c3_rates(rows: list[dict]) -> dict[str, float | None]:
+def c3_rates(rows: list[dict], runner: str = "pilot_run") -> dict[str, float | None]:
     """WL2: lambda per C3 cell from the C1 pilot sessions, by analysis/pilot.py's rates()."""
     try:
-        sess = RW.assemble([r for r in rows if r.get("runner") == "pilot_run"], PL.pilot_info, lambda kind, cid: PL.PILOT_ROLES)
+        sess = RW.assemble([r for r in rows if r.get("runner") == runner], PL.pilot_info, lambda kind, cid: PL.PILOT_ROLES)
     except (RW.RowError, RW.RowsRefused) as e:
         raise runlib.InputRefused(f"the pilot's rows do not assemble into sessions: {e}") from None
     return {cid: e.get("rate") for cid, e in PL.rates(sess).items()}
@@ -290,7 +314,7 @@ def main(argv=None) -> int:
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, need_pilot=False,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")), entries=(freeze_guard.M7E_ITEMS,))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(prov, indent=1))
     if "sessions" in a.parts:
         cells = runlib.only_cells(a, pilot_cells(a.dev_r))

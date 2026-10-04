@@ -34,13 +34,20 @@ if(TARGET oneport_tls)
     endif()
 endif()
 
-# The programs of the windows (Linux): opcase's WL7 openings and probe, and ophold, the holder
-# that measures the kernel's per-socket baseline (WL7, K_BASE).
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# The programs of the windows: opcase (on Linux its WL7 openings and probe, the hard cases by port
+# and the mixed cell's holder; on Windows, since M7e, the hard cases by port and the holder, for W's
+# runners), and on Linux ophold, the holder that measures the kernel's per-socket baseline (WL7,
+# K_BASE).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR WIN32)
     add_executable(opcase_bin opcase_main.cpp)
-    set_target_properties(opcase_bin PROPERTIES OUTPUT_NAME opcase)
+    # PDB_NAME: with MSVC the program's linker PDB would otherwise be opcase.pdb, the name of the
+    # opcase library's compile PDB in the same directory (debug information in the ASan and Debug
+    # builds on W).
+    set_target_properties(opcase_bin PROPERTIES OUTPUT_NAME opcase PDB_NAME opcase_bin)
     target_link_libraries(opcase_bin PRIVATE opcase)
     oneport_warnings(opcase_bin)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(ophold ophold.cpp)
     target_link_libraries(ophold PRIVATE Threads::Threads)
     oneport_warnings(ophold)

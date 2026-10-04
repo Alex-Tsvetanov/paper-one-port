@@ -142,7 +142,8 @@ def main(argv=None) -> int:
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
-                                       binaries=all_binaries(a.build, systems), entries=(freeze_guard.M7C_ITEMS,))
+                                       binaries=all_binaries(a.build, systems),
+                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7E_ITEMS))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(base, rule_e=rule_e, n_pend=n), indent=1))
     for s in systems:
         if s in comp.ORDER and not comp.SYSTEMS[s].binary_path().exists():

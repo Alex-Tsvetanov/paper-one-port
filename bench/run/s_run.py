@@ -59,13 +59,21 @@ import cells as C  # noqa: E402
 
 R_S = C.R_SECONDARY
 INPROC_PORTS = {"A": 20000, "B": 20100}
-NOT_RUN = {"iocp-forms": "W's cells, run by W's runner"}
+NOT_RUN = {"iocp-forms": "W's cells, run by W's runner (bench/run/ws_run.py)"}
 # The revision log's entry "M7c's open items, before the code freeze", item 5.
 RESUMPTION_NOT_RUN = ("not run: section 2.1 fixes no session tickets and no session cache in the server, the backend and the "
                       "generator, and TLS 1.3 resumes a session only from a ticket, so the variant cannot run without contradicting "
                       "the frozen settings (revision log, \"M7c's open items, before the code freeze\", item 5)")
 # The revision log's entry "M7c's open items, before the code freeze", item 2 (a design choice).
 SILENT_PORTS_FROZEN = "http1"
+# The coordinator's decision of M7e (the revision log's entry "The job's warm-up and W's runners
+# (M7e), before the code freeze"): section 10's 2-core cell on IOCP is not run in P3.
+TWO_CORE_IOCP_NOT_RUN = ("not run in P3: the server serves one IOCP worker (--workers above 1 exits 3), more than one worker on "
+                         "IOCP is a new threading model days before the code freeze, and it belongs to the portable I/O core paper; "
+                         "the cell is secondary and decides nothing (the coordinator's decision, revision log, \"The job's warm-up "
+                         "and W's runners (M7e), before the code freeze\")")
+OTHER_HOST = {"L": "W's cell, run by W's runner (bench/run/ws_run.py)", "W": "L's cell, run by L's runner (bench/run/s_run.py)"}
+OTHER_RECEIVE = {"zero-byte": "posted", "posted": "zero-byte"}
 
 
 def inproc_arm(bullet: str, hyp: str, proto: str, backend: str, mode: str, detect: str, extra: dict | None = None) -> dict:
@@ -77,20 +85,43 @@ def inproc_arm(bullet: str, hyp: str, proto: str, backend: str, mode: str, detec
     return f
 
 
-def s_cells(r: int, rule_e: dict, silent_ports: str | None) -> tuple[list[SS.Cell], dict[str, str]]:
+def iocp_form_arms(form: str, rule_e: dict) -> dict[str, dict]:
+    """Section 10's IOCP forms (M7e's reading, with a design choice: the revision log's entry "The
+    job's warm-up and W's runners (M7e), before the code freeze"): one-port mode on a listener
+    without a fallback, in-process, C1's HTTP/1.1 churn, rule E's detection mode; arm A the variant,
+    arm B the default form (AcceptEx with no receive buffer, then rule E's receive form)."""
+    d = rule_e["default"]["IOCP"]
+    rx = rule_e["iocp_receive"]
+    common = {"family": "S", "bullet": "iocp-forms", "variant": form, "workload": "churn", "proto": "http1", "backend": "IOCP",
+              "mode": "one-port", "detect": d, "dispatch": "inproc"}
+    if form == "acceptex-buffer":
+        forms = {"A": ("buffer", rx), "B": ("no-buffer", rx)}
+    else:
+        forms = {"A": ("no-buffer", OTHER_RECEIVE[rx]), "B": ("no-buffer", rx)}
+    return {arm: dict(common, iocp_accept=acc, iocp_receive=rec, run={"mode": "one-port", "iocp_accept": acc, "iocp_receive": rec})
+            for arm, (acc, rec) in forms.items()}
+
+
+def s_cells(r: int, rule_e: dict, silent_ports: str | None, host: str = "L") -> tuple[list[SS.Cell], dict[str, str]]:
+    """Section 10's cells of `host` with sessions of their own, and those not run, each with why."""
     out, skipped = [], {}
     for s in C.secondary_cells():
         if s.bullet == "tls-variants" and s.key[2] == "resumption":
             skipped[s.id] = RESUMPTION_NOT_RUN
             continue
-        if s.host != "L":
-            skipped.setdefault(s.id, NOT_RUN.get(s.bullet, "W's cell, run by W's runner"))
+        if s.bullet == "two-cores" and s.backend == "IOCP":
+            skipped[s.id] = TWO_CORE_IOCP_NOT_RUN
             continue
-        if s.bullet in NOT_RUN:
-            skipped[s.id] = NOT_RUN[s.bullet]
+        if s.host != host:
+            skipped.setdefault(s.id, NOT_RUN.get(s.bullet, OTHER_HOST[host]) if host == "L" else OTHER_HOST[host])
             continue
         if s.bullet in ("b3-other-mode",):
             continue  # B3's order (b3_run.py)
+        if s.bullet == "iocp-forms":
+            out.append(SS.Cell(s.id, r, iocp_form_arms(s.key[0], rule_e),
+                               shared={"kind": "inproc", "workload": "churn", "proto": "http1", "backend": "IOCP",
+                                       "detect": rule_e["default"]["IOCP"], "pairs_dedicated": False}))
+            continue
         d = rule_e["default"].get(s.backend, "replay")
         if s.bullet == "ssh":
             hyp = s.key[0]
@@ -212,7 +243,8 @@ def main(argv=None) -> int:
         if not a.m_rows:
             raise runlib.InputRefused("a frozen section 10 run reads the M runner's rows for m-ttfb's rates (--m-rows)")
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")), entries=(freeze_guard.M7C_ITEMS,))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")),
+                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7E_ITEMS))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, not_run=skipped, m_ttfb_rates=rates), indent=1))
     blocks = window.SourceBlocks(a.blocks)
 

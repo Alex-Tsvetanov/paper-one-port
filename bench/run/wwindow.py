@@ -328,10 +328,31 @@ def cpu_mean(cpus_reading: dict, cpus, counter: str) -> float | None:
     return statistics.fmean(vals) if vals else None
 
 
-def finish(row: dict, g: dict | None, snaps: dict, session: dict, reasons: list[str]) -> dict:
+def cpu_shares(row: dict, g: dict, session: dict, gen_cpus) -> dict:
+    """The window's CPU shares, as named fields (M7e: the evidence that W's churn h2c and churn MQTT
+    are generator-bound comes from the pilot's rows, the coordinator's decision in the revision
+    log's entry "The job's warm-up and W's runners (M7e), before the code freeze"): the server's
+    CPU busy (PDH, its CPU between the markers), the server process's own share of one CPU (its
+    cycles over the session's cycle rate and the markers' span), the generator's CPUs busy (PDH)
+    and opgen's own share of them (its report)."""
+    rate = (session.get("cycle_rate") or {}).get("cycles_per_s")
+    span = row.get("marker_span_s")
+    cyc = row.get("server_cycles")
+    gp = (g.get("cpu") or {}).get("pct")
+    gb = row.get("gen_cpus_busy_pct")
+    return {"server_cpu_busy": row.get("server_cores_busy"),
+            "server_process": cyc / (rate * span) if cyc is not None and rate and span else None,
+            "generator_cpus_busy": gb / 100.0 if gb is not None else None,
+            "generator_process": gp / 100.0 if gp is not None else None,
+            "generator_cpus": list(gen_cpus)}
+
+
+def finish(row: dict, g: dict | None, snaps: dict, session: dict, reasons: list[str], gen_cpus=None) -> dict:
     """The row's metrics and the validity rules on W: section 7's general rules, t1.py's error and
     generator rules as W computes them, W's procedure (the lab plan active and the core layout as
-    read), and the frequency rule only where FREQ_RULE is on."""
+    read), and the frequency rule only where FREQ_RULE is on. `gen_cpus` are the CPUs of the
+    generator whose rate is the window's metric (GEN_CPUS, or the mixed cell's on W)."""
+    gen_cpus = list(gen_cpus) if gen_cpus is not None else GEN_CPUS
     if row.get("server_exit") not in (0,):
         reasons.append(f"server exit {row.get('server_exit')}")
     if g is None or not g.get("ok"):
@@ -373,13 +394,13 @@ def finish(row: dict, g: dict | None, snaps: dict, session: dict, reasons: list[
         row["server_cores_busy"] = busy / 100.0 if busy is not None else None
         sib = cpu_mean(cpus, SERVER_IDLE_SIBLINGS, "% Processor Time")
         row["server_sibling_busy"] = sib / 100.0 if sib is not None else None
-        row["gen_cpus_busy_pct"] = cpu_mean(cpus, GEN_CPUS, "% Processor Time")
+        row["gen_cpus_busy_pct"] = cpu_mean(cpus, gen_cpus, "% Processor Time")
         hk = cpu_mean(cpus, HOUSEKEEPING, "% Processor Time")
         row["housekeeping_busy"] = hk / 100.0 if hk is not None else None
         span = snaps["cpus"]["span_s"] or 0.0
         row["irq_server"] = (cpu_mean(cpus, SERVER_CPUS, "Interrupts/sec") or 0.0) * span * len(SERVER_CPUS)
         row["irq_server_sibling"] = (cpu_mean(cpus, SERVER_IDLE_SIBLINGS, "Interrupts/sec") or 0.0) * span
-        row["irq_generator"] = (cpu_mean(cpus, GEN_CPUS, "Interrupts/sec") or 0.0) * span * len(GEN_CPUS)
+        row["irq_generator"] = (cpu_mean(cpus, gen_cpus, "Interrupts/sec") or 0.0) * span * len(gen_cpus)
         row["freq_window"] = cpu_mean(cpus, SERVER_CPUS, "% Processor Performance")
         row["actual_frequency_mhz_window"] = cpu_mean(cpus, SERVER_CPUS, "Actual Frequency")
     else:
@@ -415,6 +436,7 @@ def finish(row: dict, g: dict | None, snaps: dict, session: dict, reasons: list[
         reasons.append(f"generator CPU {row['gen_cpu_pct_rule']:.1f}% > 90% in a saturation cell")
     if workload == "open" and g["completed_share"] < MIN_COMPLETED_SHARE:
         reasons.append(f"open loop: {100 * g['completed_share']:.2f}% of the exchanges due completed, below 99%")
+    row["cpu_shares"] = cpu_shares(row, g, session, gen_cpus)
     row["valid"] = not reasons
     row["invalid_reasons"] = reasons
     return row

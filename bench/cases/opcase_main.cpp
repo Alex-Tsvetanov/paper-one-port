@@ -1,6 +1,10 @@
 // opcase as a program (hypotheses.md, section 2.4): B3's openings of WL7 against any system by
 // port, and the probe of a B3 or ophold window. The hard cases run in-process in the test suite
-// (cases.hpp); this binary serves the windows. Linux.
+// (cases.hpp); this binary serves the windows. Linux; on Windows (M7e) `case` and `hold` only, for
+// W's runners (the pilot's timer and split parts, the hard cases on IOCP, the mixed cell's silent
+// background on IOCP): `open` and `probe-reset` serve B3, which runs on L. On Windows the holder
+// stops when the named event "Local\oneport-stop-<pid>" is set, as the server does
+// (bench/server/main.cpp), since the W runner starts it without a console.
 //
 //   opcase open --port N --case silent|partial-hello [--n 10000] [--batch 25] [--pace-ms 25]
 //               [--close-at-ms 30000] [--src-base A.B.C.D --k-src K]
@@ -24,6 +28,15 @@
 //     once to the same port, until SIGTERM or SIGINT. Prints "HOLD <held> <ns>" once all N are
 //     held (CLOCK_MONOTONIC), then, at the stop, every connection closed by reset, a JSON line of
 //     counts.
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
+
 #include "fixtures.hpp"
 #include "hold.hpp"
 #include "run_cases.hpp"
@@ -40,6 +53,7 @@
 #include <string_view>
 #include <vector>
 
+#if defined(__linux__)
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -49,10 +63,16 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#elif defined(_WIN32)
+#include <windows.h>
+
+#include <thread>
+#endif
 
 namespace
 {
 
+#if defined(__linux__)
 	std::int64_t now_ns() noexcept
 	{
 		timespec ts{};
@@ -71,6 +91,7 @@ namespace
 			clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
 		}
 	}
+#endif
 
 	template <class T>
 	bool number(std::string_view s, T& v)
@@ -99,12 +120,14 @@ namespace
 		return out;
 	}
 
+#if defined(__linux__)
 	void reset_close(int fd)
 	{
 		const linger l{1, 0};
 		::setsockopt(fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
 		::close(fd);
 	}
+#endif
 
 	int usage()
 	{
@@ -121,6 +144,21 @@ namespace
 	std::atomic<bool> g_hold_stop{false};
 
 	void hold_on_signal(int) { g_hold_stop.store(true, std::memory_order_relaxed); }
+
+#if defined(_WIN32)
+	/// The holder's stop on Windows: the named event Local\oneport-stop-<pid>, which the W runner
+	/// sets as it sets the server's (bench/run/wsys.py, set_stop_event). False if it cannot be made.
+	bool watch_stop_event()
+	{
+		const std::wstring name = L"Local\\oneport-stop-" + std::to_wstring(::GetCurrentProcessId());
+		HANDLE ev = ::CreateEventW(nullptr, TRUE, FALSE, name.c_str());
+		if (ev == nullptr) return false;
+		std::thread([ev] {
+			if (::WaitForSingleObject(ev, INFINITE) == WAIT_OBJECT_0) g_hold_stop.store(true, std::memory_order_relaxed);
+		}).detach();
+		return true;
+	}
+#endif
 
 	/// `opcase hold ...`: the silent background (hold.hpp).
 	int hold_main(int argc, char** argv)
@@ -165,12 +203,20 @@ namespace
 		}
 		if ((argc - 2) % 2 != 0 || o.ports.empty() || !have_n || (o.src_base == 0) != (o.k_src == 0)) return usage();
 		if (o.k_src > 0 && static_cast<std::uint64_t>(o.src_base) + o.k_src - 1 >= 0x7FFFFFFFu) return usage();
+#if defined(__linux__)
 		rlimit lim{};
 		if (getrlimit(RLIMIT_NOFILE, &lim) == 0 && lim.rlim_cur < lim.rlim_max)
 		{
 			lim.rlim_cur = lim.rlim_max;
 			setrlimit(RLIMIT_NOFILE, &lim);
 		}
+#elif defined(_WIN32)
+		if (!watch_stop_event())
+		{
+			std::fprintf(stderr, "opcase: CreateEvent failed (%lu)\n", ::GetLastError());
+			return 1;
+		}
+#endif
 		std::signal(SIGTERM, hold_on_signal);
 		std::signal(SIGINT, hold_on_signal);
 		const oneport::opcase::HoldResult r = oneport::opcase::hold(o, g_hold_stop, [](const oneport::opcase::HoldResult& at) {
@@ -182,6 +228,7 @@ namespace
 		return r.ok ? 0 : 1;
 	}
 
+#if defined(__linux__)
 	sockaddr_in loopback(std::uint16_t port)
 	{
 		sockaddr_in to{};
@@ -205,6 +252,7 @@ namespace
 		std::printf("{\"probe\":\"reset\",\"ok\":true}\n");
 		return 0;
 	}
+#endif
 
 }  // namespace
 
@@ -214,6 +262,11 @@ int main(int argc, char** argv)
 	const std::string_view cmd = argv[1];
 	if (cmd == "case") return oneport::opcase::run_cases(argc, argv);
 	if (cmd == "hold") return hold_main(argc, argv);
+#if defined(_WIN32)
+	std::fprintf(stderr, "opcase: %.*s runs on Linux only (B3's openings and probe); on Windows: case and hold\n",
+	             static_cast<int>(cmd.size()), cmd.data());
+	return usage();
+#else
 	unsigned port = 0;
 	std::string kase;
 	std::uint32_t n = 10000;
@@ -355,4 +408,5 @@ int main(int argc, char** argv)
 	            bytes.size(), static_cast<long long>(t0), static_cast<long long>(opened_at), static_cast<long long>(closed_at), batch, pace_ms,
 	            close_at_ms);
 	return connect_failures == 0 && write_failures == 0 ? 0 : 1;
+#endif
 }

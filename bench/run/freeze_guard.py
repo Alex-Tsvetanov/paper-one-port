@@ -27,7 +27,9 @@ looks for in them is fixed here and stated in design/status.md:
   before the code freeze" (2026-10-04: the mixed cell's silent ports, B3's other-mode cells in
   relay, the TLS variants, an M2 cell without a rate), so a frozen run of theirs refuses to start
   if the log does not hold it. The M runner, in both parts, also applies the entry "The pre-freeze
-  items on L (M7d), before the code freeze" (M2's dedicated backend in a SO_REUSEPORT group).
+  items on L (M7d), before the code freeze" (M2's dedicated backend in a SO_REUSEPORT group). Every
+  runner on the session engine applies the entry "The job's warm-up and W's runners (M7e), before
+  the code freeze" (the job's warm-up), and W's runners also the entry "W before the code freeze".
 A run that passes gets a Clearance, whose record goes into every row's provenance. The session
 engine (bench/run/sessions.py) starts the one-port arm of a cell that pairs one-port with dedicated
 mode only with a clearance that names the pilot entry; development mode never has one.
@@ -54,6 +56,13 @@ M7C_ITEMS = "M7c's open items, before the code freeze"
 # The title of the entry whose design choice the M runner applies in both parts (M2's dedicated
 # backend in a SO_REUSEPORT group; bench/run/m_run.py, M2_BACKEND_LISTENER).
 M7D_ITEMS = "The pre-freeze items on L (M7d), before the code freeze"
+# The title of the entry whose choices W's runners apply (W's WL4 in cycles, W's churn h2c and MQTT
+# outside the family, SO_REUSE_UNICASTPORT, the rules W computes; M6d).
+W_ITEMS = "W before the code freeze"
+# The title of the entry whose choices every runner on the session engine applies (the job's
+# warm-up, bench/run/sessions.py) and W's runners apply (W's churn h2c and MQTT in the pilot only,
+# the two-core IOCP cell not run, the mixed cell's placement on W, the IOCP forms' cells; M7e).
+M7E_ITEMS = "The job's warm-up and W's runners (M7e), before the code freeze"
 FROZEN_PATHS = ("bench", "tests", "CMakeLists.txt")
 HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
 

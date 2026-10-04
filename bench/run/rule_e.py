@@ -161,7 +161,7 @@ def run(a: argparse.Namespace) -> int:
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")), entries=(freeze_guard.M7E_ITEMS,))
     blocks = window.SourceBlocks(a.blocks)
 
     def win(cell: SS.Cell, arm: str, session: dict, position: int, clr) -> dict:

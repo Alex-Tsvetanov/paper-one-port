@@ -136,7 +136,7 @@ if(WIN32)
     if(TARGET oneport_tls)
         foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub gen.churn.tls-h2
                       gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe
-                      gen.tls_h2_one_port)
+                      gen.tls_h2_one_port gen.hold)
             add_test(NAME ${_test}.IOCP COMMAND oneport_tests test ${_test}.IOCP)
             set_tests_properties(${_test}.IOCP PROPERTIES TIMEOUT 300 LABELS "gen;IOCP")
         endforeach()
@@ -144,7 +144,8 @@ if(WIN32)
             add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
             set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS gen)
         endforeach()
-        add_test(NAME gen.binaries COMMAND oneport_tests test gen.binaries $<TARGET_FILE:oneport> $<TARGET_FILE:opgen>)
+        add_test(NAME gen.binaries COMMAND oneport_tests test gen.binaries $<TARGET_FILE:oneport> $<TARGET_FILE:opgen>
+                 $<TARGET_FILE:opcase_bin>)
         set_tests_properties(gen.binaries PROPERTIES TIMEOUT 300 LABELS gen)
     endif()
 endif()
@@ -222,6 +223,10 @@ if(Python3_FOUND)
     # readings, a pinned start and the lab lock (bench/run/test_wrunner.py).
     add_test(NAME run.test_wrunner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_wrunner.py)
     set_tests_properties(run.test_wrunner PROPERTIES TIMEOUT 120 LABELS run)
+    # W's frozen runners (M7e): their cells and rows against analysis/, the pilot's parts with W's
+    # processes, the hard cases on IOCP, the W window's guard, the job context (pure, every platform).
+    add_test(NAME run.test_wfrozen COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_wfrozen.py)
+    set_tests_properties(run.test_wfrozen PROPERTIES TIMEOUT 300 LABELS run)
     # The competitors' configurations, the probe's judgement and the hand-off rows (M4a); on Linux
     # also the probe of the server's relay and one short hand-off window per M3 protocol, with
     # this build's oneport and opgen (bench/competitors/test_competitors.py).

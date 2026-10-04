@@ -14,7 +14,7 @@
 // the policy did is counted and reported (`reopened`, `closed_by_peer`, `held_min`).
 //
 // At the stop every held connection is closed by reset (SO_LINGER on, zero timeout), so the
-// background leaves no TIME-WAIT socket. Linux.
+// background leaves no TIME-WAIT socket. Linux, and Windows since M7e (the mixed cell on IOCP).
 #pragma once
 
 #include <atomic>
@@ -49,13 +49,13 @@ namespace oneport::opcase
 		std::uint32_t held_at_ready = 0;
 		std::uint32_t held_min = 0;          // the fewest held at the end of any pass after ready
 		std::uint32_t held_at_stop = 0;
-		std::int64_t ready_ns = 0;           // CLOCK_MONOTONIC when all n were held for the first time (0: never)
+		std::int64_t ready_ns = 0;           // when all n were held for the first time (0: never): CLOCK_MONOTONIC on Linux, steady_clock on Windows
 		std::int64_t stop_ns = 0;
 		std::uint64_t passes = 0;
 	};
 
 	/// Holds o.n silent connections to 127.0.0.1 until `stop` is set, by the policy above.
-	/// `on_ready` is called once, in the first pass that ends with all n held. Linux.
+	/// `on_ready` is called once, in the first pass that ends with all n held. Linux and Windows.
 	HoldResult hold(const HoldOptions& o, const std::atomic<bool>& stop, const std::function<void(const HoldResult&)>& on_ready = {});
 
 	/// The result as one JSON object, with the options that produced it.

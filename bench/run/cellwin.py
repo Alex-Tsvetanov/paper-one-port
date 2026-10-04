@@ -141,7 +141,7 @@ class Background:
         self.raw, self.tag = raw, tag
         try:
             self._start(build, ports, mode, silent_ports, blocks, k_src, raw, tag, duration_ms)
-        except Exception:
+        except BaseException:  # a stop (SystemExit) while starting it, too
             self.stop()
             self.release(blocks)
             raise

@@ -82,11 +82,13 @@ def m2_not_run(m2_rates: dict[str, float | None] | None) -> dict[str, str]:
 
 
 def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str = "cells", m2_sessions: int = M2_RATE_SESSIONS,
-            backend_listener: str = M2_BACKEND_LISTENER) -> list[SS.Cell]:
+            backend_listener: str = M2_BACKEND_LISTENER, host: str = "L") -> list[SS.Cell]:
+    """The cells of 6.3 on `host`: on L M1 on epoll and io_uring, M2 and M3; on W M1 on IOCP
+    (bench/run/wm_run.py)."""
     out = []
     skip = m2_not_run(m2_rates) if part == "cells" else {}
     for c in C.m_cells():
-        if c.host != "L":
+        if c.host != host:
             continue
         if c.hyp == "M1" and part == "cells":
             d = rule_e["default"][c.backend]
@@ -218,8 +220,8 @@ def main(argv=None) -> int:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        m2_rates=a.m2_rates if a.part == "cells" else None,
                                        binaries=runlib.binaries_of(prov, ("oneport", "opgen")),
-                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7D_ITEMS) if a.part == "cells"
-                                       else (freeze_guard.M7D_ITEMS,))
+                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7D_ITEMS, freeze_guard.M7E_ITEMS) if a.part == "cells"
+                                       else (freeze_guard.M7D_ITEMS, freeze_guard.M7E_ITEMS))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, m2_rates=m2_rates, part=a.part, not_run=not_run),
                                                                indent=1))
     if a.part == "cells":

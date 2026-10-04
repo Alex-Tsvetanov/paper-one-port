@@ -48,10 +48,26 @@ PORTS = {"A": aa.PORT_A, "B": aa.PORT_A + aa.PORT_OFFSET}
 CANDIDATES = (11, 15, 18, 22, 25, 28, 31)  # 4.6 step 4
 
 
-def cost_cells(r: int, rule_e: dict, rates: dict[str, float | None]) -> list[SS.Cell]:
+# The coordinator's decision of M7e (the revision log's entry "The job's warm-up and W's runners
+# (M7e), before the code freeze"): the cost cells outside the confirmatory family (W's churn h2c and
+# churn MQTT; analysis/cells.py's COST_OUTSIDE_FAMILY) run in the A/A pilot only, never in the
+# confirmatory cost runs.
+NOT_RUN_OUTSIDE = ("not run in the confirmatory cost runs: {why}; it runs in the A/A pilot only, so that WL2 has its median "
+                   "for the open-loop rate (the coordinator's decision, revision log, \"The job's warm-up and W's runners (M7e), "
+                   "before the code freeze\")")
+
+
+def cost_not_run(host: str = "L") -> dict[str, str]:
+    """The cost cells of `host` that the confirmatory runs leave out, each with why."""
+    return {c.id: NOT_RUN_OUTSIDE.format(why=C.COST_OUTSIDE_FAMILY[c.id]) for c in C.cost_cells()
+            if c.host == host and c.id in C.COST_OUTSIDE_FAMILY}
+
+
+def cost_cells(r: int, rule_e: dict, rates: dict[str, float | None], host: str = "L") -> list[SS.Cell]:
+    """Every cost cell of `host` at R_C, resolved or not, but those cost_not_run names."""
     out = []
     for c in C.cost_cells():
-        if c.host != "L":
+        if c.host != host or c.id in C.COST_OUTSIDE_FAMILY:
             continue
         wl = C.HYP_WORKLOAD[c.hyp]
         detect = rule_e["default"][c.backend]
@@ -93,7 +109,7 @@ def main(argv=None) -> int:
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")), entries=(freeze_guard.M7E_ITEMS,))
     r, rates = pilot_values(pilot, a.development, a.dev_r)
     cells = runlib.only_cells(a, cost_cells(r, rule_e, rates))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, R_C=r), indent=1))
