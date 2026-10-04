@@ -16,7 +16,7 @@ has run.
 | M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
 | M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) merged into main at its 74dc539 in fa8be6d, 2026-10-04 (below, "M7c follow-up"; `design/status-m6b.md`); W's runners open |
-| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); the freeze itself open |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); M7d and M7e done, 2026-10-04; the freeze session stopped in W's checks, 2026-10-04 (below, "M7 freeze session": a test fix, 7a4063c; W in use); the freeze itself open |
 
 ## Engineering constraints
 
@@ -5876,6 +5876,197 @@ session's last window to the next session's first; the job's start 11 s): wf1
    `design/seeds.json`; `pilot.py` on the pinned numpy at ANALYSIS_COMMIT 9de26d6; the pilot entry;
    then section 8 step 7 in its order, on L and W.
 
+## M7 freeze session, 2026-10-04: W's checks (stopped: W in use), the code freeze not declared
+
+This session was to run W's checks and then the code freeze. It stopped in Part 1: W's suite
+failed one check of a test, which is fixed (7a4063c), and the run of W's suite at the fix, the W
+records driver's dry run and W's functional checks never started, because W's quiet check refused
+every attempt from 17:33 to 20:37 (36 attempts) while W was in use. CODE_FREEZE is not declared,
+no record was made, and the pins were not read for the freeze. Nothing here is a result: no window
+ran on either host. Every job on L ran under `lab_job.sh` at nice 0, launched from bash, from fresh
+clones of the lab remote under `~/lab/p3/m7f/`. On W the builds ran from clean clones of `origin`
+under `C:\Users\alext\lab\p3\m7f\`. The `one-port-m6b` work tree was not used.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line) |
+|---|---|
+| 7a4063c | fix(tests): test_wrunner's cycle-rate check reads the server's CPU and runs alone |
+
+Then this section's commit. Papers: the bump of `papers/one-port`. No lab-journal line: no window
+ran.
+
+### 1. W's suite at 91f2f77 (run 1)
+
+From a clean clone of `origin` at 91f2f77 (`m7f\src-91f2f77`), `m7f\check.cmd` (M6b's check.cmd
+with the paths as arguments; sha256 5fd7fe26aa849ca8ee3832b2e45e616362d6c9028578c4c75d67b0061ce603f9):
+MSVC 19.51.36246.0, Build Tools 18, Ninja; Debug with the release libraries, then ASan
+(`-DONEPORT_SANITIZER=address`), which linked `openssl-3.5.9-asan` and `nghttp2-1.70.0-asan` (its
+configure lines; both flavours were built with `/fsanitize=address` by `build_deps.ps1`, exit 0);
+then `ctest -V -j 4`, ASan with `detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1`.
+Started at 17:01, not inside a W lab job (as M6d's suite checks). Warnings: lines of the build log
+holding "warning", none. Report lines: the shared pattern (`bench/oneport_record.py`, `REPORT`;
+`m6d\reportlines.py`).
+
+| Build (91f2f77) | Steps | Warnings | CTest | Test time | Report lines |
+|---|---|---|---|---|---|
+| Debug | 54 of 54 | 0 | 164 of 165 | 67.69 s | 0 |
+| ASan | 54 of 54 | 0 | 164 of 165 | 73.21 s | 0 |
+
+165 is M6d's 163 and the two tests M7e registered on W: `gen.hold.IOCP` passed (2.69 s, 3.00 s),
+its first run on W, and `run.test_wfrozen` passed; `gen.binaries`, now with opcase's listing, its
+holder stopped by its event and `open` refused, passed. So M7e's Windows C++ (`opcase` on Windows,
+its holder) built and ran its tests in both builds. The test that failed in both:
+`run.test_wrunner`, 21 of its 22 checks passed; `cycle_rate_reading` failed. Its busy loop, pinned
+to CPU 0, held the CPU for 0.328 s (Debug) and 0.344 s (ASan) of a 0.5 s span, where the check asks
+0.85 to 1.15 of it; its cycles per second of wall time read 2.40e9 and 2.45e9, where W's sessions
+read 3.90e9 to 3.94e9 (M6d). Run alone three times right after, the check passed once and failed
+twice (0.375 s each). W was in use: a game (`TFTClient-Win64-Shipping`, started 17:02:52, during
+the Debug suite; the League client since 14:56:37), and CPU 0 read 61% idle with 13%
+DPC and 5.5% interrupt time (a 2 s reading, read only).
+
+Logs (sha256), `m7f\check\91f2f77\`: debug build
+40024d50db485445cc2f2eec5713ed117b2f084a6754cfa1021cf5840656b585, ctest
+fd20627f9d8c68da75ab2e79a9c67697347986aa3b87ea61179ddf1cb2e0aba8; asan build
+704d0e2f5f37ded5c238534ce501fc5bdf5553a22550ec6fb202eaabaf935711, ctest
+81ed512ff47e0c7c119662e0a36a15fffce1107289b41471d4a3109be857e784.
+
+### 2. The fix (7a4063c)
+
+Why it is a fault of the test and not only of the load: W's quiet check reads CPUs 2 to 10
+(`wsys.QUIET_CPUS`), so CPU 0, where Windows takes most interrupts and DPCs, is outside it, and the
+check could fail on a W that passed it; for example in the suite of W's ASan record, where
+`records_job_w.ps1` stops at a record that is not green and its driver never runs again over
+existing logs. CPU 0 had no stated reason (4af5714's message names none). The fix: the loop runs on
+`wsys.SERVER_CPUS` (CPU 10), where the runners read the rate and which the quiet check covers; and
+`run.test_wrunner` is `RUN_SERIAL` in `tests/CMakeLists.txt`, so no other test's process takes that
+CPU during the span. The band 0.85 to 1.15 is unchanged. No compiled input changed. The fix
+changes `bench/` and `tests/CMakeLists.txt`, so CODE_FREEZE cannot be older than 7a4063c. It has
+not run on W yet (below).
+
+### 3. The suite on L at 91f2f77 and at 7a4063c
+
+`~/lab/p3/m7f/checks_job.sh` (M7e's script, the paths moved to `~/lab/p3/m7f/check/`; sha256
+a38e9da2404d3623984dd89c844554f111502752087b58b08b4071d1345577c4), lab_job.sh from a clone at
+91f2f77 (`~/lab/p3/m7f/jobsrc`), each job from a fresh clone of the lab remote, under the lab lock
+with the clock floor, THP at madvise and NOTRACK, each set back (the job logs say so).
+
+| Build | chk9 (91f2f77, 17:01:22 to 17:06:35) | chk10 (7a4063c, 17:32:32 to 17:37:44) |
+|---|---|---|
+| Debug | 0 warnings, 399 of 399, 0 report lines | 0 warnings, 399 of 399, 0 report lines |
+| ASan+UBSan | the same | the same |
+| TSan | the same | the same |
+| MSan | the same | the same |
+
+Report lines recounted with the shared pattern (`lab/bin/sanitize.sh`'s `report_re`). As before,
+logs show a thread's exception from `run.test_runner`'s stand-in stub (test 395), which passed (chk9:
+four logs; chk10: three); it matches no report pattern. On L `cycle_rate_reading` is skipped (not
+Windows). Logs (sha256): chk9, `check/91f2f77/`: debug build
+29bd0185ecea344177d39d044d2282a23e87990ab91315e048f66e07739d485a, ctest
+cee233cff68539c111e22498b6b1b5f1ab182efbff2629c25c7f9b5fb6fbb68d; asan build
+f26e07937c795ac63dde75602776246db8f3f008ba6252e6014c8a659a7973a4, ctest
+31d5a24a674111acd0fa0caaffd1556690450c8a1f311d7ccf9d1f19507864f5; tsan build
+8dd1d6d60b9e30fc6439ee69a65688a95a083d3ad35a104edd19d6f621a474b1, ctest
+e931b971d6e90c9a3ba323451ca34d0009ef5575d51448ebe845350f3d2882c4; msan build
+26d97c267742eb6332927812f55738ffdf143f1672d65945063e0701de4f4beb, ctest
+1550a6fc07bd5f6281a48da49f4c14a7ae6e689c32bc1694fcf8d4fb38b97eb1. chk10, `check/7a4063c/`: debug
+build 541ea01f4076c65e201a94b00cfc5d359e1e602adbc5ee63b2f408093cfb7e4c, ctest
+e32de312b2d83b6bfa5de5aebc7ee68af841841790ac202755e1af43b854f076; asan build
+9c95e5ac56d7f36b7319336e67e3f121febfb8f49625c7cdec9cee03da446342, ctest
+dddb998e1b31fddce74fa8735f352b59ea458f3405666e48dec88b5576433f7c; tsan build
+c9ff26186c0191a8f59b33149c5105abb62986301e7f092cc165ea8bee41600d, ctest
+f01b58d56194845acd6d197a8a1b47e320b61832c4f4e552f0c15d791078886a; msan build
+eede1dd98df47fd83e6776f7e982709d74e508606622f772f66ccea04d38b16f, ctest
+1c83765cbc5dff315c2d66b57eb882489d7623b789ccc8da9f2e8125dd3a41fe.
+
+### 4. W's chain of jobs: refused by the quiet check every time
+
+What was to run, in order, each a W lab job inside `wjob.py run` without `--allow-noisy`, from a
+clean clone of `origin` at 7a4063c (`m7f\src-7a4063c`), started by `m7f\chain.py` (a launcher after
+M6b's wnight.py, not committed; it runs the jobs one after the other, tries a job again 300 s after
+wjob refuses it for W not being quiet or an update installing, renames a refused job's files
+NAME-refusedK.*, stops at a required job that fails, and ends at its stop file `chain.stop`), with
+`m7f\steps.json`:
+1. `suite1` (required): `m7f\checkj.cmd` (check.cmd's builds and suites, exiting non-zero when a
+   build or a suite fails), Debug and ASan at 7a4063c into `m7f\check\7a4063c\`;
+2. `dry1` (required): `bench\records_job_w.ps1 -DryRun -Out m7f\dryrun -Records m7f\dryrun\records
+   -LabBin D:\Dev\GitHub\Papers\lab\bin`: the first run of W's records driver (written in M7e,
+   checked only by PowerShell's parser), a dry-run `gate-W.json` to bind the functional rows, and
+   the Release build (`m7f\dryrun\build-release`) the functional checks use;
+3. `wf1`, `wf2`, `wf3`: M7e's functional checks as M7e lists them (dedicated only, development
+   seeds 8201, 8202, 8203, every other argument as listed), on that build and the 7a4063c clone,
+   `--out` under `m7f\wfunc\`;
+4. `wf4`: `whardcase_run.py --development --entries IOCP.replay.inproc,IOCP.peek.inproc
+   --replicates 2 --dev-g-ms 100 --dev-gap-split-ms 10` (all 25 cases; e2e3's development G and
+   gap); untimed, one-port servers, B1 and B2.
+
+Launched at 17:33:31 through WMI (`m6b\wlaunch.ps1`, pid 26040, `m7f\launches.txt`), cutoff 21:00.
+The quiet check refused `suite1` on all 36 attempts, 17:33:32 to 20:37:19: mean idle 24.4% to
+81.6% over the 10 s check (it asks at least 95%); every refusal named `LeagueClient` among the
+processes above 5% of one CPU, which the check refuses, and the refusals also named
+`LeagueClientUx`, `dwm`, `System`, `vgc`, `audiodg`, `MsMpEng`, `chrome` and others; the game
+`TFTClient-Win64-Shipping` was among the top five processes in 15 refusals (games started at
+17:02:52, 17:37:48 and 18:16:02, and one ran at 20:37). No update was installing and the core layout held in every preflight. No
+job passed the preflight, so no plan switch happened; Alex's plan "ChrisTitus - Ultimate Power Plan"
+was active when read at 16:56 and at 20:40. Nothing was weakened. The chain was stopped by its stop file
+at 20:39:28 (`chain.done`: "stopped by chain.stop"); its pid 26040 and every wjob pid of the 36
+attempts (`suite1-refused1.pid` to `suite1-refused36.pid`) had ended. `chain.py` now counts a
+refused job's files on from an earlier launch's highest number (a relaunch would otherwise fail to
+rename onto `suite1-refused1.*`), checked with a stub wjob.
+
+Files (sha256), `C:\Users\alext\lab\p3\m7f\`: `chain.py`
+4a4faa11f122488fc769bffcd8b55e52d7f3655271e2620836afb2063253c11d, `steps.json`
+2677df0262ba658706b6e0a16e7d9d4e13084cad622e581e40b9efa5aef64169, `checkj.cmd`
+e974ebb0998353274d458869978dbedd49f51e5decbc1a9899d1eeaaf6b564b9, `chain.log`
+84e7740bf1092edc54fb6ee3523b7edc36ad09c2f9857ca73d55b3a0e1303918; for the checks after the chain,
+`dev-seeds-w.json` 2a0c95a851ead7297c755cb58ba8554165130dcb0adb26c3c785a79dd430166e (devcheck's
+seeds: `SEED_PILOT_W` 8201, `SEED_ORDER_C_W` 8202, `SEED_ORDER_S_W` 8203, and 8204 to 8214 for the
+other eleven names in 4.7's order; 8204 to 8214 appear in no journal line or status file and are
+reserved as development seeds, none used yet) and `ksrc_scan_w.py`
+d9b57309f61fcc0c3a5c8efa0caa9da7aff6399bf52da25908c02f5373a63710 (M7d's `ksrc_scan2.py` with its
+root moved to W's lab directory, for the K_SRC rule over W's rows).
+
+### 5. Not run, and why
+
+- W's suite at 7a4063c, the records driver's dry run, wf1 to wf4: the quiet check (above).
+- `wm_run.py` and `wrule_e.py`: not run, and they would not have run had W been quiet. Their only
+  window is `wcellwin.run`'s, the server in one-port mode with a 1 s warm-up and a 5 s measured
+  window that records connections per second; neither has a form that records no metric, so each
+  would time one-port mode on W before the pilot entry.
+- The rows' checks of the brief's item 3 (validity, `cpu_shares`, `cycles_per_exchange`, the 80 s
+  warm-up record, `analysis/rows.py` at 9de26d6 in development mode through `devcheck.py`): no row
+  exists.
+- Part 2 (the pins read for the freeze, the slab re-read, CODE_FREEZE, the records, the gates, the
+  code freeze's entry): not started, since Part 1 is not green. One read-only look at Adoptium's API
+  at 17:01 (not the freeze day's read): Temurin 25's latest GA build was still jdk-25.0.4.1+1
+  (2026-08-19), most_recent_lts 25.
+
+### 6. To resume
+
+W must pass section 5's quiet check: the League client closed (it alone holds a process above 5%
+of one CPU), nothing else above 5%, W locked or its display off. Then, from any console on W:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\alext\lab\p3\m6b\wlaunch.ps1 -Dir C:\Users\alext\lab\p3\m7f -CommandLine "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe C:\Users\alext\lab\p3\m7f\chain.py --dir C:\Users\alext\lab\p3\m7f --steps C:\Users\alext\lab\p3\m7f\steps.json --retry-s 300 --cutoff <ISO time>"
+
+It is stopped by creating `C:\Users\alext\lab\p3\m7f\chain.stop` (delete it before the next
+launch). After it: `devcheck.py` with the dry run's gate and `dev-seeds-w.json`, `ksrc_scan_w.py`,
+the rows read for the brief's item 3, the lab journal's lines for wf1 to wf4; then Part 2.
+W time the chain needs, from measured parts where there are any: `suite1` about 5 min (run 1: both
+builds 17:01:00 to 17:02:35, suites 68 s and 73 s); `dry1` not measured as a whole (`records_job_w.ps1`
+has never run; its parts are a Release build, 55 s in M7e's compile check at -j 2, and the ASan
+record, 80 s in M6b's dry run of `sanitize_oneport.ps1`, then the gate); wf1 to wf3 20 to 30 min (M7e's
+estimate from M6b's measured parts); wf4 not measured on W (e2e3 on L: 328 runs in 91 s; wf4 has
+656). Then Part 2's W record, about `dry1`'s length again.
+
+### For the coordinator and Alex
+
+1. W was not free: Alex played from 17:02 to at least 20:37 with the League client open
+   throughout. W's checks need the client closed and W left alone (locked or display off) for about
+   an hour, longer with Part 2's W record. The harness never weakened its check and never touched
+   his processes.
+2. 7a4063c is a test fix found by W's suite (above); it moves CODE_FREEZE's earliest commit to
+   7a4063c. L is green at it (chk10); W's Debug and ASan suites at it are the chain's first job.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
@@ -5915,7 +6106,11 @@ gave, the reason is in the item. Each item names what decides it.
    - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free. Open: W has built
      none of M7c's C++, of the merge or of 236ee3c. Since then: M6d's suite on W at 330c961 (163 of
      163); M7e's C++ (opcase and its holder on Windows) only compiled (one Release build, 0
-     warnings), its suite on W still open.
+     warnings), its suite on W still open. M7 freeze session: at 91f2f77 Debug and ASan built
+     with 0 warnings and passed 164 of 165 with 0 report lines (`gen.hold.IOCP` and opcase in
+     `gen.binaries` passed); `run.test_wrunner`'s cycle-rate check failed (CPU 0, outside the
+     quiet check, while W was in use), fixed in 7a4063c; W's suites at 7a4063c not run (W's quiet
+     check refused every attempt). L at 7a4063c: chk10, 399 of 399 in four builds.
    - Check `bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` against the merged tree
      (M6b built opgen on Windows): a compiled target added or removed stops the hash until the
      list is right. Done: they hold (no target added or removed).
@@ -5938,7 +6133,9 @@ gave, the reason is in the item. Each item names what decides it.
      rebuilt in every flavour (`build_deps.sh` on L, `build_deps.ps1` on W) before item 9.
    - Read on 2026-10-04 at 04:48 +0300 (M7d, logged in its entry, item 6): no pin changes;
      Temurin 25.0.5 not published; Caddy's v2.11.6 and v2.11.7 and Rust 1.99.0 do not move a pin
-     (two readings). Read again on the freeze day, the JDK first.
+     (two readings). Read again on the freeze day, the JDK first. (M7 freeze session: one
+     read-only look at Adoptium's API at 17:01, jdk-25.0.4.1+1 still the latest GA build; not the
+     freeze day's read, which did not run.)
 4. **The `/sys/kernel/slab/` re-read on L** (section 9.1): as root, read only: that
    `/proc/slabinfo` exists; for skbuff_head_cache, skbuff_fclone_cache and skbuff_small_head, the
    name `/proc/slabinfo` lists each under and the co-tenants of a merged one (the links in
@@ -6061,6 +6258,9 @@ gave, the reason is in the item. Each item names what decides it.
   "ANALYSIS_COMMIT moved (M7e), before the code freeze" and "The job's warm-up and W's runners
   (M7e), before the code freeze". For the coordinator: "M7e", its "What the freeze still needs"
   and W's functional check (its section 6).
+- M7 freeze session: no lab-journal line, since no window ran (the suites on W and L only); then a
+  bump to this section's commit. Nothing logged in hypotheses.md. For the coordinator and Alex: "M7
+  freeze session", its last part.
 
 ## What M1 starts from
 
