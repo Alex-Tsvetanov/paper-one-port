@@ -92,8 +92,9 @@ CT_START_MAX = 2000
 CT_WAIT_MAX_S = 180.0
 NOTRACK_RULES = {"prerouting_lo": "-A PREROUTING -i lo -j NOTRACK", "output_lo": "-A OUTPUT -o lo -j NOTRACK"}
 PROTOS = ("http1", "h2c", "tls", "mqtt", "ssh", "tls-stub")
-# The dedicated listener of each protocol, in the order of I20 (listening lines' names).
-LISTENER = {"http1": "HTTP/1.1", "h2c": "h2c", "tls": "TLS", "mqtt": "MQTT", "ssh": "SSH", "tls-stub": "TLS"}
+# The dedicated listener of each protocol, in the order of I20 (listening lines' names); opgen's
+# tls-h2 (section 10's TLS variant with ALPN h2) is a TLS connection.
+LISTENER = {"http1": "HTTP/1.1", "h2c": "h2c", "tls": "TLS", "mqtt": "MQTT", "ssh": "SSH", "tls-stub": "TLS", "tls-h2": "TLS"}
 WORKLOADS = ("churn", "keepalive", "open")
 
 
@@ -578,11 +579,14 @@ def stop_on_signals() -> None:
     """SIGTERM, SIGINT and SIGHUP end the runner through SystemExit, so every finally block runs and
     stops the processes it started in sessions of their own (the server, a competitor), which a
     signal to the runner's process group does not reach (found in M4a: a stopped A/A job left its
-    server running)."""
+    server running). Windows has no SIGHUP; there the other two are set (the frozen runners run on
+    L, but the suite's run.test_frozen also runs on W and starts a runner's main)."""
     def handler(signum, _frame):
         raise SystemExit(128 + signum)
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-        signal.signal(sig, handler)
+    for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            signal.signal(sig, handler)
 
 
 def stop_process(proc: subprocess.Popen, out: "Lines", grace: float = 10.0) -> tuple[int | None, list[str]]:

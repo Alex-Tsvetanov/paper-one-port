@@ -3,9 +3,9 @@
 R = 16, in one order per host shuffled with SEED_ORDER_S_L (4.7: "The other secondary cells run in
 one order per host"; B3's secondary cells run in B3's order, bench/run/b3_run.py).
 
-    s_run.py --build DIR --out DIR --job NAME --silent-ports http1|spread --m-rows M_WINDOWS.jsonl
+    s_run.py --build DIR --out DIR --job NAME --m-rows M_WINDOWS.jsonl
              --seeds SEEDS.json --code-freeze SHA --gate gate-L.json --pilot PILOT.json --rule-e RULE_E.json
-    s_run.py ... --development --dev-seed N [--only CELL,...] [--dev-r R]
+    s_run.py ... --development --dev-seed N [--only CELL,...] [--dev-r R] [--silent-ports http1|spread]
 
 Cells (analysis/cells.py's secondary_cells, L's; rows family "S" with the bullet):
 - ssh: C1 to C3 of SSH on epoll and io_uring, one-port against dedicated mode (bench/run/cellwin.py);
@@ -14,8 +14,10 @@ Cells (analysis/cells.py's secondary_cells, L's; rows family "S" with the bullet
   windows, over the valid sessions;
 - mixed: C1's HTTP/1.1 churn with the fixed background (bench/run/cellwin.py, bench/cases/hold.hpp),
   one-port against dedicated mode. Where the silent connections go in dedicated mode the frozen text
-  does not say (the proposal's "dedicated mode spreads it over its ports" is not in it): --silent-ports
-  has no default, every row names it, and the choice is the coordinator's;
+  does not say; the revision log's entry "M7c's open items, before the code freeze" (2026-10-04,
+  item 2) fixes it as a design choice: on the dedicated HTTP/1.1 port, the listener of the cell's
+  churn (--silent-ports http1, the default; a frozen run refuses spread, which development runs may
+  still use); every row names it;
 - two-cores: C1's HTTP/1.1 churn with 2 workers on CPUs 12 and 14, one-port against dedicated mode;
   and the SO_REUSEPORT group (arm A) against the shared listener (arm B), both one-port mode;
 - relay-io_uring: the server's relay on io_uring (arm A) against each proxy (arm B), M3's
@@ -23,9 +25,13 @@ Cells (analysis/cells.py's secondary_cells, L's; rows family "S" with the bullet
 - m-ttfb: for M1 and M3, TTFB at a fixed load, open loop at RATE_FRAC x the slower arm's median
   connections per second in the cell's closed-loop sessions (section 10), read from the M runner's
   rows (--m-rows);
-- tls-variants (TLS with session resumption, TLS with ALPN h2): not run. The frozen binaries cannot
-  run them: opgen offers only ALPN http/1.1 and never resumes a session, and the server, by section
-  2.1's settings, issues no session ticket and keeps no session cache. Listed as not run, with why.
+- tls-variants, C1's TLS churn on epoll and io_uring, one-port against dedicated mode
+  (bench/run/cellwin.py), as the revision log's entry "M7c's open items, before the code freeze"
+  reads section 10 (items 4 and 5): TLS with ALPN h2 runs opgen's tls-h2 (the full handshake
+  offering h2 alone, then h2c's exchange of WL1 inside TLS; rows proto "tls", variant "alpn-h2");
+  TLS with session resumption is not run, on any host: section 2.1 fixes no session tickets and no
+  session cache for the server, the backend and the generator alike, and TLS 1.3 resumes only
+  from a ticket, so the cells are listed as not run, with why;
 - iocp-forms: W's cells (W's runner).
 Every one-port window of a cell that pairs it with dedicated mode (ssh, mixed, two-cores) needs the
 freeze guard's clearance; in development mode that arm is a stub (bench/run/sessions.py).
@@ -53,9 +59,13 @@ import cells as C  # noqa: E402
 
 R_S = C.R_SECONDARY
 INPROC_PORTS = {"A": 20000, "B": 20100}
-NOT_RUN = {"tls-variants": "the frozen generator offers only ALPN http/1.1 and never resumes a TLS session, and the server issues no "
-                           "session ticket and keeps no session cache (section 2.1's settings): neither variant can run",
-           "iocp-forms": "W's cells, run by W's runner"}
+NOT_RUN = {"iocp-forms": "W's cells, run by W's runner"}
+# The revision log's entry "M7c's open items, before the code freeze", item 5.
+RESUMPTION_NOT_RUN = ("not run: section 2.1 fixes no session tickets and no session cache in the server, the backend and the "
+                      "generator, and TLS 1.3 resumes a session only from a ticket, so the variant cannot run without contradicting "
+                      "the frozen settings (revision log, \"M7c's open items, before the code freeze\", item 5)")
+# The revision log's entry "M7c's open items, before the code freeze", item 2 (a design choice).
+SILENT_PORTS_FROZEN = "http1"
 
 
 def inproc_arm(bullet: str, hyp: str, proto: str, backend: str, mode: str, detect: str, extra: dict | None = None) -> dict:
@@ -70,8 +80,11 @@ def inproc_arm(bullet: str, hyp: str, proto: str, backend: str, mode: str, detec
 def s_cells(r: int, rule_e: dict, silent_ports: str | None) -> tuple[list[SS.Cell], dict[str, str]]:
     out, skipped = [], {}
     for s in C.secondary_cells():
+        if s.bullet == "tls-variants" and s.key[2] == "resumption":
+            skipped[s.id] = RESUMPTION_NOT_RUN
+            continue
         if s.host != "L":
-            skipped.setdefault(s.id, NOT_RUN.get(s.bullet, "W's cell"))
+            skipped.setdefault(s.id, NOT_RUN.get(s.bullet, "W's cell, run by W's runner"))
             continue
         if s.bullet in NOT_RUN:
             skipped[s.id] = NOT_RUN[s.bullet]
@@ -95,6 +108,14 @@ def s_cells(r: int, rule_e: dict, silent_ports: str | None) -> tuple[list[SS.Cel
             extra = {"silent_ports": silent_ports}
             out.append(SS.Cell(s.id, r, {"A": inproc_arm("mixed", "C1", "http1", s.backend, "one-port", d, extra),
                                          "B": inproc_arm("mixed", "C1", "http1", s.backend, "dedicated", d, extra)},
+                               shared=shared, pairs_one_port_with_dedicated=True))
+        elif s.bullet == "tls-variants":
+            variant = s.key[2]  # alpn-h2 (resumption is not run, above)
+            shared = {"kind": "inproc", "workload": "churn", "proto": "tls", "gen_proto": "tls-h2", "backend": s.backend, "detect": d,
+                      "pairs_dedicated": True}
+            extra = {"variant": variant}
+            out.append(SS.Cell(s.id, r, {"A": inproc_arm("tls-variants", "C1", "tls", s.backend, "one-port", d, extra),
+                                         "B": inproc_arm("tls-variants", "C1", "tls", s.backend, "dedicated", d, extra)},
                                shared=shared, pairs_one_port_with_dedicated=True))
         elif s.bullet == "two-cores":
             variant = s.key[2]
@@ -160,7 +181,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     runlib.common_args(ap)
     ap.add_argument("--rule-e", type=Path)
-    ap.add_argument("--silent-ports", choices=("http1", "spread"), help="the mixed cell's silent connections in dedicated mode (no default)")
+    ap.add_argument("--silent-ports", choices=("http1", "spread"), default=SILENT_PORTS_FROZEN,
+                    help="the mixed cell's silent connections in dedicated mode (default http1, the revision log's choice; "
+                         "a frozen run refuses spread)")
     ap.add_argument("--m-rows", type=Path, action="append", default=[], help="the M runner's windows.jsonl (m-ttfb's rates)")
     ap.add_argument("--dev-rate", type=float, help="development mode: the open-loop rate of every m-ttfb cell without M rows")
     a = ap.parse_args(argv)
@@ -171,8 +194,9 @@ def main(argv=None) -> int:
     rule_e = runlib.load_rule_e(a.rule_e, a.development)
     cells, skipped = s_cells(a.dev_r or R_S, rule_e, a.silent_ports)
     cells = runlib.only_cells(a, cells)
-    if not a.development and a.silent_ports is None:
-        raise runlib.InputRefused("a frozen section 10 run holds the mixed cells: give --silent-ports")
+    if not a.development and a.silent_ports != SILENT_PORTS_FROZEN:
+        raise runlib.InputRefused(f"a frozen section 10 run puts the mixed cell's silent connections where the revision log fixes them "
+                                  f"(--silent-ports {SILENT_PORTS_FROZEN}), not {a.silent_ports}")
     m_rows = [r for p in a.m_rows for r in SS.read_rows(p)]
     rates = {}
     for c in cells:
@@ -188,7 +212,7 @@ def main(argv=None) -> int:
         if not a.m_rows:
             raise runlib.InputRefused("a frozen section 10 run reads the M runner's rows for m-ttfb's rates (--m-rows)")
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")), entries=(freeze_guard.M7C_ITEMS,))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, not_run=skipped, m_ttfb_rates=rates), indent=1))
     blocks = window.SourceBlocks(a.blocks)
 

@@ -22,6 +22,11 @@ looks for in them is fixed here and stated in design/status.md:
 - The binaries the runner will start: each one's sha256 in a gate of bench/check_records.py that
   passed, is not a dry run and is citable (bench/check_rows.py's rule, applied before the first
   window rather than after the last).
+- The entries whose choices a runner applies: the heading of each, as a revision-log heading line
+  (`### ` and the title). The section 10, B3 and M runners apply the entry "M7c's open items,
+  before the code freeze" (2026-10-04: the mixed cell's silent ports, B3's other-mode cells in
+  relay, the TLS variants, an M2 cell without a rate), so a frozen run of theirs refuses to start
+  if the log does not hold it.
 A run that passes gets a Clearance, whose record goes into every row's provenance. The session
 engine (bench/run/sessions.py) starts the one-port arm of a cell that pairs one-port with dedicated
 mode only with a clearance that names the pilot entry; development mode never has one.
@@ -43,6 +48,8 @@ sys.path.insert(0, str(HERE.parent))
 import check_rows  # noqa: E402  (bench/check_rows.py)
 
 N_SIM = 1_000  # 4.6 step 2
+# The title of the revision-log entry whose choices the section 10, B3 and M runners apply.
+M7C_ITEMS = "M7c's open items, before the code freeze"
 FROZEN_PATHS = ("bench", "tests", "CMakeLists.txt")
 HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
 
@@ -143,9 +150,17 @@ def check_binaries(binaries: dict[str, str], gates: list[Path]) -> dict:
     return {"gates": sorted(Path(g).name for g in gates), "binaries": binaries}
 
 
+def check_entries(log: str, titles: tuple[str, ...]) -> list[str]:
+    heads = [ln for ln in log.splitlines() if ln.startswith("### ")]
+    for t in titles:
+        if not any(t in h for h in heads):
+            raise FreezeRefused(f"the revision log has no entry \"{t}\", whose choices this runner applies")
+    return list(titles)
+
+
 def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path], binaries: dict[str, str],
           pilot: Path | None = None, rule_e: Path | None = None, m2_rates: Path | None = None,
-          need_pilot: bool = True) -> Clearance:
+          need_pilot: bool = True, entries: tuple[str, ...] = ()) -> Clearance:
     """Every precondition of a frozen run; raises FreezeRefused at the first that fails."""
     hyp = repo / "hypotheses.md"
     if git(repo, "status", "--porcelain", "--", "hypotheses.md").strip():
@@ -154,6 +169,8 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
     if hyp.read_text(encoding="utf-8").replace("\r\n", "\n") != git(repo, "show", "HEAD:hypotheses.md").replace("\r\n", "\n"):
         raise FreezeRefused("hypotheses.md differs from HEAD's")
     rec: dict = {"freeze": check_code_freeze(repo, log, code_freeze)}
+    if entries:
+        rec["entries"] = check_entries(log, entries)
     s = sha256_file(seeds)
     if not lines_with(log, "seed", s):
         raise FreezeRefused(f"the revision log names no seeds file with sha256 {s[:16]} (section 8 step 2)")

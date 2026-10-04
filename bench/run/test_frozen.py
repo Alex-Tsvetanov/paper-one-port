@@ -66,6 +66,15 @@ class Clear:
     pilot_entry = True
 
 
+def frozen_inputs(d: Path) -> tuple[Path, Path, Path]:
+    """The seeds, a pilot output and rule E's file that a frozen run reads before its own checks."""
+    seeds, pilot, rule = d / "seeds.json", d / "pilot.json", d / "rule_e.json"
+    seeds.write_text(json.dumps(SEEDS))
+    pilot.write_text(json.dumps({"complete": True, "n_sim": 1000, "R_C": 11}))
+    rule.write_text(json.dumps(RULE_E))
+    return seeds, pilot, rule
+
+
 # ---------------------------------------------------------------- stand-in windows
 
 
@@ -188,8 +197,37 @@ class RowsAgainstAnalysis(unittest.TestCase):
         self.assertEqual({r["detect"] for r in other}, {"replay", "peek"})
         self.assertTrue(all(r["family"] == "S" and r["bullet"] == "b3-other-mode" for r in other))
 
-    def test_b3_needs_other_mode_system(self):
+    def test_b3_other_mode_system(self):
+        # The revision log's reading (entry "M7c's open items, before the code freeze", item 3): the relay.
+        self.assertEqual(b3_run.OTHER_MODE_SYSTEM_FROZEN, C.SERVER_RELAY)
         self.assertFalse([c for c in b3_run.b3_cells(2, RULE_E, None) if c.id.startswith("S.b3-other-mode")])
+        other = [c for c in b3_run.b3_cells(2, RULE_E, b3_run.OTHER_MODE_SYSTEM_FROZEN) if c.id.startswith("S.b3-other-mode")]
+        self.assertEqual(len(other), 4)
+        self.assertTrue(all(c.run_params(arm)["system"] == C.SERVER_RELAY for c in other for arm in ("A", "B")))
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(b3_run.window, "stop_on_signals", lambda: None):
+            seeds, pilot, rule = frozen_inputs(Path(d))
+            frozen = ["--build", d, "--out", d, "--job", "j", "--seeds", str(seeds), "--code-freeze", "0" * 40, "--gate",
+                      str(Path(d) / "gate.json"), "--pilot", str(pilot), "--rule-e", str(rule)]
+            with self.assertRaises(runlib.InputRefused) as cm:  # a frozen run in-process
+                b3_run.main(frozen + ["--other-mode-system", C.SERVER_INPROC])
+            self.assertIn("--other-mode-system one-port-relay", str(cm.exception))
+
+    def test_m2_without_rate_is_not_run(self):
+        # A null M2_RATE (an arm of the m2-rate part without a valid session): the cell is not run,
+        # listed with why, and analysis/ leaves it untested, p = 1 (4.1, 4.2).
+        rates = {"M2.L.io_uring.tls": None, "M2.L.epoll.http1": 300.0}
+        self.assertEqual(set(m_run.m2_not_run(rates)), {"M2.L.io_uring.tls"})
+        self.assertEqual(m_run.m2_not_run(None), {})
+        ids = {c.id for c in m_run.m_cells(2, RULE_E, rates)}
+        self.assertNotIn("M2.L.io_uring.tls", ids)
+        self.assertIn("M2.L.epoll.http1", ids)
+        self.assertIn("M2.L.io_uring.tls", {c.id for c in m_run.m_cells(6, RULE_E, None, part="m2-rate")})
+        cells = [c for c in m_run.m_cells(2, RULE_E, rates) if c.id == "M2.L.epoll.http1"]
+        rows = self.run_cells("m_run", cells, clearance=Clear())
+        s = analysed(rows)
+        m = {x["cell"]: x for x in s["families"]["M"]["cells"]}
+        self.assertEqual((m["M2.L.io_uring.tls"]["sessions"], m["M2.L.io_uring.tls"]["tested"]), (0, False))
+        self.assertIn("fewer than R", m["M2.L.io_uring.tls"]["why_untested"])
 
     def test_m(self):
         want = ("M1.L.io_uring.h2c", "M2.L.epoll.tls", "M3.L.epoll.tls-stub.haproxy")
@@ -204,9 +242,19 @@ class RowsAgainstAnalysis(unittest.TestCase):
         self.assertEqual({x["cell"] for x in s["families"]["M"]["cells"] if x["sessions"]}, set(want))
 
     def test_s(self):
-        cells, skipped = s_run.s_cells(2, RULE_E, "spread")
+        cells, skipped = s_run.s_cells(2, RULE_E, s_run.SILENT_PORTS_FROZEN)
+        h2 = [c for c in cells if c.id.startswith("S.tls-variants")]
+        self.assertEqual({c.id for c in h2}, {"S.tls-variants.C1.L.epoll.alpn-h2", "S.tls-variants.C1.L.io_uring.alpn-h2"})
+        self.assertTrue(all(c.run_params(arm)["gen_proto"] == "tls-h2" and c.identity(arm)["proto"] == "tls"
+                            and c.identity(arm)["variant"] == "alpn-h2" for c in h2 for arm in ("A", "B")))
+        self.assertTrue(all(c.pairs_one_port_with_dedicated for c in h2))
+        res = {k: v for k, v in skipped.items() if k.startswith("S.tls-variants") and k.endswith(".resumption")}
+        self.assertEqual(len(res), 3)  # epoll, io_uring and IOCP
+        self.assertTrue(all("section 2.1" in v and "ticket" in v for v in res.values()))
+        self.assertIn("W's runner", skipped["S.tls-variants.C1.W.IOCP.alpn-h2"])
         want = ("S.ssh.C1.L.epoll", "S.mixed.C1.L.io_uring", "S.two-cores.C1.L.epoll.two-cores", "S.two-cores.C1.L.io_uring.reuseport",
-                "S.relay-io_uring.L.io_uring.http1.nginx", "S.m-ttfb.M1.L.epoll.http1", "S.m-ttfb.M3.L.epoll.tls-stub.envoy")
+                "S.relay-io_uring.L.io_uring.http1.nginx", "S.m-ttfb.M1.L.epoll.http1", "S.m-ttfb.M3.L.epoll.tls-stub.envoy",
+                "S.tls-variants.C1.L.io_uring.alpn-h2")
         cells = [c for c in cells if c.id in want]
         for c in cells:
             c.shared.setdefault("rate", 400.0)
@@ -215,22 +263,29 @@ class RowsAgainstAnalysis(unittest.TestCase):
         self.assertEqual({s.cell for s in ss}, set(want))
         self.assertTrue(all(s.valid for s in ss))
         analysed(rows)
-        self.assertTrue(any(k.startswith("S.tls-variants") for k in skipped))
-        self.assertTrue(all("neither variant can run" in v for k, v in skipped.items() if k.startswith("S.tls-variants")))
+        h2rows = [r for r in rows if r["cell"] == "S.tls-variants.C1.L.io_uring.alpn-h2"]
+        self.assertTrue(h2rows and all(r["proto"] == "tls" and r["variant"] == "alpn-h2" for r in h2rows))
+        self.assertEqual({tuple(sorted(x.roles.values())) for x in ss if x.cell == "S.tls-variants.C1.L.io_uring.alpn-h2"},
+                         {("dedicated", "one-port")})
 
-    def test_s_mixed_needs_silent_ports(self):
+    def test_s_mixed_silent_ports(self):
+        # The revision log's design choice (entry "M7c's open items, before the code freeze", item 2):
+        # the dedicated HTTP/1.1 port, the default; a frozen run refuses spread.
+        self.assertEqual(s_run.SILENT_PORTS_FROZEN, "http1")
         cells, skipped = s_run.s_cells(2, RULE_E, None)
         self.assertFalse([c for c in cells if c.id.startswith("S.mixed.")])
         self.assertTrue(any(k.startswith("S.mixed.") for k in skipped))
+        cells, _ = s_run.s_cells(2, RULE_E, s_run.SILENT_PORTS_FROZEN)
+        mixed = [c for c in cells if c.id.startswith("S.mixed.")]
+        self.assertEqual(len(mixed), 2)
+        self.assertTrue(all(c.shared["background"]["silent_ports"] == "http1" for c in mixed))
         with tempfile.TemporaryDirectory() as d, mock.patch.object(s_run.window, "stop_on_signals", lambda: None):
-            seeds, pilot, rule = Path(d) / "seeds.json", Path(d) / "pilot.json", Path(d) / "rule_e.json"
-            seeds.write_text(json.dumps(SEEDS))
-            pilot.write_text(json.dumps({"complete": True, "n_sim": 1000, "R_C": 11}))
-            rule.write_text(json.dumps(RULE_E))
-            with self.assertRaises(runlib.InputRefused) as cm:  # a frozen run without --silent-ports
-                s_run.main(["--build", d, "--out", d, "--job", "j", "--seeds", str(seeds), "--code-freeze", "0" * 40, "--gate",
-                            str(Path(d) / "gate.json"), "--pilot", str(pilot), "--rule-e", str(rule), "--m-rows", str(Path(d) / "m.jsonl")])
-            self.assertIn("--silent-ports", str(cm.exception))
+            seeds, pilot, rule = frozen_inputs(Path(d))
+            frozen = ["--build", d, "--out", d, "--job", "j", "--seeds", str(seeds), "--code-freeze", "0" * 40, "--gate",
+                      str(Path(d) / "gate.json"), "--pilot", str(pilot), "--rule-e", str(rule), "--m-rows", str(Path(d) / "m.jsonl")]
+            with self.assertRaises(runlib.InputRefused) as cm:  # a frozen run with spread
+                s_run.main(frozen + ["--silent-ports", "spread"])
+            self.assertIn("--silent-ports http1", str(cm.exception))
 
     def test_rule_e_file_is_analysis_contract(self):
         self.assertEqual(AN.check_rule_e(json.loads(json.dumps(RULE_E))), RULE_E)
@@ -382,6 +437,59 @@ class NoOnePortAgainstDedicated(unittest.TestCase):
         self.assertEqual(len(started), 2 * sessions)
 
 
+class AlpnH2Window(unittest.TestCase):
+    """Section 10's TLS variant with ALPN h2 through cellwin.run: the row says proto tls, the probe
+    and opgen run tls-h2, against the dedicated TLS port, or the one-port listener with a clearance."""
+
+    def run_arm(self, mode: str, clearance) -> tuple[list, list]:
+        probes, gens = [], []
+
+        class Stop(Exception):
+            pass
+
+        def start_server(build, p, pl, raw, tag):
+            return (mock.Mock(pid=1), mock.Mock(lines=[]), {"HTTP/1.1": 20000, "TLS": 20002, "one-port": 20100}, ["oneport"])
+
+        def probe(build, proto, port, base, k, gen_cpus=None):
+            probes.append((proto, port))
+            return {"exit": 0, "detail": "", "connect_failures": 0}
+
+        def popen_err(err, cmd, **k):
+            gens.append(cmd)
+            raise Stop()
+
+        cell = next(c for c in s_run.s_cells(1, RULE_E, s_run.SILENT_PORTS_FROZEN)[0] if c.id == "S.tls-variants.C1.L.epoll.alpn-h2")
+        arm = "A" if mode == "one-port" else "B"
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(cellwin, "start_server", start_server), \
+                mock.patch.object(cellwin, "popen_err", popen_err), \
+                mock.patch.object(cellwin.window, "probe", probe), \
+                mock.patch.object(cellwin.window, "stop_process", lambda *a, **k: (0, [])), \
+                mock.patch.object(cellwin.window, "conntrack", lambda: None), \
+                mock.patch.object(cellwin.window, "wait_conntrack", lambda *a, **k: (0.0, None)), \
+                mock.patch.object(cellwin.window, "time_wait_count", lambda: 0), \
+                mock.patch.object(cellwin.window, "nstat", lambda: {k: 0 for k in cellwin.window.NSTAT_KEYS}):
+            blocks = cellwin.window.SourceBlocks(Path(d) / "blocks.json")
+            self.assertEqual(cell.arms[arm]["mode"], mode)
+            with self.assertRaises(Stop):
+                cellwin.run(dict(cell.run_params(arm), build=Path(d), cell=cell.id, k_src=4, port=20000), {"id": "s"}, arm, 0, blocks,
+                            Path(d) / "raw", clearance)
+        return probes, gens
+
+    def test_dedicated_arm(self):
+        probes, gens = self.run_arm("dedicated", None)
+        self.assertEqual(probes, [("tls-h2", 20002)])
+        cmd = gens[0]
+        self.assertEqual((cmd[cmd.index("--proto") + 1], cmd[cmd.index("--port") + 1]), ("tls-h2", "20002"))
+
+    def test_one_port_arm(self):
+        with self.assertRaises(cellwin.WindowError):
+            self.run_arm("one-port", None)  # no clearance: no one-port window against dedicated mode
+        probes, gens = self.run_arm("one-port", Clear())
+        self.assertEqual(probes, [("tls-h2", 20100)])
+        self.assertIn("tls-h2", gens[0])
+
+
 # ---------------------------------------------------------------- the freeze guard
 
 
@@ -463,6 +571,16 @@ class FreezeGuard(unittest.TestCase):
         git(self.repo, "commit", "-q", "-am", "a change after the freeze")
         with self.assertRaises(refuse):
             self.check()
+
+    def test_entries(self):
+        title = freeze_guard.M7C_ITEMS
+        with self.assertRaises(freeze_guard.FreezeRefused):
+            self.check(entries=(title,))
+        self.log(f"- {title}, named in an item, is not a heading\n")
+        with self.assertRaises(freeze_guard.FreezeRefused):
+            self.check(entries=(title,))
+        self.log(f"\n### 2026-10-04: {title}\n")
+        self.assertEqual(self.check(entries=(title,)).record["entries"], [title])
 
     def test_pilot_logged_in_the_freeze_commit_is_refused(self):
         r = self.repo

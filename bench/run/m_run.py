@@ -25,7 +25,15 @@ Listen overflows invalidate an M1 or M2 window and are recorded beside the M3 ce
 Part m2-rate (9.3, WL6): M2_RATE per M2 cell is RATE_FRAC x the smaller of its two arms' median
 closed-loop connections per second over 6 development sessions on the frozen binary after the pilot
 entry; each arm's value in a session is the mean of its two windows, over the valid sessions. Its
-rows are development data (development: true) in any mode; it writes m2_rates.json.
+rows are development data (development: true) in any mode; it writes m2_rates.json, with a rate of
+null for a cell where an arm has no valid session (section 7 invalidates every relay window whose
+backend core is more than 90% busy, as in M2's TLS cells in e2e1).
+
+An M2 cell whose rate is null is not run in part cells (a design choice of the revision log's entry
+"M7c's open items, before the code freeze", 2026-10-04, item 6): no open-loop window can be defined
+without its rate, and section 9 allows no rate by another rule, so the cell has no valid session,
+cannot be tested and enters Holm with p = 1 (4.1, 4.2), "a difference was not shown" (section 12).
+The runner lists it in not-run-<job>.json with why, and starts no window for it.
 """
 from __future__ import annotations
 
@@ -54,8 +62,20 @@ INPROC_PORTS = {"A": 20000, "B": 20100}  # aa.py's blocks (design choices of M3)
 OTHER = {"replay": "peek", "peek": "replay"}
 
 
+def m2_not_run(m2_rates: dict[str, float | None] | None) -> dict[str, str]:
+    """Part cells: the M2 cells whose M2_RATE is null in the m2-rate part's file (see the module's
+    docstring), each with why."""
+    if m2_rates is None:
+        return {}
+    return {cid: ("not run: no M2_RATE (an arm of the m2-rate part had no valid session; section 9 allows no rate by another "
+                  "rule), so the cell has no valid session and enters Holm with p = 1 (4.1, 4.2); revision log, \"M7c's open items, "
+                  "before the code freeze\", item 6")
+            for cid, rate in m2_rates.items() if rate is None}
+
+
 def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str = "cells", m2_sessions: int = M2_RATE_SESSIONS) -> list[SS.Cell]:
     out = []
+    skip = m2_not_run(m2_rates) if part == "cells" else {}
     for c in C.m_cells():
         if c.host != "L":
             continue
@@ -66,6 +86,8 @@ def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str =
             out.append(SS.Cell(c.id, r, {"A": arm(d), "B": arm(OTHER[d])},
                                shared={"kind": "inproc", "workload": "churn", "proto": c.proto, "backend": c.backend, "mode": "one-port"}))
         elif c.hyp == "M2":
+            if c.id in skip:
+                continue
             d = rule_e["default"][c.backend]
             rc = rule_e["relay_copy"][c.backend]
             rate = None if part == "m2-rate" else (m2_rates or {}).get(c.id)
@@ -174,14 +196,19 @@ def main(argv=None) -> int:
             m2_rates = {c.id: a.dev_m2_rate for c in C.m_cells() if c.hyp == "M2"}
         elif not a.development:
             raise runlib.InputRefused("a frozen M run reads M2's rates (--m2-rates)")
+    not_run = m2_not_run(m2_rates) if a.part == "cells" else {}
     cells = runlib.only_cells(a, m_cells(a.dev_r or R_M, rule_e, m2_rates, a.part, a.dev_r or M2_RATE_SESSIONS))
     prov = runlib.job_provenance(a.build, a.tools, a.out, a.job)
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        m2_rates=a.m2_rates if a.part == "cells" else None,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")))
-    (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, m2_rates=m2_rates, part=a.part), indent=1))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")),
+                                       entries=(freeze_guard.M7C_ITEMS,) if a.part == "cells" else ())
+    (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, m2_rates=m2_rates, part=a.part, not_run=not_run),
+                                                               indent=1))
+    if a.part == "cells":
+        (a.out / f"not-run-{a.job}.json").write_text(json.dumps(not_run, indent=1))
     blocks = window.SourceBlocks(a.blocks)
     eng = SS.Engine("m_run" if a.part == "cells" else "m_run.m2-rate", a.job, a.out, cells, SS.make_plan(cells, seed),
                     window_fn(a, blocks), lambda c, arm: runlib.arm_provenance(prov, a.build, binaries_for(c, arm)),

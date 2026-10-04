@@ -17,7 +17,8 @@ server only in dedicated mode (the pilot's and M3's A/A runs keep it):
   listener);
 - the mixed-protocol cell's fixed background (section 10; 9.1's N_BG_TLS, N_BG_MQTT, N_BG_SILENT):
   TLS keep-alive and MQTT keep-alive as WL3 defines keep-alive (opgen --load keepalive: the
-  connections established before the window, one request in flight on each), and silent
+  connections established before the window, one request in flight on each; the revision log's
+  entry "M7c's open items, before the code freeze", item 1, a reading), and silent
   connections held by opcase hold, which opens again at once each connection the server closes,
   the same policy in both modes (bench/cases/hold.hpp). The background starts before the probe,
   is established (opgen's MEASURE_START, opcase's HOLD) before the cell's generator starts, and
@@ -26,9 +27,12 @@ server only in dedicated mode (the pilot's and M3's A/A runs keep it):
 - `misclassified` on every one-port row: the connections the server's counters classify as a
   protocol other than the scripts' (section 7, B1), the probe and the background included.
 
-Placement of the mixed cell (a design choice of M7c, for the coordinator: section 4.1 places the
-cell's opgen on CPUs 2 to 13 and names no background): the cell's opgen on CPUs 2 to 9, the TLS
-background's on 10 and 11, the MQTT background's and the holder on 12 and 13.
+Placement of the mixed cell (a design choice of M7c, logged in the same entry, item 7: section 4.1
+places the cell's opgen on CPUs 2 to 13 and names no background): the cell's opgen on CPUs 2 to 9,
+the TLS background's on 10 and 11, the MQTT background's and the holder on 12 and 13. Section 7's
+generator rule is applied to the cell's generator (item 8); each background generator's CPU time is
+in the row's background report. The silent connections of the dedicated arm go to its HTTP/1.1
+port (item 2; bench/run/s_run.py).
 """
 from __future__ import annotations
 
@@ -56,7 +60,7 @@ BG_READY_S = 20.0
 # Section 9.1, set in engineering (revision log, "The code freeze's preparation (M7)", item 2).
 N_BG = {"tls": 64, "mqtt": 64, "silent": 64}
 # The server's class names in its counters (detect::name), by opgen's protocol.
-CLASS = {"http1": "HTTP/1.1", "h2c": "h2c", "tls": "TLS", "mqtt": "MQTT", "ssh": "SSH", "tls-stub": "TLS"}
+CLASS = {"http1": "HTTP/1.1", "h2c": "h2c", "tls": "TLS", "mqtt": "MQTT", "ssh": "SSH", "tls-stub": "TLS", "tls-h2": "TLS"}
 ONE_PORT_LISTENER = "one-port"
 
 
@@ -240,10 +244,12 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
     """One window. `p`: build, cell, workload, proto, backend, mode, detect, k_src, port (this
     arm's first port), and optionally rate (open loop), workers, listener, placement
     ("in-process" or "two-cores"), background (the mixed cell: {"silent_ports": "http1" or
-    "spread"}), pairs_dedicated."""
+    "spread"}), pairs_dedicated, gen_proto (opgen's protocol where it differs from the row's
+    `proto`: section 10's TLS variant with ALPN h2 is the row's "tls", opgen's "tls-h2")."""
     guard(p, clearance)
     build: Path = p["build"]
     workload, proto, mode = p["workload"], p["proto"], p["mode"]
+    gproto = p.get("gen_proto") or proto
     pl = MIXED_GEN if p.get("background") else PLACEMENTS[p.get("placement", "in-process")]
     cores = len(pl.server)
     tag = f"{session['id']}-p{position}-{arm}"
@@ -256,6 +262,8 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
         "server_cpus": list(pl.server), "server_idle_siblings": list(pl.server_siblings), "generator_cpus": list(pl.gen),
         "housekeeping_cpus": list(pl.housekeeping), "tag": tag,
     }
+    if gproto != proto:
+        row["gen_proto"] = gproto
     gthreads = list(pl.open_gen_threads) if workload == "open" else list(pl.gen)
     row["generator_thread_cpus"] = gthreads
     base = blocks.take(p["k_src"])
@@ -281,7 +289,7 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
     bg_out: dict = {}
     ready: dict = {}
     try:
-        target = target_port(mode, proto, ports)
+        target = target_port(mode, gproto, ports)
         row["target_port"] = target
         if p.get("background"):
             spec = p["background"]
@@ -298,11 +306,11 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
             row["background"] = {"n": dict(N_BG), "silent_ports": silent, "silent_port_rule": spec.get("silent_ports") if mode == "dedicated" else "one-port",
                                  "commands": bg.commands, "duration_ms": duration}
             ready = bg.wait_ready()
-        row["probe"] = window.probe(build, proto, target, base, p["k_src"], pl.gen)
+        row["probe"] = window.probe(build, gproto, target, base, p["k_src"], pl.gen)
         if row["probe"]["exit"] != 0:
             reasons.append(f"probe failed: {row['probe']['detail']}")
         out_json = raw / f"{tag}.opgen.json"
-        gcmd = ["taskset", "-c", ",".join(map(str, pl.gen))] + window.opgen_cmd(build, proto, target, base, p["k_src"]) + [
+        gcmd = ["taskset", "-c", ",".join(map(str, pl.gen))] + window.opgen_cmd(build, gproto, target, base, p["k_src"]) + [
             "--cpus", ",".join(map(str, gthreads)), "--conns", str(window.CONNS_PER_CORE * cores), "--warmup-ms", str(window.WARMUP_MS),
             "--duration-ms", str(window.DURATION_MS), "--out", str(out_json)]
         if workload == "keepalive":
@@ -365,10 +373,10 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
             reasons.append(f"{n} connects of the background failed")
     window.finish(row, gen_report, snaps, mhz, session, reasons, placement=pl)
     if mode == "one-port":
-        expected: dict[str, int | None] = {CLASS[proto]: None}
+        expected: dict[str, int | None] = {CLASS[gproto]: None}
         if bg is not None and gen_report:
             churn = int(gen_report.get("measure", {}).get("connects", 0)) + 1  # the probe's connection
-            expected = {CLASS[proto]: churn}
+            expected = {CLASS[gproto]: churn}
             for kind in ("tls", "mqtt"):
                 rep = (bg_out.get(kind) or {}).get("report") or {}
                 expected[CLASS[kind]] = int((rep.get("measure") or {}).get("connects", 0))
