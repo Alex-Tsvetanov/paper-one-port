@@ -101,7 +101,9 @@ namespace oneport::opcase
 			return s;
 		}
 
-		std::string quoted(std::string_view s)
+		// Not named quoted: MSVC's standard headers declare std::quoted, which argument-dependent lookup
+		// finds for a std::string argument and prefers to this function (M6b, on W).
+		std::string json_quoted(std::string_view s)
 		{
 			std::string out = "\"";
 			for (const char ch : s)
@@ -159,24 +161,24 @@ namespace oneport::opcase
 
 	std::string variant_line(const Variant& v, int hc)
 	{
-		std::string s = "{\"id\": " + quoted(v.id) + ", \"hc\": " + std::to_string(hc) + ", \"title\": " + quoted(title(hc));
-		s += ", \"setup\": " + quoted(name(v.setup)) + ", \"needs_proxy\": " + (needs_proxy(v.setup) ? "true" : "false");
+		std::string s = "{\"id\": " + json_quoted(v.id) + ", \"hc\": " + std::to_string(hc) + ", \"title\": " + json_quoted(title(hc));
+		s += ", \"setup\": " + json_quoted(name(v.setup)) + ", \"needs_proxy\": " + (needs_proxy(v.setup) ? "true" : "false");
 		s += ", \"fallback\": " + std::string(v.setup == Setup::fallback_smtp || v.setup == Setup::proxy_fallback_smtp ? "true" : "false");
-		s += ", \"expect\": " + quoted(name(v.expect)) + ", \"proto\": " + quoted(detect::name(v.proto));
-		s += ", \"when\": " + quoted(name(v.when)) + ", \"reply\": " + quoted(name(v.reply)) + ", \"dedicated\": " + quoted(detect::name(v.dedicated));
-		s += ", \"dedicated_http_reply\": " + (v.dedicated_http_reply ? quoted(name(*v.dedicated_http_reply)) : std::string("null"));
+		s += ", \"expect\": " + json_quoted(name(v.expect)) + ", \"proto\": " + json_quoted(detect::name(v.proto));
+		s += ", \"when\": " + json_quoted(name(v.when)) + ", \"reply\": " + json_quoted(name(v.reply)) + ", \"dedicated\": " + json_quoted(detect::name(v.dedicated));
+		s += ", \"dedicated_http_reply\": " + (v.dedicated_http_reply ? json_quoted(name(*v.dedicated_http_reply)) : std::string("null"));
 		s += ", \"at\": " + opt(v.at) + ", \"header_write\": " + opt(v.header_write);
 		s += ", \"source\": " + (v.source ? source_json(*v.source) : std::string("null"));
 		s += ", \"proxy_reason\": " + (v.proxy_reason ? std::to_string(static_cast<unsigned>(*v.proxy_reason)) : std::string("null"));
-		s += ", \"coverage\": " + quoted(name(v.coverage)) + ", \"pending\": " + quoted(v.pending) + "}";
+		s += ", \"coverage\": " + json_quoted(name(v.coverage)) + ", \"pending\": " + json_quoted(v.pending) + "}";
 		return s;
 	}
 
 	std::string run_line(const Variant& v, int hc, unsigned replicate, std::uint16_t port, const Transcript& t)
 	{
-		std::string s = "{\"id\": " + quoted(v.id) + ", \"hc\": " + std::to_string(hc) + ", \"replicate\": " + std::to_string(replicate);
-		s += ", \"setup\": " + quoted(name(v.setup)) + ", \"expect\": " + quoted(name(v.expect)) + ", \"proto\": " + quoted(detect::name(v.proto));
-		s += ", \"when\": " + quoted(name(v.when)) + ", \"reply\": " + quoted(name(v.reply));
+		std::string s = "{\"id\": " + json_quoted(v.id) + ", \"hc\": " + std::to_string(hc) + ", \"replicate\": " + std::to_string(replicate);
+		s += ", \"setup\": " + json_quoted(name(v.setup)) + ", \"expect\": " + json_quoted(name(v.expect)) + ", \"proto\": " + json_quoted(detect::name(v.proto));
+		s += ", \"when\": " + json_quoted(name(v.when)) + ", \"reply\": " + json_quoted(name(v.reply));
 		s += ", \"at\": " + (v.at ? std::to_string(*v.at) : std::string("null"));
 		s += ", \"port\": " + std::to_string(port) + ", \"connected\": " + (t.connected ? "true" : "false");
 		s += ", \"local_port\": " + std::to_string(t.local_port) + ", \"before_connect_ns\": " + std::to_string(ns(t.before_connect));
@@ -191,11 +193,11 @@ namespace oneport::opcase
 		if (t.tls)
 		{
 			const TlsResult& r = *t.tls;
-			s += std::string(", \"tls\": {\"handshake\": ") + (r.handshake ? "true" : "false") + ", \"version\": " + quoted(r.version) +
-			     ", \"cipher\": " + quoted(r.cipher) + ", \"group\": " + quoted(r.group) + ", \"sigalg\": " + quoted(r.sigalg) +
+			s += std::string(", \"tls\": {\"handshake\": ") + (r.handshake ? "true" : "false") + ", \"version\": " + json_quoted(r.version) +
+			     ", \"cipher\": " + json_quoted(r.cipher) + ", \"group\": " + json_quoted(r.group) + ", \"sigalg\": " + json_quoted(r.sigalg) +
 			     ", \"verified\": " + (r.verified ? "true" : "false") + ", \"resumable\": " + (r.resumable ? "true" : "false") +
-			     ", \"alpn\": " + quoted(r.alpn) + ", \"plain_hex\": \"" + hex(r.plain) + "\"" +
-			     ", \"close_notify\": " + (r.close_notify ? "true" : "false") + ", \"error\": " + quoted(r.error) + "}";
+			     ", \"alpn\": " + json_quoted(r.alpn) + ", \"plain_hex\": \"" + hex(r.plain) + "\"" +
+			     ", \"close_notify\": " + (r.close_notify ? "true" : "false") + ", \"error\": " + json_quoted(r.error) + "}";
 		}
 		else
 		{
@@ -273,7 +275,7 @@ namespace oneport::opcase
 			const unsigned target = needs_proxy(v.setup) ? proxy_port : port;
 			if (target == 0)
 			{
-				std::printf("{\"id\": %s, \"hc\": %d, \"skipped\": \"no --proxy-port for its PROXY setup\"}\n", quoted(v.id).c_str(), hc);
+				std::printf("{\"id\": %s, \"hc\": %d, \"skipped\": \"no --proxy-port for its PROXY setup\"}\n", json_quoted(v.id).c_str(), hc);
 				continue;
 			}
 			for (unsigned r = 1; r <= replicates; ++r)
