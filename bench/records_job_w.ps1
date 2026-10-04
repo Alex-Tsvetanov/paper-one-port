@@ -99,15 +99,13 @@ try {
     }
     if ($Only -match '\bgate\b') {
         Step "gate" {
+            # Each Python step runs inside cmd.exe, as the release step's build does: build_inputs.py
+            # writes its summary line to standard error, which a native command run from PowerShell
+            # 5.1 with $ErrorActionPreference "Stop" turns into a terminating error (found in the dry
+            # run of the M7 freeze night, which stopped here).
             $glog = Join-Path $Out "gate.log"
             $inputs = Join-Path $Out "release.inputs.json"
             $gate = Join-Path $Out "gate-W.json"
-            & python (Join-Path $repo "bench\build_inputs.py") --build $build --host W --out $inputs --inputs-hash $inputsHash *> $glog
-            if ($LASTEXITCODE -ne 0) { return $false }
-            $gargs = @((Join-Path $repo "bench\check_records.py"), "--records", $Records, "--host", "W", "--inputs", $inputs, "--out", $gate)
-            if ($DryRun) { $gargs += @("--accept-dry-run") }
-            & python @gargs *>> $glog
-            if ($LASTEXITCODE -ne 0) { return $false }
             $measured = Join-Path $Out "measured-W.json"
             $py = @'
 import json, sys
@@ -121,7 +119,17 @@ print(json.dumps({k: m[k] for k in ("commit", "dry_run", "citable", "binaries")}
 '@
             $pyFile = Join-Path $Out "measured.py"
             $py | Set-Content -Encoding ascii $pyFile
-            & python $pyFile $inputs $gate $measured $commit *>> $glog
+            $dryArg = ""
+            if ($DryRun) { $dryArg = " --accept-dry-run" }
+            $bat = Join-Path $Out "gate.cmd"
+            @(
+                "@echo off"
+                "python `"$repo\bench\build_inputs.py`" --build `"$build`" --host W --out `"$inputs`" --inputs-hash `"$inputsHash`" > `"$glog`" 2>&1 || exit /b 1"
+                "python `"$repo\bench\check_records.py`" --records `"$Records`" --host W --inputs `"$inputs`" --out `"$gate`"$dryArg >> `"$glog`" 2>&1 || exit /b 2"
+                "python `"$pyFile`" `"$inputs`" `"$gate`" `"$measured`" $commit >> `"$glog`" 2>&1 || exit /b 3"
+                "exit /b 0"
+            ) | Set-Content -Encoding ascii $bat
+            & cmd.exe /c $bat | Out-Null
             $LASTEXITCODE -eq 0
         }
     }
