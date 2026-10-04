@@ -5431,8 +5431,8 @@ open items 4, 6, 7 and 9, the pins re-read, the slab re-read, section 9.1's valu
 the one timed job (m2l) is development data, journaled as such. Every job on L ran under
 `lab_job.sh` at nice 0, launched from bash, from fresh clones of the lab remote under
 `~/lab/p3/m7d/`; the reads (pins, slab, scans, the draw) ran under the lab lock. The
-`one-port-m6b` work tree was not touched, and W (this session's host) was used for git and
-editing only.
+`one-port-m6b` work tree was not touched, and W (this session's host) ran no build, job or
+timing: git, editing, and two short read-only Python scans of the lab journal's seeds.
 
 ### Commits (papers/one-port)
 
