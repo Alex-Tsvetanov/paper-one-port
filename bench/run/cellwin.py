@@ -185,7 +185,8 @@ class Background:
             rep = json.loads(f.read_text()) if f.exists() else None
             out[kind] = {"exit": self.procs[kind].returncode, "ok": bool(rep and rep.get("ok")),
                          "report": {k: rep[k] for k in ("measure", "warmup", "error_share", "connect_failures", "all_completed",
-                                                         "measure_start_ns", "measure_end_ns", "wall_s") if k in rep} if rep else None}
+                                                         "measure_start_ns", "measure_end_ns", "wall_s", "cpus", "cpu") if k in rep}
+                         if rep else None}
         lines, code = [], None
         if self.procs["silent"].poll() is None:
             self.procs["silent"].send_signal(15)

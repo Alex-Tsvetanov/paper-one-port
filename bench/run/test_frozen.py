@@ -437,6 +437,32 @@ class NoOnePortAgainstDedicated(unittest.TestCase):
         self.assertEqual(len(started), 2 * sessions)
 
 
+class MixedBackground(unittest.TestCase):
+    """The mixed cell's background report in each row keeps its generators' CPU time (the revision
+    log's entry "M7c's open items, before the code freeze", items 1 and 8)."""
+
+    def test_finish_keeps_the_generators_cpu(self):
+        done = mock.Mock(returncode=0)
+        done.poll.return_value = 0
+        done.wait.return_value = 0
+        silent_lines = mock.Mock()
+        silent_lines.rest.return_value = ['HOLD 64', '{"ok": true, "reopened": 0}']
+        gen_lines = mock.Mock()
+        gen_lines.rest.return_value = []
+        with tempfile.TemporaryDirectory() as d:
+            bg = object.__new__(cellwin.Background)
+            bg.raw, bg.tag = Path(d), "t"
+            bg.procs = {"tls": done, "mqtt": done, "silent": done}
+            bg.lines = {"tls": gen_lines, "mqtt": gen_lines, "silent": silent_lines}
+            for k in ("tls", "mqtt"):
+                (Path(d) / f"t.bg-{k}.json").write_text(json.dumps({"ok": True, "error_share": 0.0, "cpus": [10, 11],
+                                                                     "cpu": {"pct": 25.0}, "measure": {"completed": 5}}))
+            out = bg.finish()
+        self.assertEqual(out["tls"]["report"]["cpu"], {"pct": 25.0})
+        self.assertEqual(out["mqtt"]["report"]["cpus"], [10, 11])
+        self.assertEqual(out["silent"]["report"], {"ok": True, "reopened": 0})
+
+
 class AlpnH2Window(unittest.TestCase):
     """Section 10's TLS variant with ALPN h2 through cellwin.run: the row says proto tls, the probe
     and opgen run tls-h2, against the dedicated TLS port, or the one-port listener with a clearance."""
