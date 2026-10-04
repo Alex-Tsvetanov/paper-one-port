@@ -114,15 +114,16 @@ def core_layout_rule():
 @check
 def quiet_rules():
     cpus = {c: 99.0 for c in range(12)}
-    ok = wsys.quiet_verdict([95.0] * 10, cpus, [{"name": "a", "pid": 1, "cpu_percent": 5.0}])
-    assert ok["quiet"], ok["reasons"]  # at the bounds: 95% idle and 5% of one CPU pass
-    low = wsys.quiet_verdict([94.9] * 10, cpus, [])
+    assert (wsys.QUIET_TOTAL_IDLE_MIN, wsys.QUIET_CPU_IDLE_MIN, wsys.QUIET_PROCESS_MAX) == (90.0, 90.0, 10.0)
+    ok = wsys.quiet_verdict([90.0] * 10, {c: 90.0 for c in range(12)}, [{"name": "a", "pid": 1, "cpu_percent": 10.0}])
+    assert ok["quiet"], ok["reasons"]  # at the bounds: 90% idle overall and per CPU, 10% of one CPU pass
+    low = wsys.quiet_verdict([89.9] * 10, cpus, [])
     assert not low["quiet"] and "mean CPU idle" in low["reasons"][0]
-    one = wsys.quiet_verdict([99.0] * 10, {**cpus, 10: 94.9}, [])
+    one = wsys.quiet_verdict([99.0] * 10, {**cpus, 10: 89.9}, [])
     assert not one["quiet"] and "CPU 10" in one["reasons"][0]
     outside = wsys.quiet_verdict([99.0] * 10, {**cpus, 0: 50.0, 11: 50.0}, [])
     assert outside["quiet"], "CPUs 0, 1 and 11 are not the window's"
-    proc = wsys.quiet_verdict([99.0] * 10, cpus, [{"name": "TextInputHost", "pid": 7, "cpu_percent": 5.1}])
+    proc = wsys.quiet_verdict([99.0] * 10, cpus, [{"name": "TextInputHost", "pid": 7, "cpu_percent": 10.1}])
     assert not proc["quiet"] and "TextInputHost" in proc["reasons"][0]
     own = wsys.quiet_verdict([99.0] * 10, cpus, [{"name": "python", "pid": 9, "cpu_percent": 40.0}], exclude_pids=(9,))
     assert own["quiet"] and own["top_processes"] == []

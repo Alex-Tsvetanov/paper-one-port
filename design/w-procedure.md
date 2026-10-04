@@ -163,6 +163,10 @@ Before each session (each lab job of W):
   installs. Pausing updates is a setting for Alex.
 - A busy W in the middle of a session shows in the per-window CPU sampler of section 4 (another
   process's CPU time on the window's CPUs), recorded per window.
+- 2026-10-05, Alex's decision (hypotheses.md, revision log, "W's quiet gate lowered (Alex's
+  decision), before the code freeze"): the job-start check above asks for 90% mean idle, 90% on
+  each CPU 2 to 10 and no process above 10% of one CPU, in place of 95%, 95% and 5%. The text above
+  is kept as it was approved; `bench/run/wsys.py` holds the values in force.
 
 ## 6. Core placement
 

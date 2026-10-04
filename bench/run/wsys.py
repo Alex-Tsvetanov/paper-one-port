@@ -72,18 +72,23 @@ def check_core_layout(cores: list[dict]) -> list[str]:
 
 # ---------------------------------------------------------------- the quiet check (section 5)
 
-QUIET_TOTAL_IDLE_MIN = 95.0  # P1's rule: mean CPU idle at least 95% over 10 s
-QUIET_CPU_IDLE_MIN = 95.0    # design choice (section 5): each logical CPU the window uses
-QUIET_PROCESS_MAX = 5.0      # design choice (section 5): no process above 5% of one logical CPU
+# Alex's decision of 2026-10-05, before the code freeze (hypotheses.md, revision log, "W's quiet
+# gate lowered (Alex's decision), before the code freeze"): 90%, 90% and 10%, where section 5 first
+# had P1's 95% and its own 95% and 5%. It gates a job's start only; the per-window rules and the
+# per-window CPU sampler are unchanged.
+QUIET_TOTAL_IDLE_MIN = 90.0  # mean CPU idle at least 90% over 10 s (was P1's 95%)
+QUIET_CPU_IDLE_MIN = 90.0    # each logical CPU the window uses (was 95%)
+QUIET_PROCESS_MAX = 10.0     # no process above 10% of one logical CPU (was 5%)
 QUIET_CPUS = tuple(range(2, 11))  # the CPUs a window uses: the generator's 2 to 9 and the server's 10
 QUIET_SECONDS = 10
 
 
 def quiet_verdict(total_idle_samples: list[float], cpu_idle: dict[int, float], processes: list[dict], cpus=QUIET_CPUS,
                   exclude_pids=()) -> dict:
-    """Section 5's rules over one 10 s reading: the mean of the per-second total idle samples is at
-    least 95% (P1's check); the idle of each CPU in `cpus` over the interval is at least 95%; no
-    process (other than `exclude_pids`, the check's own) is above 5% of one logical CPU over it.
+    """Section 5's rules over one 10 s reading, at the bounds above: the mean of the per-second total
+    idle samples is at least QUIET_TOTAL_IDLE_MIN; the idle of each CPU in `cpus` over the interval is
+    at least QUIET_CPU_IDLE_MIN; no process (other than `exclude_pids`, the check's own) is above
+    QUIET_PROCESS_MAX of one logical CPU over it.
     `processes` holds {name, pid, cpu_percent} with cpu_percent in units of one logical CPU."""
     reasons = []
     mean_idle = sum(total_idle_samples) / len(total_idle_samples) if total_idle_samples else 0.0
