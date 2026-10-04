@@ -26,7 +26,8 @@ looks for in them is fixed here and stated in design/status.md:
   (`### ` and the title). The section 10, B3 and M runners apply the entry "M7c's open items,
   before the code freeze" (2026-10-04: the mixed cell's silent ports, B3's other-mode cells in
   relay, the TLS variants, an M2 cell without a rate), so a frozen run of theirs refuses to start
-  if the log does not hold it.
+  if the log does not hold it. The M runner, in both parts, also applies the entry "The pre-freeze
+  items on L (M7d), before the code freeze" (M2's dedicated backend in a SO_REUSEPORT group).
 A run that passes gets a Clearance, whose record goes into every row's provenance. The session
 engine (bench/run/sessions.py) starts the one-port arm of a cell that pairs one-port with dedicated
 mode only with a clearance that names the pilot entry; development mode never has one.
@@ -50,6 +51,9 @@ import check_rows  # noqa: E402  (bench/check_rows.py)
 N_SIM = 1_000  # 4.6 step 2
 # The title of the revision-log entry whose choices the section 10, B3 and M runners apply.
 M7C_ITEMS = "M7c's open items, before the code freeze"
+# The title of the entry whose design choice the M runner applies in both parts (M2's dedicated
+# backend in a SO_REUSEPORT group; bench/run/m_run.py, M2_BACKEND_LISTENER).
+M7D_ITEMS = "The pre-freeze items on L (M7d), before the code freeze"
 FROZEN_PATHS = ("bench", "tests", "CMakeLists.txt")
 HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
 

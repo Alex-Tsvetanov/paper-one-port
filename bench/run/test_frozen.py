@@ -229,6 +229,50 @@ class RowsAgainstAnalysis(unittest.TestCase):
         self.assertEqual((m["M2.L.io_uring.tls"]["sessions"], m["M2.L.io_uring.tls"]["tested"]), (0, False))
         self.assertIn("fewer than R", m["M2.L.io_uring.tls"]["why_untested"])
 
+    def test_m2_backend_listener(self):
+        # The revision log's design choice (entry "The pre-freeze items on L (M7d), before the code
+        # freeze", item 1): M2's dedicated backend in a SO_REUSEPORT group in both parts of the M
+        # runner; M3's stub keeps the shared listener; a frozen run takes no other layout.
+        self.assertEqual(m_run.M2_BACKEND_LISTENER, "reuseport")
+        for part, rates in (("cells", {"M2.L.epoll.tls": 300.0}), ("m2-rate", None)):
+            m2 = [c for c in m_run.m_cells(2, RULE_E, rates, part=part) if c.id.startswith("M2.")]
+            self.assertTrue(m2)
+            self.assertTrue(all(c.run_params(arm)["backend_kind"] == "dedicated" and c.run_params(arm)["backend_listener"] == "reuseport"
+                                for c in m2 for arm in ("A", "B")))
+        m3 = [c for c in m_run.m_cells(2, RULE_E, None) if c.id.startswith("M3.")]
+        self.assertTrue(m3 and all(c.run_params("B")["backend_kind"] == "stub" and "backend_listener" not in c.run_params("B") for c in m3))
+        # The window hands the layout to the backend: M2's cfg names the group, M3's the shared listener.
+        seen: dict[str, str] = {}
+
+        def fake_window(cfg, session, arm, position, blocks, raw):
+            seen[cfg["cell"]] = cfg["backend_listener"]
+            return {"metric": {"value": 1.0}, "valid": True}
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(m_run.handoff, "run_window", fake_window):
+            a = mock.Mock(build=Path(d), k_src=16, out=Path(d))
+            win = m_run.window_fn(a, None)
+            m2 = next(c for c in m_run.m_cells(2, RULE_E, None, part="m2-rate") if c.id == "M2.L.io_uring.tls")
+            m3 = next(c for c in m_run.m_cells(2, RULE_E, None) if c.id == "M3.L.epoll.http1.nginx")
+            win(m2, "B", {"id": "s", "job": "j"}, 0, None)
+            win(m3, "B", {"id": "s", "job": "j"}, 0, None)
+        self.assertEqual(seen, {"M2.L.io_uring.tls": "reuseport", "M3.L.epoll.http1.nginx": "shared"})
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):  # the stub never takes the group
+                m_run.handoff.start_stub(Path(d), 30000, Path(d), "t", "epoll", "stub", "reuseport")
+            with self.assertRaises(ValueError):
+                m_run.handoff.start_stub(Path(d), 30000, Path(d), "t", "epoll", "dedicated", "spread")
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(m_run.window, "stop_on_signals", lambda: None):
+            seeds, pilot, rule = frozen_inputs(Path(d))
+            frozen = ["--build", d, "--out", d, "--job", "j", "--seeds", str(seeds), "--code-freeze", "0" * 40, "--gate",
+                      str(Path(d) / "gate.json"), "--pilot", str(pilot), "--rule-e", str(rule), "--m2-rates", str(Path(d) / "r.json")]
+            (Path(d) / "r.json").write_text(json.dumps({"M2.L.epoll.http1": {"rate": 300.0}}))
+            with self.assertRaises(runlib.InputRefused) as cm:  # a frozen run with another layout
+                m_run.main(frozen + ["--dev-backend-listener", "shared"])
+            self.assertIn("development runs only", str(cm.exception))
+            with self.assertRaises(runlib.InputRefused) as cm:  # the m2-rate part on the frozen binary
+                m_run.main(frozen[:-2] + ["--part", "m2-rate", "--dev-seed", "9", "--dev-backend-listener", "shared"])
+            self.assertIn("development runs only", str(cm.exception))
+
     def test_m(self):
         want = ("M1.L.io_uring.h2c", "M2.L.epoll.tls", "M3.L.epoll.tls-stub.haproxy")
         cells = [c for c in m_run.m_cells(2, RULE_E, {"M2.L.epoll.tls": 300.0}) if c.id in want]

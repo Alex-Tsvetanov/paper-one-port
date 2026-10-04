@@ -60,10 +60,13 @@ import cells as C  # noqa: E402
 R_M = C.R_M
 M2_RATE_SESSIONS = 6  # WL6: "measured in 6 development sessions per cell"
 INPROC_PORTS = {"A": 20000, "B": 20100}  # aa.py's blocks (design choices of M3)
-# The listener layout of M2's dedicated backend (two workers on CPUs 10 and 12): the shared
-# listener, as before M7d. M7d compares it with a SO_REUSEPORT group in development sessions
-# (--dev-backend-listener) before the choice is logged.
-M2_BACKEND_LISTENER = "shared"
+# The listener layout of M2's dedicated backend (two workers on CPUs 10 and 12): a SO_REUSEPORT
+# group, one socket per worker (a design choice of M7d, the revision log's entry "The pre-freeze
+# items on L (M7d), before the code freeze", item 1: in M7d's development comparison the shared
+# listener left one io_uring worker with every TLS handshake, and the group split the connections
+# evenly on both backends). --dev-backend-listener shared exists for development comparisons only;
+# a frozen run of either part takes the group and checks that the entry is logged.
+M2_BACKEND_LISTENER = "reuseport"
 OTHER = {"replay": "peek", "peek": "replay"}
 
 
@@ -215,7 +218,8 @@ def main(argv=None) -> int:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        m2_rates=a.m2_rates if a.part == "cells" else None,
                                        binaries=runlib.binaries_of(prov, ("oneport", "opgen")),
-                                       entries=(freeze_guard.M7C_ITEMS,) if a.part == "cells" else ())
+                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7D_ITEMS) if a.part == "cells"
+                                       else (freeze_guard.M7D_ITEMS,))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, m2_rates=m2_rates, part=a.part, not_run=not_run),
                                                                indent=1))
     if a.part == "cells":
