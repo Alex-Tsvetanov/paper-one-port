@@ -6084,6 +6084,8 @@ from clean clones of `origin` under `C:\Users\alext\lab\p3\m7f\`.
 | 20c01b9 | fix(tests): on IOCP the suite waits 250 ms after a server's start before its first client; coverage.json: no third-party library needs a Windows gap |
 | ddd9d6a | fix(tests): on Windows the generator tests check the form of the workers' CPU time |
 | ff2679c | fix(bench): records_job_w.ps1's gate step runs its Python steps inside cmd.exe (CODE_FREEZE) |
+| c5b1dd9 | docs: the code freeze's entry (revision log) and this section |
+| f185a8a | docs: the record of W's frozen runs in Python's UTF-8 mode (revision log) |
 
 ### 1. W's quiet check, 00:20 to 00:46
 
@@ -6292,9 +6294,67 @@ passes on the Papers repo with the new records.
 CODE_FREEZE = ff2679c, logged with section 9.1's values, the records and the gates in the revision
 log's entry "The code freeze".
 
-### 9. Where it stands
+### 9. The A/A pilots (section 8 step 4), started
 
-The code freeze is declared (ff2679c). Next: the A/A pilots on L and W, in dedicated mode only.
+Rule E's IOCP receive form has nothing to choose (the coordinator's decision on M6a's reading 7), so
+it ran no session, and both pilots started on the frozen binaries, in dedicated mode only.
+
+L: lab job pl1 (`~/lab/p3/m7g/pilot_l.sh`, sha256
+ff4c725af3d6d6566d78dbdebdd4e15f22198c3ec7a4c72902a76ba7fd9e2d96; lab_job pid 571104), from bash at
+nice 0 under the lab lock with the clock floor, THP at madvise and NOTRACK, from a fresh clone at
+c5b1dd9 (`~/lab/p3/m7g/pilot-src`): `pilot_run.py --build ~/lab/p3/m7g/records-ff2679c/build-release
+--out ~/lab/p3/pilot-L --job pl1 --seeds design/seeds.json --code-freeze ff2679c... --gate
+~/lab/p3/m7g/records-ff2679c/gate-L.json`, started 01:56:43; the freeze guard passed (the warm-up
+began). 86 windows were written by 02:07, all valid so far. Expected end, from that rate (about 8.6
+windows a minute) for 1,024 windows and the timer and split parts: about 04:30.
+
+W, first start (01:57:27, W lab job wp1 from a clone at c5b1dd9): stopped in the freeze guard before
+any window. `freeze_guard.git()` reads `git show HEAD:hypotheses.md` with the locale's encoding,
+cp1252 on W, which cannot decode hypotheses.md's UTF-8 (byte 0x81): UnicodeDecodeError in the reading
+thread, then AttributeError on the missing text. No row was written; the run's directory held only
+its inputs file (kept as `C:\Users\alext\lab\p3\pilot-W-crash1`), and the job's files are
+`m7g\wpilot\wp1-crash.*` (log sha256 3f44486160ec4b344859b8f21f7b43c47c0ff5a695f9fbd5b3659d898d03184b).
+Not a code change: every frozen W run now runs in Python's UTF-8 mode (`PYTHONUTF8=1` set in the
+starting process only), checked first (the guard with the run's arguments gave its clearance; W's
+Python tests passed in UTF-8 mode; the development job wdev1, dev seed 8216, 4 of 4 windows, the
+timer run and the split replicate valid), and recorded in the revision log (f185a8a: "W's frozen
+runs in Python's UTF-8 mode (a record), after the code freeze"). The guard's fix (an explicit
+encoding in `freeze_guard.git()`) is a change of the frozen code, left to Alex.
+
+W, the run (W lab job wp1, chain pid 28764 started by `m7g\wpilot\run_chain.cmd` through WMI, sha256
+de1337fec7b64ea3eac711e0b25087c8af2e915993901d757b889b734c577dc0; `steps.json`
+158a8ede8ac466688147ae22df8fbcb58ba2b09fd308993e96b67a639c79aee3, no `--allow-noisy`; a clean clone at
+f185a8a, `m7g\pilot-src2`): `wpilot_run.py --build m7g\records-ff2679c-W\build-release --out
+C:\Users\alext\lab\p3\pilot-W --job wp1 --seeds ...\design\seeds.json --code-freeze ff2679c...
+--gate m7g\records-ff2679c-W\gate-W.json`, started 02:06:40 after W's job-start check (mean idle
+97.0%); the guard passed in UTF-8 mode (`utf8.txt`: 1) and the warm-up began. The chain starts no
+attempt after 09:20. The morning rule (no new W session after 09:30; Alex uses W in the morning):
+`m7g\stopat.py` (sha256 da14a2bfc157ff8da44ac7ce50f5baa50bb25a7ad9bdf3616004cd4d07febfd8; pid 27600),
+not committed, watches the run's rows from 09:27 and, at the first session end or parts row after
+it, asks the job to stop (`wjob.py stop`); the engine then stops before the next session's first
+window, and the next job resumes from the rows. Expected length, from M6b's measured parts (about
+29 s of TIME-WAIT wait before each of 512 churn and open-loop windows, 6.3 s per window, the
+session fingerprints, the warm-up, the timer part's 128 runs and the split part's 80 replicates):
+about 6 h without reruns, so near 08:15 at the earliest.
+
+To resume W's run in the next quiet W window, if it stopped at 09:27 or later (same `--out`, a new
+`--job` name, no `--allow-noisy`, UTF-8 mode):
+
+    set PYTHONUTF8=1
+    C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe C:\Users\alext\lab\p3\m7g\pilot-src2\bench\run\wjob.py run --dir C:\Users\alext\lab\p3\m7g\wpilot --name wp2 -- C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe C:\Users\alext\lab\p3\m7g\pilot-src2\bench\run\wpilot_run.py --build C:\Users\alext\lab\p3\m7g\records-ff2679c-W\build-release --out C:\Users\alext\lab\p3\pilot-W --job wp2 --seeds C:\Users\alext\lab\p3\m7g\pilot-src2\design\seeds.json --code-freeze ff2679cc89d23e08a817308c9aeba7901e056fef --gate C:\Users\alext\lab\p3\m7g\records-ff2679c-W\gate-W.json
+
+The pilot entry needs both hosts' pilots (section 8 step 6: R_C and m_C span L and W), so the
+simulation, `pilot.py` and the entry wait for W's run to end; no one-port window of any kind runs
+before the entry is committed.
+
+Lab journal: five development lines (wf1 to wf4 and wdev1), Papers bc3338a.
+
+### 10. Where it stands
+
+CODE_FREEZE = ff2679c. Running: L's A/A pilot (pl1, expected end about 04:30) and W's (wp1, about
+6 h, near 08:15 at the earliest; stopped between sessions from 09:27 if not done). Next: when both
+have ended, the simulation and `pilot.py` at ANALYSIS_COMMIT 9de26d6 on the pinned numpy, then the
+pilot entry; then section 8 step 7.
 
 ## M7 checklist
 
