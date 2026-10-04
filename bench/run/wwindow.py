@@ -196,7 +196,7 @@ def wait_time_wait(limit: int = TW_START_MAX, max_wait: float = TW_WAIT_MAX_S) -
 
 
 def server_snapshot(h) -> dict:
-    snap = {"t": time.monotonic(), "cpu_s": wsys.process_cpu_s(h)}
+    snap = {"t": time.monotonic(), "cpu_s": wsys.process_cpu_s(h), "cycles": wsys.process_cycles(h)}
     snap.update(wsys.process_memory(h))
     return snap
 
@@ -356,6 +356,10 @@ def finish(row: dict, g: dict | None, snaps: dict, session: dict, reasons: list[
         s0, s1, cpus = snaps["s0"], snaps["s1"], snaps["cpus"]["cpus"]
         row["server_cpu_s"] = s1["cpu_s"] - s0["cpu_s"]  # WL4: user + kernel time of the server process
         row["cpu_us_per_exchange"] = 1e6 * row["server_cpu_s"] / exchanges if exchanges else None
+        if "cycles" in s0 and "cycles" in s1:
+            # Beside WL4's value, deciding nothing: the server's cycles (wsys.process_cycles).
+            row["server_cycles"] = s1["cycles"] - s0["cycles"]
+            row["cycles_per_exchange"] = row["server_cycles"] / exchanges if exchanges else None
         row["rss_kb"], row["peak_rss_kb"] = s1.get("working_set_kb"), s1.get("peak_working_set_kb")
         row["marker_span_s"] = snaps["cpus"]["span_s"]
         row["cpu_readings"] = cpus

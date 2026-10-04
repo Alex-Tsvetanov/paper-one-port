@@ -265,6 +265,19 @@ if IS_WINDOWS:
             raise _err("GetProcessTimes")
         return (k.value + u.value) / 1e7
 
+    kernel32.QueryProcessCycleTime.argtypes = [HANDLE, ctypes.POINTER(ctypes.c_ulonglong)]
+    kernel32.QueryProcessCycleTime.restype = BOOL
+
+    def process_cycles(h) -> int:
+        """The CPU cycles the process's threads have used, user and kernel (QueryProcessCycleTime),
+        recorded beside process_cpu_s as L records schedstat beside utime + stime. GetProcessTimes
+        moves in whole clock ticks of 15.625 ms charged to the thread running at each tick, so at a
+        low load of the process its change over a window is a sample (design/status-m6b.md, M6c)."""
+        v = ctypes.c_ulonglong()
+        if not kernel32.QueryProcessCycleTime(h, ctypes.byref(v)):
+            raise _err("QueryProcessCycleTime")
+        return v.value
+
     def process_memory(h) -> dict:
         """The working set and its peak, in kB (WL4's resident memory and its peak)."""
         pmc = PROCESS_MEMORY_COUNTERS()

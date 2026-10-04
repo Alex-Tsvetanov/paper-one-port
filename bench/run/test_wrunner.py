@@ -189,7 +189,8 @@ def report(workload: str = "churn", completed: int = 50000, errors: int = 0, con
 def snaps(gen_busy: float = 50.0, server_perf: float = 100.0) -> dict:
     cpus = {str(c): {"% Processor Time": gen_busy if 2 <= c <= 9 else (99.9 if c == 10 else 1.0), "% Processor Performance": server_perf,
                      "Actual Frequency": 3950.0, "% Interrupt Time": 0.0, "% DPC Time": 0.0, "Interrupts/sec": 1000.0} for c in range(12)}
-    return {"s0": {"t": 0.0, "cpu_s": 1.0, "working_set_kb": 9000}, "s1": {"t": 5.0, "cpu_s": 5.9, "working_set_kb": 9100, "peak_working_set_kb": 9200},
+    return {"s0": {"t": 0.0, "cpu_s": 1.0, "cycles": 1_000_000, "working_set_kb": 9000},
+            "s1": {"t": 5.0, "cpu_s": 5.9, "cycles": 2_001_000_000, "working_set_kb": 9100, "peak_working_set_kb": 9200},
             "cpus": {"span_s": 5.0, "cpus": cpus}}
 
 
@@ -207,6 +208,8 @@ def window_metric_and_rules():
     assert r["valid"], r["invalid_reasons"]
     assert r["metric"] == {"name": "conn_per_s", "value": 10000.0}
     assert abs(r["server_cpu_s"] - 4.9) < 1e-9 and abs(r["cpu_us_per_exchange"] - 98.0) < 1e-9
+    # The server's cycles are recorded beside WL4's value and change nothing in it (M6c).
+    assert r["server_cycles"] == 2_000_000_000 and r["cycles_per_exchange"] == 40000.0
     assert abs(r["server_cores_busy"] - 0.999) < 1e-9 and r["gen_cpus_busy_pct"] == 50.0 and r["gen_cpu_pct_rule"] == 50.0
     assert r["irq_server"] == 5000.0 and r["irq_generator"] == 40000.0
     assert r["per_connection"]["recv_calls"] == 1.0 and r["rss_kb"] == 9100 and r["peak_rss_kb"] == 9200
@@ -309,6 +312,16 @@ def windows_readings():
         assert v is not None and 0.0 <= v <= 100.0, v
     s = wsys.tcp_stats()
     assert "ActiveOpens" in s and s["ActiveOpens"] >= 0
+    h = wsys.open_process(os.getpid())
+    try:
+        c0 = wsys.process_cycles(h)
+        t_end = time.perf_counter() + 0.05
+        while time.perf_counter() < t_end:
+            pass
+        c1 = wsys.process_cycles(h)
+        assert isinstance(c0, int) and c1 > c0, (c0, c1)
+    finally:
+        wsys.close_handle(h)
     assert wsys.time_wait_count() >= 0
     assert not wsys.set_named_event("Local\\oneport-test-no-such-event")
 
