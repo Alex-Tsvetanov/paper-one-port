@@ -258,6 +258,10 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+#if defined(__linux__)
+		// opcase's holder is built on Linux only (bench/cases/hold.hpp; the Linux block above includes
+		// it), and W's registry has no gen.hold.
+
 		/// Runs opcase's holder (bench/cases/hold.hpp) for `run_for`, then stops it.
 		opcase::HoldResult hold_for(const opcase::HoldOptions& o, std::chrono::milliseconds run_for)
 		{
@@ -335,6 +339,7 @@ namespace oneport::test
 			}
 			return std::nullopt;
 		}
+#endif  // __linux__
 
 		/// Section 10's TLS variant with ALPN h2 against the server in one-port mode (one_load runs it
 		/// in dedicated mode): every connection classified TLS, every exchange h2 inside TLS. Untimed.
