@@ -1153,3 +1153,256 @@ And in `C:\Users\alext\lab\p3\m6b\check\485d7ae\`:
     f210e0f001152804cacd44ed9d8f81d053e09420bbe445098f057c6b918abfec  asan-485d7ae.build.log
     81684ea569df9e844ed679b3e4b74fd2eb54d2c2d65cabf5c866d80e45d0bc73  asan-485d7ae.ctest.log
     5f82fc284253a86b92a39d55a190aeecbc262f0761feb28f268624522c41234c  summary.txt
+
+## M6d (2026-10-04, from 11:01 +0300): W's half of the merge check, and W before the code freeze
+
+Alex freed W for 1 to 2 hours from 11:01. The brief, in its order: merge `main` into
+`m6b-windows` and run the suite on W in Debug, ASan and Release; one revision-log entry, "W
+before the code freeze"; if its design choices change the W runner, commit them with tests and run
+the A/A re-run waa3; then commit, merge into `main`, the suite on L, the submodule bump. W only for
+timing, dedicated mode only in anything timed; development data, never citable.
+
+### Commits (m6b-windows, then main)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 92bf40e | merge: main (9349a74) into m6b-windows: M7c's C++ (`--proto tls-h2`, the backend reuseport listener), M7d, the paper draft. No conflict. |
+| 330c961 | fix(tests): gen_tests' holder test is Linux only, so the merged tree compiles on W |
+| 4af5714 | feat: W's cycle rate per session, and wnight.py's A/A options |
+| ecb8ee7 | docs: hypotheses.md revision log, W before the code freeze (M6d) |
+| e407709 | (main) chore: merge m6b-windows at ecb8ee7 into main |
+
+### 1. The merge and the suite on W (development checks, not records)
+
+The merge of `main` at 9349a74 had no conflict (75 files). The merged tree did not compile on W:
+`tests/gen_tests.cpp` holds `hold_for` and `hold()` (M7c's test of opcase's holder, `gen.hold`)
+in the block shared by Linux and Windows, while `hold.hpp` is included only in the Linux block and
+opcase's holder is built only on Linux; W's registry has no `gen.hold`. 330c961 puts the two
+functions under `#if defined(__linux__)`; nothing else changed. The other 51 of 52 build steps had
+compiled.
+
+From exported copies (`git archive`) with M6b's `check.cmd` and `release.cmd` (MSVC
+19.51.36246.0, Build Tools 18, Ninja, `ctest -V -j 4`; ASan with
+`ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1`), driver
+`m6d\all3.cmd`. Report lines: lines of the ctest log matching the shared report pattern
+(`bench/oneport_record.py`, `REPORT`; `m6d\reportlines.py`).
+
+| Build (at 330c961) | Build warnings | CTest | Test time | Report lines |
+|---|---|---|---|---|
+| Debug (release libraries) | 0 | 163 passed, 0 failed | 57.68 s | 0 |
+| ASan (`-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address`) | 0 | 163 passed, 0 failed | 61.23 s | 0 |
+| Release | 0 | 163 passed, 0 failed | 55.42 s | 0 |
+
+163 is M6c's 160 and three tests M7c registered for IOCP: `handlers.tls_h2.IOCP`,
+`gen.churn.tls-h2.IOCP` and `gen.tls_h2_one_port.IOCP`, which W had not built before; all passed.
+`run.test_wrunner` passed 19 of 19 checks in each. The ASan build is instrumented: its `opgen.exe`
+and `oneport_tests.exe` name `clang_rt.asan_dynamic-x86_64.dll`, and the objects of
+`worker_win.cpp`, `worker.cpp` and `opgen.cpp` hold 148, 132 and 100 symbol lines naming
+`__asan_` (`m6d\inspect.cmd`).
+
+An incident, no effect on a result: M6b's `check\inspect.cmd`, run from Git's bash, reached Git's
+Unix `find` instead of Windows' `find.exe` and began to walk the C: drive, reading only. It was
+stopped within about two minutes, no such process remained, and `m6d\inspect.cmd` names Windows'
+`find` by its path.
+
+### 2. The revision-log entry (ecb8ee7)
+
+"2026-10-04: W before the code freeze", appended to `hypotheses.md` after the seeds entry, written
+and committed at 11:20:33, before waa3's first attempt (11:22:07) and before any of its rows
+existed. Eight items:
+
+| Item | Label | Decision or reading |
+|---|---|---|
+| 1 | Alex's decision | W's churn h2c and MQTT (c = 10, 12) generator-bound, outside the confirmatory cost family, with M6c's evidence; m_C at most 34, Holm over the cells that stay; 4.6's α/36 unchanged; no joint power for h2c and MQTT on W; they run in the pilot, so WL2 has their medians; whether they also run at R_C is open for the coordinator; open h2c and MQTT (c = 34, 36) stay, their λ from a generator-bound median, said beside them |
+| 2 | Alex's decision | M2's TLS cells not run, p = 1, "a difference was not shown"; M2 on HTTP/1.1 only; cross-reference: the entry "M7c's open items", item 6, and M7d's item 1 |
+| 3 | reading | Section 9.1's fallback: the boost test failed, the 50% cap retest was inconclusive (counter and work rate unmoved under three plans); firmware settings not read |
+| 4 | design choice | W's WL4 is the server's cycles (QueryProcessCycleTime) per exchange, GetProcessTimes beside it; ratios on cycles; absolute values through the session's measured cycle rate (wsys.cycle_rate) |
+| 5 | design choice | No discarded window: the slow start was the job's (three windows, about 19 s), seen once, not the sessions'; its bias never favours a claim |
+| 6 | readings | (a) SO_REUSE_UNICASTPORT for section 2.4's IP_BIND_ADDRESS_NO_PORT, with the two facts that go with it; (b) no listen-overflow counter on W, windows judged by the rules W computes, a refused SYN a failed connect; (c) the server's close at once on GOAWAY or DISCONNECT allowed by the frozen text |
+| 7 | reading, decision open | The two-core IOCP cell: M6a's options (a) to (c); secondary, so not running it changes no claim; building (a) or (b) only before the code freeze; W's 2-core placement unset; the choice is the coordinator's |
+| 8 | Alex's decision | W's procedure approved on 2026-10-03 (plan switch without admin and restore, default timer resolution, Windows Update paused and the Defender exclusion by Alex) |
+
+The entry names no file by its sha256 on a line that holds a word the frozen runners look for;
+`run.test_frozen` passed after it (41 checks, 2 skipped on W).
+
+### 3. The runner's changes (4af5714), from item 4
+
+- `wsys.cycle_rate`: QueryProcessCycleTime's cycles per second of wall time (perf_counter) over a
+  busy loop (`wsys.py spin`) started pinned to the server's CPU, 0.3 s settle then 1 s; it also
+  reads the loop's GetProcessTimes over the span as a check that it was busy. A process of its
+  own, since waa.py holds its own process to CPUs 0 and 1.
+- `wwindow.fingerprint` records it per session (`cycle_rate`); `waa.py` passes it to the windows;
+  `wwindow.finish` adds `cycles_us_per_exchange` when the session has a rate. `server_cpu_s` and
+  `cpu_us_per_exchange` are unchanged.
+- `wnight.py`: `--cells`, `--sessions`, `--seed`, `--k-src`, `--rates` (defaults: waa2's job) and
+  `--no-retest`; argument parsing split into `parse()`.
+- `test_wrunner`: the derived field with and without a rate; the rate on W (above 1e9 per second,
+  the loop busy within 0.85 to 1.15 of the span); wnight's options. 19 of 19 before, 21 of 21
+  after. On CPU 10, one reading gave 3,932,831,088 cycles per second over 1.0003 s, the loop's
+  GetProcessTimes 1.0 s (development check, W not checked quiet).
+- No change for item 5.
+
+Release at 4af5714, from a clone `C:\Users\alext\lab\p3\src-4af5714` (detached, clean), built
+into `build-4af5714` with `m6b\release.cmd`: 0 warnings, 163 of 163, 0 report lines
+(`run.test_wrunner` 21 of 21). sha256: `oneport.exe`
+0bff76e8b358d83c4f5aacd0452264db84172fa61ace2d5a8c93f010fe209bc5, `opgen.exe`
+3065d21c339573ee7f1d436b00fbb58c4a9a460936fe38f225d135b8bc9d4ea2.
+
+### 5. The merge into main and the suite on L
+
+`m6b-windows` at ecb8ee7 merged into `main` in the main checkout (e407709, no conflict; its tree
+equals ecb8ee7's), pushed to `origin` and `lab` at 11:21. On L, job chk7 (`lab_job.sh` at nice 0,
+launched from bash, under the lab lock with the clock floor, THP at `madvise` and NOTRACK, each set
+back at its end; pid 432731, 11:21:48 to 11:27:00, exit 0): `~/lab/p3/m6d/checks_job.sh` (M7d's
+script, the paths moved to `~/lab/p3/m6d/check/`; sha256
+685ed2f9fcf9329b2204cf4258e57ae78da1ceb80cb3036b44bae216c9f7afe3) from a fresh clone of the lab
+remote at e407709.
+
+| Build | Warnings | CTest | Report lines |
+|---|---|---|---|
+| Debug | 0 | 398 of 398 | 0 |
+| ASan+UBSan | 0 | 398 of 398 | 0 |
+| TSan | 0 | 398 of 398 | 0 |
+| MSan | 0 | 398 of 398 | 0 |
+
+`run.test_wrunner` 21 of 21 in each. As in M7c and M7d, two logs (Debug, TSan) show a thread's
+exception from `run.test_runner`'s stand-in stub (test 395), which passed; it matches no report
+pattern. The script's own line prints "0" and "NA" for the report count (its `grep -c || echo NA`);
+the count above is recounted with the same pattern. Logs (sha256), `~/lab/p3/m6d/check/e407709/`:
+debug build 75ae23c4db725d533e864fedeb74606ac5895a46f8028775efecc4c090960cc2, ctest
+9672f774f2f98fa666426bb470fb029954896b3f6627c75c480315025400354a; asan build
+278615a633375aac5667cf00c57412e4a84868f0c85b9a9a2db4672c1a9c942a, ctest
+2f96b1f925bcad4f7bbd402b9a9a65deb303cc4c8ffcf0c04d0452ac2828c0fe; tsan build
+40add6dea089fb0815dd47ec2514fcc4fafae656a48e610b4126f0582c75a152, ctest
+df6339df47666fc81f868c4172d332c9029e3e94f31d92ea5701276c93b42532; msan build
+8e11c777a625411598c199caf244e32e393323a11effb5250c91a5392fd9754d, ctest
+9c13861bb2c69ee02fa68a444687f90b14cd8198fb157a2a9e7da53ca45a13b4.
+
+So the merged tree, with M7c's C++, `--proto tls-h2` and the backend reuseport listener, builds
+and passes in Debug, ASan and Release on W (163 tests; development checks) and in the four builds on
+L (398). These are checks, not records: the records at the code freeze are still to make on both
+hosts (D5).
+
+### What W's frozen-row runners need (not in this session)
+
+`bench/run/runlib.py`'s host is L, and `window.py` and `cellwin.py` read L's `/proc` (revision
+log, M7d entry, item 5). The W development runner (`wwindow.py`, `waa.py`, `wjob.py`, `wnight.py`)
+times dedicated mode only. Before W's frozen data:
+- a W host in the frozen runners (or a W runner writing the same rows), with the freeze guard,
+  `design/seeds.json` (`SEED_PILOT_W`, `SEED_ORDER_C_W`, `SEED_ORDER_M_W`, `SEED_ORDER_S_W`) and the
+  order and rerun rules of 4.1, 4.7 and section 8;
+- the one-port arm on W, started only through the freeze guard after the pilot entry (M1's IOCP
+  cells and the cost family's one-port arm);
+- W's pilot and its parts: the C1 and C2 cells, then C3 at λ from the C1 pilot sessions (W's churn
+  h2c and MQTT included, item 1), the timer part on IOCP (G_W), the split part (GAP_SPLIT);
+- rule E's IOCP receive form is decided (the coordinator's decision on M6a's reading 7), so no
+  IOCP rule E sessions; the IOCP forms of section 10 (AcceptEx with a buffer; the posted form);
+- section 10's W cells: SSH on IOCP, the mixed cell on IOCP, TLS with ALPN h2 on IOCP, the 2-core
+  IOCP cell if built (item 7), CPU per exchange in cycles (item 4);
+- the hard cases on IOCP (the case entries run in W's suite; their frozen rows need W's runner);
+- W's records at the code freeze: `oneport-<commit>-W-asan` (the W sanitizer record driver is still
+  to write, M6b);
+- WL4 in cycles in W's frozen rows, with the session's cycle rate (item 4).
+
+### 4. waa3, the A/A re-run (development data, never citable)
+
+Launched through the night launcher's pattern: `wnight.py` from `src-4af5714`, started detached
+through WMI (`m6b\wlaunch.ps1`, pid 31240, 11:17:06) with `--no-retest --first-delay-s 300
+--retry-s 300 --settle-s 0 --no-aa-after 2026-10-04T12:16 --no-start-after 2026-10-04T12:16
+--cutoff 2026-10-04T12:50`, the A/A job `wjob.py run --dir C:\Users\alext\lab\p3\w-aa --name waa3
+-- waa.py --build C:\Users\alext\lab\p3\build-4af5714 --out ...\w-aa\waa3 --job waa3 --cells
+keepalive:h2c,open:h2c,open:mqtt --sessions 6 --seed 7901 --k-src 16 --rates
+...\w-aa\waa2\rates.json`. Files: `m6d\night\` (`wnight.log`, `wnight.done`, `launches.txt`),
+`w-aa\waa3*`.
+
+The quiet check refused the first 8 attempts (every 5 min, refused at 11:22:22 first and at 11:59:07 last; each refused
+attempt's files renamed `waa3-refusedN.*`). Mean idle 85.5% to 97.3%; the processes above 5% of
+one CPU were dwm in attempts 1 to 7 (10.0% to 19.8%), System in attempts 1 to 3 and 5 to 8 (5.9%
+to 14.1%), MsMpEng in attempt 1 (19.5%), BackgroundDownload in attempt 5 (38.9%). This session
+wrote files during attempt 1 and was idle (a 10 s file poll in the background) during the rest.
+Nothing was weakened. Attempt 9 (12:04:07) passed; the job ran its 72 windows and ended at
+12:36:07, exit 0, Alex's plan restored (`plan_restored` true; the launcher read it active after the
+job). The launcher exited at 12:36:07 ("nothing left").
+
+All 72 windows valid. Session ratios (B over A of the arms' window means), per cell, 6 sessions:
+
+| Cell | Metric ratios: median [min, max], outside [0.98, 1.02] | CPU per exchange, GetProcessTimes (tick): [min, max], log SD, outside | CPU per exchange, cycles: [min, max], log SD, outside |
+|---|---|---|---|
+| keep-alive h2c (req/s) | 1.0022 [0.8320, 1.0255], 2 | [0.9803, 1.1020], 0.0432, 1 | [0.9756, 1.1062], 0.0455, 2 |
+| open h2c (TTFB median) | 0.9761 [0.9393, 1.0491], 5 | [0.8364, 1.0960], 0.1009, 5 | [0.9379, 1.0569], 0.0420, 4 |
+| open MQTT (TTFB median) | 1.0351 [0.8553, 1.0648], 5 | [0.7651, 1.2034], 0.1546, 6 | [0.8886, 1.0157], 0.0515, 3 |
+
+So in the open cells the cycle-based CPU ratio's log SD is 0.42 (h2c) and 0.33 (MQTT) of the
+tick-based one, as M6c's runs predicted; neither sits inside the margin. At full load (keep-alive)
+the two agree. Absolute values per exchange (windows' range, median): keep-alive h2c 13.12 to 16.33
+us in cycles (13.78) and 13.12 to 16.06 us by ticks (13.66); open h2c 81.29 to 96.30 (85.67) and
+69.91 to 111.35 (86.74); open MQTT 72.05 to 91.79 (74.41) and 59.33 to 96.24 (77.78). The session
+cycle rate (`wsys.cycle_rate` on CPU 10) read 3.8995e9 to 3.9435e9 per second over the 18
+sessions; the lowest was the job's second session (12:04:5x), inside the slow start below.
+
+The job's slow start recurred (item 5 of the entry said waa3 would record it). The job's first
+five windows, all keep-alive h2c (session s04, positions 0 to 3, 12:04:27 to 12:04:45, then s06
+position 0 at 12:04:58), ran at 0.940, 0.936, 0.918, 0.923 and 0.688 of the cell's median
+requests per second, the server busy 1.000 in each, with 57,573 to 59,022 cycles per request in
+s04 and 63,671 in s06's first window, against 51,836 to 53,739 in the three windows after it; the cell's other
+19 windows ran at 0.989 to 1.047 of the median. s04's slow
+windows covered both arms (its ratio 0.995); s06's first window gave that session's ratio 0.832.
+So in waa2 (three windows, about 19 s) and waa3 (five windows, about 37 s) the first windows of the
+job ran slower with more cycles per request; the cause is not established. Item 5's decision
+(no discarded window) rested on one occurrence; it is for the coordinator to look at again before
+the code freeze, for example a job-level warm-up of a set length before the first session, which
+would be a new entry. Nothing was changed for it in M6d.
+
+Records (sha256): `w-aa\waa3\windows.jsonl`
+bd9a8040e572b76e3b43489185a686e5bf8e6e4d0ebd7b47a1378f297fecee06, `w-aa\waa3\summary.json`
+0198ff1e5b5438bc19580a3a08415dee0fbb786a047ac2dc0781c3a9ef9b9096, `m6d\waa3sum.py`
+d3595675ab088ec9c579df4cbddd6369d06462eec11a4b3a668d018cd928522b and its output
+`m6d\waa3sum.json` 26ed63d82726ca5e25f976b6e0f47f21dd49cf8b01fd314bfab1c61c9d6106b7. Seed 7901 is
+now used (a development seed, as 861 and 20261003); waa3 is not journaled in the Papers lab
+journal, as waa1 and waa2 were not.
+
+### What the code freeze still needs (W and the items of this session)
+
+1. The coordinator's answers: whether W's churn h2c and MQTT also run at R_C (entry item 1); the
+   two-core IOCP cell, built before the freeze as (a) or (b) or reported as not run (item 7); the
+   job's slow start on W (item 5 and waa3 above).
+2. W's frozen-row runners (the list above), with tests, before the freeze, since the runners are
+   frozen with the code.
+3. On the day of the freeze: the pins read again, `CODE_FREEZE`, the records at it on L and on W
+   (D5; W's `oneport-<commit>-W-asan` driver still to write), the gates, and the code freeze's
+   entry with section 9.1's values. Then the pilot on L and W.
+
+### For Alex
+
+- W's quiet check refused 8 times in a row this morning, with dwm (the desktop compositor) at 10%
+  to 20% of one CPU in 7 of them and System at 6% to 14% in 7, while this session was idle from the
+  second attempt on: something on the screen was redrawing. A W session passes more easily with the
+  display off or nothing animating on it. The check was not changed.
+- The cap retest showed that none of the three plans moves W's clock (entry item 3); the firmware's
+  settings are the open question there, if he wants the frequency rule on W.
+
+### Where M6d stopped
+
+Committed on `m6b-windows` and merged into `main`; pushed. Every process id this session recorded
+(`m6d\pids.txt`: the launcher 31240 and the job's wjob 23612) has ended; `wnight.done` and
+`waa3.done` record their ends. Alex's plan "ChrisTitus - Ultimate Power Plan" is active.
+`C:\Users\alext\lab\p3\src-4af5714` and `build-4af5714` are waa3's source copy and build.
+
+### Records (C:\Users\alext\lab\p3\)
+
+    30849220428481a82f3cc703583a00f5c26f4d716ff0bb60c2e542e3ab93accf  m6b\check\src-92bf40e.tar
+    4bb37f1ecf15e60054769bf771df84c37e8bdb617d33900bbd29d54ede531f4f  m6b\check\src-330c961.tar
+    336e98f1a8e86229b768c156d5898600e85f7b5abdf7642a28f3d0151badffcf  m6b\check\330c961\debug-330c961.build.log
+    ec80d988eb35cc9a4cc79f58cf388b75bf68ad890165afc77491b94a023d78c1  m6b\check\330c961\debug-330c961.ctest.log
+    63dce32dafc038c59819008050f9500cc23a9c8f35a5d53864bf9f438b24496d  m6b\check\330c961\asan-330c961.build.log
+    98c504e953acba84e3b928c91c44993d65a9fc1dbfdac32811ea0c10acb94922  m6b\check\330c961\asan-330c961.ctest.log
+    b72e073c9b35cb503d44e08590256029a451249a7636bbcca00dddce404d38d6  m6b\check\330c961\release-330c961.build.log
+    d09fb8d53561df9fd3980b182bd1f371161efa377dd73879290d8f18551c6803  m6b\check\330c961\release-330c961.build.log.ctest
+    0ce64ba60ce0a0d7518b71fe1e116c93839dd8e61f52ad54ca35734d0a076c7f  m6d\release-4af5714.build.log
+    48df77e77dda55582dfdc5692b550c477986ebf17b18d9c37a9e6607ac196c58  m6d\release-4af5714.build.log.ctest
+    0bff76e8b358d83c4f5aacd0452264db84172fa61ace2d5a8c93f010fe209bc5  build-4af5714\bench\server\oneport.exe
+    3065d21c339573ee7f1d436b00fbb58c4a9a460936fe38f225d135b8bc9d4ea2  build-4af5714\bench\gen\opgen.exe
+    bd9a8040e572b76e3b43489185a686e5bf8e6e4d0ebd7b47a1378f297fecee06  w-aa\waa3\windows.jsonl
+    0198ff1e5b5438bc19580a3a08415dee0fbb786a047ac2dc0781c3a9ef9b9096  w-aa\waa3\summary.json
+    d3595675ab088ec9c579df4cbddd6369d06462eec11a4b3a668d018cd928522b  m6d\waa3sum.py
+    26ed63d82726ca5e25f976b6e0f47f21dd49cf8b01fd314bfab1c61c9d6106b7  m6d\waa3sum.json
