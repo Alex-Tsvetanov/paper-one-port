@@ -226,7 +226,16 @@ namespace oneport::test
 			CHECK(r.wall_s > 0.09 && r.wall_s < 0.5, "window of " << r.wall_s << " s");
 			CHECK(r.ttfb.n == r.measure.completed && r.exchange.n == r.measure.completed, "a TTFB per completed exchange");
 			CHECK(r.ttfb.min > 0 && r.ttfb.median <= static_cast<double>(r.exchange.max), "TTFB within the exchange");
+#if defined(_WIN32)
+			// GetThreadTimes advances on the clock tick (15.625 ms) and charges each tick to the thread
+			// that runs then (bench/gen/opgen.cpp, clock_s), so over this 100 ms window, with the
+			// server's workers in the same process, two keep-alive workers that mostly wait can read 0;
+			// gen.keepalive.tls.IOCP did once in the ASan suite on W (the M7 freeze night,
+			// design/status.md). The value is a sample here, so only its form is checked.
+			CHECK(r.thread_cpu_s.size() == 2 && r.cpu_s >= 0, "the workers' CPU time");
+#else
 			CHECK(r.thread_cpu_s.size() == 2 && r.cpu_s > 0, "the workers' CPU time");
+#endif
 			if (auto bad = srv.stop_and_check()) return bad;
 			const server::Counters c = srv.server->totals();
 			if (l == og::Load::churn)
