@@ -96,7 +96,7 @@
     "tsan",
     "msan"
    ],
-   "reason": "On W only ASan is required (rule D5), built with MSVC; a third-party library that cannot be built with MSVC's AddressSanitizer is declared here before the code freeze."
+   "reason": "On W only ASan is required (rule D5), built with MSVC; a third-party library that cannot be built with MSVC's AddressSanitizer is declared here before the code freeze. None is: both libraries the server links on W, OpenSSL 3.5.9 and nghttp2 1.70.0, are built with /fsanitize=address in their asan flavour (bench/third_party/build_deps.ps1), and W's ASan build of oneport links them (the suites of 2026-10-04 and 2026-10-05 on W, design/status.md, M7 freeze session and M7 freeze night). OpenSSL's assembly, which no sanitizer instruments, is the gap above."
   }
  ]
 }

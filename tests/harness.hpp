@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace oneport::test
@@ -146,6 +147,11 @@ namespace oneport::test
 		std::map<std::uint16_t, std::vector<server::RelayReport>> relays_;
 	};
 
+#if defined(_WIN32)
+	/// How long a test waits after starting a server on IOCP before its first client (Running).
+	inline constexpr std::chrono::milliseconds kIocpStartWait{250};
+#endif
+
 	/// A started server with its collector.
 	struct Running
 	{
@@ -164,6 +170,21 @@ namespace oneport::test
 			if (extra.before_expiries != nullptr) o.hooks.before_expiries = &Running::forward_before_expiries;
 			server = std::make_unique<server::Server>(make_config(a), o);
 			server->start();
+#if defined(_WIN32)
+			// On IOCP, start() returns once the worker threads run, and each worker posts its
+			// listeners' AcceptEx requests itself after it starts (bench/server/iocp.cpp,
+			// run_iocp). A client that connects and resets before a request is posted can end
+			// with no close reported: its connection either never reaches a request or completes
+			// one with an error, which on_accept_entry closes without a report (the likely cause,
+			// not established). The suite's first client starts within microseconds of start():
+			// HC22's partial variant, which resets 10 ms after its first byte, failed its first
+			// replicate, and only that one, on W (the M7 freeze night, design/status.md). On
+			// Linux the worker takes connections from the listen queue with accept() whenever it
+			// starts, and HC22 has passed in every run of the suite on L. The suite waits here;
+			// the measured runs start their clients from another process after the server's
+			// lines.
+			std::this_thread::sleep_for(kIocpStartWait);
+#endif
 		}
 
 		Running(const Running&) = delete;
