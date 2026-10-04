@@ -25,7 +25,8 @@ which also gives HAProxy option splice-auto when it is splice); the front's back
 io_uring for section 10's relay cells); the server in one-port mode with in-process dispatch as
 the front ("one-port-inproc", M2's in-process arm, which has no backend process); a backend in
 dedicated mode instead of the stub ("backend_kind": "dedicated", M2's relay arm: "a backend that
-terminates" TLS, 5.3), on the cell's backend; an open-loop rate ("rate", WL6's M2_RATE and section
+terminates" TLS, 5.3), on the cell's backend, with its two workers' listener layout
+("backend_listener": "shared" or "reuseport", the dedicated backend only; M7d); an open-loop rate ("rate", WL6's M2_RATE and section
 10's TTFB at a fixed load), with WL6's CPU per connection then over the exchanges due in the
 window that completed; listen overflows invalidating the window ("overflow_invalidates", every
 family but M3, section 7).
@@ -86,13 +87,27 @@ def group_snapshot(pgid: int) -> dict:
     return snap
 
 
-def start_stub(build: Path, port: int, raw: Path, tag: str, backend: str = "epoll", mode: str = "stub"):
+BACKEND_LISTENERS = ("shared", "reuseport")
+
+
+def start_stub(build: Path, port: int, raw: Path, tag: str, backend: str = "epoll", mode: str = "stub",
+               listener: str = "shared"):
     """The backend of a hand-off window on CPUs 10 and 12, two workers: stub mode (M3, B3; I18), or
-    dedicated mode (M2's relay arm, the backend that terminates TLS, 5.3; and the hard cases)."""
+    dedicated mode (M2's relay arm, the backend that terminates TLS, 5.3; and the hard cases).
+    `listener` is the two workers' listener layout: the shared listener (the server's default), or
+    a SO_REUSEPORT group, one socket per worker on the same ports (`--listener reuseport`, epoll and
+    io_uring). Only the dedicated backend takes the group (M7d, the M runner); the stub keeps the
+    shared listener (M4a's reading 8)."""
     if mode not in ("stub", "dedicated"):
         raise ValueError(f"backend mode {mode!r}")
+    if listener not in BACKEND_LISTENERS:
+        raise ValueError(f"backend listener {listener!r}")
+    if listener != "shared" and mode != "dedicated":
+        raise ValueError("only the dedicated backend (M2's relay arm) takes a SO_REUSEPORT group; the stub keeps the shared listener")
     cmd = [str(build / "bench" / "server" / "oneport"), "--mode", mode, "--detect", "replay", "--dispatch", "inproc",
            "--backend", backend, "--workers", str(STUB_WORKERS), "--port", str(port)]
+    if listener != "shared":
+        cmd += ["--listener", listener]
     proc = subprocess.Popen(["taskset", "-c", ",".join(map(str, BACKEND_CPUS))] + cmd, stdout=subprocess.PIPE,
                             stderr=open(raw / f"{tag}.stub.err", "wb"), start_new_session=True, cwd=raw,
                             preexec_fn=comp.raise_nofile)
@@ -227,8 +242,11 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
     if backend_kind is not None:
         # M3's stub runs on epoll (M4a reading 8); M2's dedicated backend on the cell's backend (M7c).
         bk = cfg.get("stub_backend", "epoll") if backend_kind == "stub" else cfg.get("backend", "epoll")
-        stub, stub_out = start_stub(build, stub_port, raw, tag, bk, backend_kind)
+        listener = cfg.get("backend_listener", "shared")
+        row["backend_listener"] = listener
+        stub, stub_out = start_stub(build, stub_port, raw, tag, bk, backend_kind, listener)
         row["backend_server_backend"] = bk
+        row["backend_command"] = stub.args[3:] if isinstance(stub.args, list) else None
     front = None
     gen_report = None
     snaps: dict = {}

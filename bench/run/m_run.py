@@ -14,7 +14,8 @@ shuffled with SEED_ORDER_M_L (4.7; W's M1 cells run on W):
 - M2 (WL6 at M2_RATE, open loop, both arms in the hand-off placement): arm A the server in one-port
   mode with in-process dispatch alone on CPU 14, arm B the server's relay on CPU 14 in front of a
   server in dedicated mode, on the cell's backend, on CPUs 10 and 12 (the backend that terminates
-  TLS, 5.3), with rule E's relay copy; rows family "M2", metric {"name": "wl6_cpu_us_per_conn"}:
+  TLS, 5.3), its two workers' listener layout M2_BACKEND_LISTENER (--dev-backend-listener in
+  development; M7d), with rule E's relay copy; rows family "M2", metric {"name": "wl6_cpu_us_per_conn"}:
   the CPU time of the front and the backend together (the server alone in-process) per exchange
   due in the window that completed (bench/run/handoff.py);
 - M3 (WL1 churn through one front core, the stub backend): arm A the server's relay on epoll with
@@ -59,6 +60,10 @@ import cells as C  # noqa: E402
 R_M = C.R_M
 M2_RATE_SESSIONS = 6  # WL6: "measured in 6 development sessions per cell"
 INPROC_PORTS = {"A": 20000, "B": 20100}  # aa.py's blocks (design choices of M3)
+# The listener layout of M2's dedicated backend (two workers on CPUs 10 and 12): the shared
+# listener, as before M7d. M7d compares it with a SO_REUSEPORT group in development sessions
+# (--dev-backend-listener) before the choice is logged.
+M2_BACKEND_LISTENER = "shared"
 OTHER = {"replay": "peek", "peek": "replay"}
 
 
@@ -73,7 +78,8 @@ def m2_not_run(m2_rates: dict[str, float | None] | None) -> dict[str, str]:
             for cid, rate in m2_rates.items() if rate is None}
 
 
-def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str = "cells", m2_sessions: int = M2_RATE_SESSIONS) -> list[SS.Cell]:
+def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str = "cells", m2_sessions: int = M2_RATE_SESSIONS,
+            backend_listener: str = M2_BACKEND_LISTENER) -> list[SS.Cell]:
     out = []
     skip = m2_not_run(m2_rates) if part == "cells" else {}
     for c in C.m_cells():
@@ -98,8 +104,8 @@ def m_cells(r: int, rule_e: dict, m2_rates: dict[str, float] | None, part: str =
                  "relay_copy": rc, "run": {"system": handoff.SERVER}}
             out.append(SS.Cell(c.id, m2_sessions if part == "m2-rate" else r, {"A": a, "B": b},
                                shared={"kind": "handoff", "proto": c.proto, "backend": c.backend, "detect": d, "relay_copy": rc,
-                                       "backend_kind": "dedicated", "rate": rate, "overflow_invalidates": True,
-                                       "m2_metric": part == "cells"}))
+                                       "backend_kind": "dedicated", "backend_listener": backend_listener, "rate": rate,
+                                       "overflow_invalidates": True, "m2_metric": part == "cells"}))
         elif c.hyp == "M3" and part == "cells":
             d = rule_e["default"]["epoll"]
             rc = rule_e["relay_copy"]["epoll"]
@@ -122,8 +128,8 @@ def window_fn(a: argparse.Namespace, blocks: window.SourceBlocks):
             raise window.WindowError(f"{cell.id}: no M2_RATE")
         cfg = {"build": a.build, "proto": p["proto"], "k_src": a.k_src, "cell": cell.id, "arms": {arm: p["system"]},
                "ports": dict(handoff.PORTS), "backend": p["backend"], "detect": p["detect"], "relay_copy": p["relay_copy"],
-               "backend_kind": p["backend_kind"], "rate": p.get("rate"), "overflow_invalidates": p["overflow_invalidates"],
-               "family": cell.arms[arm]["family"]}
+               "backend_kind": p["backend_kind"], "backend_listener": p.get("backend_listener", "shared"), "rate": p.get("rate"),
+               "overflow_invalidates": p["overflow_invalidates"], "family": cell.arms[arm]["family"]}
         row = handoff.run_window(cfg, session, arm, position, blocks, a.out / "raw")
         if p.get("m2_metric"):
             row["window_metric"] = row.get("metric")
@@ -168,6 +174,8 @@ def main(argv=None) -> int:
     ap.add_argument("--part", default="cells", choices=("cells", "m2-rate"))
     ap.add_argument("--m2-rates", type=Path, help="m2_rates.json of the m2-rate part, as the revision log records it")
     ap.add_argument("--dev-m2-rate", type=float, help="development mode: one open-loop rate for every M2 cell")
+    ap.add_argument("--dev-backend-listener", choices=handoff.BACKEND_LISTENERS,
+                    help=f"development mode: the listener layout of M2's dedicated backend (default {M2_BACKEND_LISTENER})")
     a = ap.parse_args(argv)
     if a.part == "m2-rate" and not a.development:
         # Development sessions on the frozen binary after the pilot entry (WL6): the rows say
@@ -179,7 +187,7 @@ def main(argv=None) -> int:
                 raise runlib.InputRefused(f"the m2-rate part on the frozen binary needs --{flag.replace('_', '-')}")
         if not a.gate:
             raise runlib.InputRefused("the m2-rate part on the frozen binary needs --gate")
-        for flag in ("dev_r", "max_sessions", "only"):
+        for flag in ("dev_r", "max_sessions", "only", "dev_backend_listener"):
             if getattr(a, flag) is not None:
                 raise runlib.InputRefused(f"--{flag.replace('_', '-')} is for development runs only")
     else:
@@ -197,7 +205,10 @@ def main(argv=None) -> int:
         elif not a.development:
             raise runlib.InputRefused("a frozen M run reads M2's rates (--m2-rates)")
     not_run = m2_not_run(m2_rates) if a.part == "cells" else {}
-    cells = runlib.only_cells(a, m_cells(a.dev_r or R_M, rule_e, m2_rates, a.part, a.dev_r or M2_RATE_SESSIONS))
+    if a.dev_backend_listener is not None and not a.development:
+        raise runlib.InputRefused("--dev-backend-listener is for development runs only")
+    listener = a.dev_backend_listener or M2_BACKEND_LISTENER
+    cells = runlib.only_cells(a, m_cells(a.dev_r or R_M, rule_e, m2_rates, a.part, a.dev_r or M2_RATE_SESSIONS, listener))
     prov = runlib.job_provenance(a.build, a.tools, a.out, a.job)
     clearance = None
     if not a.development:
