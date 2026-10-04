@@ -997,8 +997,11 @@ the client's FIN, so no committed change.
 
 The alternative, tested: a diagnostic switch in `m6c\src-diag` (`m6c\diag-server.patch`, lab only,
 `ONEPORT_DIAG_WAIT_EOF`): after DISCONNECT, or once nghttp2 is done, the server reads on until the
-client's end and then closes; a byte after DISCONNECT closes at once. waa2's opgen, one fresh
-server per run, the two variants alternated; open loop at waa2's rates (3 sessions), churn (2).
+client's end and then closes; a byte after DISCONNECT closes at once. Both variants ran the server
+from `m6c\build-diag` (0698947's code plus the switch, `oneport.exe` sha256 4fbc0314, below); with
+the switch unset it is the built behaviour. waa2's opgen, one fresh server per run, the two variants
+alternated; open loop at waa2's rates (3 sessions), churn (2). The runs of item 2 used waa2's own
+binaries.
 "CPU" is the server's GetProcessTimes over the whole run per connection, a sample at this load
 (item 2 below).
 
