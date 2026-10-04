@@ -15,8 +15,8 @@ has run.
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | done, 2026-10-03 (below) |
 | M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
 | M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
-| M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) open |
-| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); the freeze itself open |
+| M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) merged into main at its 74dc539 in fa8be6d, 2026-10-04 (below, "M7c follow-up"; `design/status-m6b.md`); W's runners open |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); the freeze itself open |
 
 ## Engineering constraints
 
@@ -5203,36 +5203,263 @@ In the M7 checklist's order, after M7c:
    then `cost_run.py`, `m_run.py`, `s_run.py`, `hardcase_run.py` (both parts), each family in its
    own order.
 
+## M7c follow-up, 2026-10-04
+
+The coordinator's follow-up of M7c: the merge of `m6b-windows` at 74dc539, the suite on L, the
+pushes, M7c's open items settled against the frozen text and logged, `ANALYSIS_COMMIT`. Nothing
+here is a result: every window below is development data, journaled as such. Every job on L ran
+under `lab_job.sh` at nice 0, launched from bash (`bash -c '(setsid nohup bash ... &)'`), from
+fresh clones of the lab remote under `~/lab/p3/m7c/`. The `one-port-m6b` work tree and W were not
+used for any build, job or timing; on W (this session's own host) only `run.test_frozen` and
+`run.test_wrunner` ran as pure Python, about 10 s, after W's night A/A job had ended (02:31).
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line) |
+|---|---|
+| fa8be6d | chore: merge m6b-windows at 74dc539 into main |
+| 236ee3c | feat(gen): opgen's tls-h2, section 10's TLS variant with ALPN h2 |
+| 8e77e28 | feat(run): section 10's ALPN h2 cells, the logged choices of M7c's open items |
+| 3623df6 | fix(run): the mixed cell's rows keep each background generator's CPU time (cpus, cpu) in the background report; a test |
+| 13004bc | docs: hypotheses.md revision log, M7c's open items, before the code freeze |
+| d16d8b4 | docs: hypotheses.md revision log, ANALYSIS_COMMIT = 7364fbb... |
+
+Then this section's update. Papers: 4af4be6 and 3cb0bcd pushed; 2ce46ec bumps `papers/one-port`
+to fa8be6d (pushed); ae30f03, e2e4's lab-journal line (development); then a second bump to this
+section's commit. `main` went to `origin` at fa8be6d once chk4 had passed, and to `lab` before it
+(the fresh clones of the suite come from the lab remote, as in M7c); everything after is pushed
+to both with this section.
+
+### The merge (fa8be6d)
+
+`m6b-windows` merged at exactly 74dc539 (the branch's head then; later commits of the branch are
+not in). The brief expected a conflict in `bench/server/record.cpp`; there was none: git merged
+main's write-through (beed996) and M6b's `_MSC_VER`-only pragma around `fopen` (2b6aed0) on its
+own, both kept. Two files conflicted, both kept on both sides:
+- `bench/cases/run_cases.cpp`: M6b renamed the JSON helper `quoted` to `json_quoted` (MSVC's
+  `std::quoted` won argument-dependent lookup); main had added `variant_line` and the TLS fields
+  group, sigalg, verified and resumable with the old name. The merge keeps main's fields and gives
+  every use the new name (no `quoted(` call is left).
+- `tests/CMakeLists.txt`: main's `run.test_frozen` and M6b's `run.test_wrunner`, both registered.
+`bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` hold for the merged tree: no target
+was added or removed (M7c's `hold.cpp` is in the `opcase` library, Linux-only by its own guard;
+M6b's `worker_win.cpp` is in `opgen_core`).
+
+### The suite in four builds
+
+`~/lab/p3/m7c/checks_job.sh` (M7c's script, sha256
+387d87734f8a693dcd248df2931fa88135c1efd2bcff3a4584cc4cc1301988ff), Debug and ASan+UBSan at once,
+then TSan and MSan at once; report lines counted with the lab's shared pattern.
+
+| Build | chk4 (fa8be6d, the merge) | chk5 (8e77e28, the follow-up's code) |
+|---|---|---|
+| Debug | 0 warnings, 394 of 394, 0 report lines | 0 warnings, 398 of 398, 0 report lines |
+| ASan+UBSan | the same | the same |
+| TSan | the same | the same |
+| MSan | the same | the same |
+
+394 is chk3's 393 and `run.test_wrunner` (pure on Linux). 398 adds `gen.churn.tls-h2` and
+`gen.tls_h2_one_port` on both backends. As in M7c, logs of `run.test_runner` show a thread's
+exception from its stand-in stub, which passed (chk4: four logs; chk5: three); it matches no
+report pattern. After
+3623df6 and 13004bc, which change only `bench/run/*.py` and docs, the suite's Python tests ran
+again from a fresh clone at 13004bc (job py1): `test_frozen` 40 of 40 (on L none skipped),
+`test_runner` 63 of 63, `test_wrunner` 19 of 19, `test_gates` and `test_record_writers` passed.
+Logs (sha256), `~/lab/p3/m7c/check/`: fa8be6d debug build
+fdf88874393f073998dae8bf79dddfb3fe9367ceaef88553f01344c7cc753183, ctest
+b404b6a3b5beec1011c6bcc75a24a9a54cd0d8801219ccb7b42f356878b9b511; asan build
+68c95dcdb7344f12afcaa77812b6b86c8cb3eb7e34b68c31ee38976ca974c919, ctest
+91a121f281af4121c1f47f88299c1194a2c1dff3813e4a4d94905fbd787411dd; tsan build
+51567c88f65a5730bb63f0486182d8c62ccde7e080443a2c9859d34ecb0cb6da, ctest
+ff77a9497db3ac192a6dce9202a83512f6c4e356b2446950021c0eea6ab66d66; msan build
+83ba5a555121d6a6d911944d50b3c0dbf6c13975456127c1c5afb7d1007a70bb, ctest
+4a09dabfe08ea1b619b353912b4bfecf62d7e820aea62431448c164dd0258b5b. 8e77e28 debug build
+53536889ca9af2a0c37ba4c84394e0287bf5ba7ca90f8d1fe3cfbbcbc8d2c24b, ctest
+0bf0180a453ac6a7f3983721a96cd0e47e0196c45ef384c92f83bf06ab5fae88; asan build
+3c0db3a5184446c751054a7081b4aa3f7a63b3cb020b45ea78174db9031ac01d, ctest
+94bfcf5366c33dd17411f841ec8b2535b1a3305aa8ad9f455eeaa3a246424125; tsan build
+c764d16db0c0a0a333cb58dc594e6b2ee0b731c323905358970483d771cd612a, ctest
+342b000c0049440af989cb128970a660ef08f725f52b2974da20fc2a65e82f98; msan build
+c657fcdf88043f40d155d23ed70dccb46ce613f46ad59130cfaff2858d314600, ctest
+b5724e94023de259d0c598d897cd357e60f44774869a3a0f5220cb01ed770455.
+
+### M7c's open items (revision log, entry "M7c's open items, before the code freeze")
+
+Logged as one entry (13004bc), eight items, each labelled; the entry gives every reason in full.
+The runners apply items 2 to 6, and a frozen run of the section 10, B3 or M runner refuses to start
+without the entry's heading (`freeze_guard.M7C_ITEMS`).
+
+| Item | Label | What | Code |
+|---|---|---|---|
+| 1 | reading | The mixed cell's TLS and MQTT keep-alive background is WL3 with C = 64 each, a closed loop: WL3 is the text's only keep-alive, 9.1 sizes the background by counts alone, and a fixed rate would need a λ with no rule. Consequence (e2e2): the cell's churn about 17.6k against about 44.7k alone; the background generators 15.5% to 30.1% busy, so the server set the background's rate | unchanged; 3623df6 keeps the generators' CPU in the row |
+| 2 | design choice | Silent connections of the dedicated arm on the HTTP/1.1 port: the listener of the measured load, as in one-port mode; spread would add the SSH and SMTP ports' first lines, which the one-port arm never sends a silent connection | `s_run.py` default http1, frozen run refuses spread |
+| 3 | reading (silent case: design choice) | B3's other-mode cells in relay: WL7 says the peek side of these cells leaves bytes queued, which in the partial-ClientHello case only pass-through does; in-process the handler reads the bytes at byte 6 in either mode (m5b3b: the same U in replay and peek) | `b3_run.py` default one-port-relay, frozen run refuses in-process |
+| 4 | reading | TLS with ALPN h2 runs: 2.1's ALPN http/1.1 is scoped to the cost cells (6.1), which section 10's variants are not; the exchange composed from WL1's TLS and h2c rows | 236ee3c (opgen), 8e77e28 (runner) |
+| 5 | reading | TLS with session resumption is not run (3 cells): 2.1 fixes no tickets and no session cache for every endpoint, unscoped, and TLS 1.3 resumes only from a ticket; section 10 decides nothing, so no claim changes | `s_run.py` lists them as not run, with why |
+| 6 | reading and design choice | An M2 cell whose rate 9.3 cannot compute has no rate (section 9), so no valid session, p = 1 in Holm (4.1, 4.2), "a difference was not shown" (section 12); the runner starts none of its windows (design choice) | `m_run.py`, `not-run-<job>.json` |
+| 7 | design choice (M7c's) | The mixed cell's placement: cell opgen 2 to 9, TLS background 10 and 11, MQTT background and holder 12 and 13 | unchanged |
+| 8 | reading | Section 7's generator rule in the mixed cell reads the cell's generator only; the background generators' CPU is recorded | unchanged |
+
+The brief's tokens: the frozen runners find the later entries by a word and a file's sha256
+(CODE_FREEZE, the seeds, the pilot, rule E, M2_RATE; M7c, "What a frozen run checks"). This entry
+names no file by its sha256, so it can match none of them; the one token a runner looks for in it
+is its heading, "M7c's open items, before the code freeze".
+
+### What was implemented (item 4, and the runners' choices)
+
+- `opgen --proto tls-h2` (236ee3c): the full handshake offering ALPN `h2` alone; after it, the
+  negotiated protocol must be `h2` or the exchange fails (counted as a TLS failure); then h2c's WL1
+  exchange inside TLS (preface, SETTINGS and HEADERS with END_STREAM, read to END_STREAM, GOAWAY),
+  close_notify, close. Churn and open loop; keep-alive refused by the parser. Linux and Windows
+  share the code (`over_tls()` replaces the TLS-only checks, `worker_win.cpp` included); W has not
+  built it.
+- Tests: `gen.options` (the protocol, open loop, keep-alive refused); `gen.churn.tls-h2.<backend>`
+  and `gen.probe.<backend>` against dedicated mode; `gen.tls_h2_one_port.<backend>` against
+  one-port mode (every connection classified TLS, the probe); registered for IOCP too.
+- `s_run.py` (8e77e28): the ALPN h2 cells on epoll and io_uring (rows `proto` tls, `variant`
+  alpn-h2, opgen's tls-h2 through `cellwin.py`'s `gen_proto`), pairing one-port with dedicated
+  mode, so their one-port arms are stubs in development; resumption listed as not run on every
+  host; `--silent-ports` defaults to http1 and a frozen run refuses spread.
+- `b3_run.py`: `--other-mode-system` defaults to one-port-relay; a frozen run refuses
+  one-port-inproc. `m_run.py`: an M2 cell with a null rate is not run, listed in
+  `not-run-<job>.json`. `freeze_guard.py`: `check(entries=...)`; the section 10, B3 and M runners
+  refuse a frozen run whose revision log lacks the heading "M7c's open items, before the code
+  freeze". `window.py`: `stop_on_signals` sets SIGHUP only where it exists, so `run.test_frozen`
+  passes on Windows (it failed there on `signal.SIGHUP`, found running it on W; W's suite registers
+  it since the merge).
+- `test_frozen.py`: 39 checks (35 before): the ALPN h2 cells' rows accepted by `analysis/` and their
+  window (the probe and opgen run tls-h2 on the dedicated TLS port, or on the one-port listener
+  with a clearance and never without), the resumption cells not run, the silent ports and the
+  other-mode system with their frozen refusals, an M2 cell without a rate (not run; `analyse()`
+  leaves it untested with 0 sessions), the guard's entry check.
+
+### The records drivers' dry run and the development check
+
+`~/lab/p3/m7c/e2e4_job.sh` (sha256 e55beef8c89466b5c1647627fd733b9493270fb53b11732eed28d683f115cff7),
+one lab job at 8e77e28 (opgen and opcase changed): `DRY_RUN=1 bench/records_job.sh` (dryrun9),
+then on its `build-release` the section 10 runner in development mode, then `devcheck.py`.
+
+| Step | s | What ran |
+|---|---|---|
+| dryrun9 | 526 | release 36 s; oneport ASan+UBSan and TSan 156 s; MSan 149 s; cmux ASan 36 s, TSan 45 s; hyper-util ASan 53 s, TSan 50 s; gate passed, `dry_run` true, `citable` false |
+| s | 95 | the mixed cell on epoll and the ALPN h2 cells on epoll and io_uring, a session and its rerun each (dev seed 7956, `--dev-r 1`): every one-port window a stub (nothing started), all 12 dedicated windows valid |
+| devcheck | 0 | ok: 24 rows; 12 bound to dryrun9's gate (a dry run, not citable), 0 refused; 12 stubs; `analyse()` accepted the rows |
+
+Development readings, not results, dedicated arms only: the mixed cell's churn 17,676.6 to
+17,727.8 connections per second, each background 444,894 to 449,500 requests per 10 s run, the 64
+silent connections held on the HTTP/1.1 port throughout (closed 0, reopened 0, bytes received 0,
+64 connects); TLS with ALPN h2 3,435.6 to 3,463.0 connections per second on epoll and 3,657.8 to
+3,684.2 on io_uring, 0 failed exchanges in every warm-up and window. dryrun9's gate binaries
+(sha256, first 12): oneport 4c64edc25f76 (byte for byte dryrun8's: the server did not change),
+opgen a25faa11e47f (tls-h2), opcase 49cb3c049250 (the merge's `json_quoted` rename in
+`run_cases.cpp`), ophold 3f405ac29c62, harness_cmux 8c98565a3247, harness_hyper_util d6e52b94e88c,
+harness_jetty 54034332a39d, harness_netty a74b43885186 (the harnesses again differ from dryrun8's
+with no input of theirs changed, as M7c found). Files (sha256), `~/lab/p3/m7c/`: dryrun9/gate-L.json
+b262681b446bfa2557f6ba17a931aff6efffe5881337d62f29b1ef3de193f931, dryrun9/measured-L.json
+2d6bf33259105f869d999296429bd1ab9e63345100b2d4d304da8ec2e8de7c94, dryrun9/records.log
+3e3774b1cd482e58c010a06970288c338ab0ad0b8864c46303eff15dd7bd22c8, e2e4/s/windows.jsonl
+53c7fce000cc6a24a6f798962d6f86c606ee350f35ba452acb146b6126130321, e2e4/s/not-run-e2e4-s.json
+8f1aecbc013f868884935a125ac6170d73a32f40fd5691cbf202e9d0d38cce8b, e2e4/devcheck.json
+98bcb18a88bebe00f45d4b116697e94d27eae2f24961f6283d1f5c8531c5251b. No one-port window ran against
+dedicated mode, and no window against a competitor. Lab journal: one line (Papers ae30f03).
+
+### ANALYSIS_COMMIT
+
+Logged (d16d8b4): `ANALYSIS_COMMIT` = 7364fbbbf356e22bb0d6a74b0b9bc29b62c3534b, the last
+commit that changed `analysis/`; nothing in `analysis/` was left to change (the rows of every
+cell this follow-up touched are forms it reads, `test_frozen.py`). The tests, from fresh clones on
+L, in `~/opt/analysis-numpy-2.5.0/venv` (numpy 2.5.0, Python 3.14.7):
+`~/lab/p3/m7c/ana_job.sh` (sha256 10890a8f1c40951c498d32b8b18d52f964d3985bbf66f618a6f3cc5271e662d2,
+job ana1) at 7364fbb and at 8e77e28: 70 passed, 1 skipped each (logs
+75a2c66cf2b7f3ee087cd3e1e22a152a462b4ec0c86fe36e4eae5704c6ad4193 and
+9b6ef09d75e9d27df497d040826220c177539f95195ff1f5f02d54922824032a); the skipped Appendix A test
+alone with `ONEPORT_SLOW=1` (`ana_slow_job.sh`, sha256
+8d43d0c1efd6d9b3ad2217f8b0f38eb887b5f1ecd57b24a21a9db4df0aa2b178, job ana2) at 7364fbb: 2 passed
+in 119 s (log af3b9364d090f9ae9e8b7b06f113062f4ddbf1e0cbc77b27562f52d0914906de). The seeds entry
+was not written (the brief).
+
+### For the coordinator
+
+1. M2's TLS cells. If the frozen rate sessions behave as e2e1's, both enter Holm with p = 1 and
+   M2's claim narrows to HTTP/1.1 (item 6). e2e1's rows show the cause: the backend (dedicated
+   mode, two workers on CPUs 10 and 12) shares one listener, and in 15 of 16 relay windows one
+   worker took nearly every connection (core 12 92.6% to 100.4%, core 10 at most 7.6%); in the
+   one window where both took a share (41.2% and 59.2%) the window was valid at the same rate.
+   The frozen text fixes the backend's cores (4.1) and one worker per core (2.1), not its
+   listener; dedicated mode already accepts `--listener reuseport` on epoll and io_uring. A
+   backend in an SO_REUSEPORT group might keep each core under 90% and make the rate computable.
+   That is a design choice for the coordinator before CODE_FREEZE (`handoff.py`'s backend
+   command, then development rate sessions to check it); it was not made here. M2's TLS cell on
+   epoll has not run rate sessions.
+2. Resumption (item 5) is a reading against the proposal's intent (I24: "Session resumption is a
+   secondary cell"), not against the frozen text; 3 secondary cells are reported as not run.
+   Alex may want to know.
+3. W: the ALPN h2 IOCP cell and every W cell need W's runner. W has built none of M7c's C++, of
+   the merge, or of 236ee3c (`worker_win.cpp` changed; `gen.churn.tls-h2.IOCP` and
+   `gen.tls_h2_one_port.IOCP` are registered), and `run.test_frozen` is now in W's suite (it
+   passed on W as pure Python after 8e77e28's SIGHUP fix; the other agent's work tree was not
+   touched). `m6b-windows` is merged at 74dc539 only; later commits of the branch need another
+   merge before CODE_FREEZE.
+4. M7c's "For the coordinator" items 4 (rule E's computation), 6 (the cost family's dedicated arm
+   gets the detection flag), 7 (M7c's design choices: K_BASE's 4 extra windows, the hard cases'
+   20 s wait, one server per listener setup, the competitors' rows, stub sessions rerun) and 9
+   (`runlib.HOST` is L) were not in this follow-up's brief and are not logged.
+5. Development seeds used so far, which the seeds entry must avoid: 7701 to 7714, 7801, 7802
+   (M7c), 7951 to 7964 (e2e4), 861 and 20261003 (W, M6b).
+
+### What the freeze still needs
+
+In the M7 checklist's order:
+1. The coordinator's answer to item 1 above (or none), and to M7c's unlogged items 4, 6, 7 and 9;
+   any change lands before item 8, since the runners are frozen with the tests.
+2. W's half of checklist item 2: Debug and MSVC ASan of the merged tree, the whole suite, with
+   Alex's yes when W is free (W has built neither M7c's C++ nor 236ee3c); any later
+   `m6b-windows` commits merged first. W's runners (W's pilot and its parts, the cost cells on
+   IOCP, M1 on IOCP, rule E's IOCP evidence, section 10's W cells including ALPN h2 on IOCP, the
+   IOCP forms, the hard cases on IOCP) do not exist and must write the same rows.
+3. The pins re-read (item 3), the slab re-read (item 4), the seeds entry (item 5, avoiding the
+   development seeds above), the values of section 9.1 (item 6), the final `coverage.json` (item
+   7), `CODE_FREEZE` (item 8), the records at it on L and W (item 9), the gates (item 10) and the
+   code freeze's entry (item 11), each entry with the tokens the runners look for; every lab job
+   at nice 0.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
 gave, the reason is in the item. Each item names what decides it.
 
-1. **Open decisions that block the freeze** (the coordinator's, or Alex's where named). All but
-   `ANALYSIS_COMMIT` are resolved ("M7 fixes, 2026-10-03"):
+1. **Open decisions that block the freeze** (the coordinator's, or Alex's where named). All are
+   resolved ("M7 fixes, 2026-10-03"; "M7c follow-up, 2026-10-04"), except what the follow-up's
+   "For the coordinator" leaves open:
    - Resolved (d15e775): M5's reading 4. The reassembler refuses at a record header that would
      take the handshake bytes past B_CH, and the storage stays within B_CH and 5 bytes per
      record; case B sits at that bound (the reading is in "M7 fixes", item 2, for the coordinator).
-   - Open: `ANALYSIS_COMMIT` (section 8 step 2: "the analysis code that runs 4.6 is committed with
-     its tests" before engineering ends). `analysis/` holds only `appendix_a_r_rule.py`, which says
-     it is not that code; the analysis branch `m7-analysis` is another agent's. Section 8 makes
-     each step start after the one before it is committed, so this precedes the code freeze.
+   - Resolved (d16d8b4): `ANALYSIS_COMMIT` = 7364fbbbf356e22bb0d6a74b0b9bc29b62c3534b, logged,
+     with its tests on the pinned numpy ("M7c follow-up", "ANALYSIS_COMMIT").
    - Resolved (97a5363): the harnesses' LeakSanitizer. Both end on SIGTERM by a normal exit, and
      a harness record is green only if every run ended so; no gap is declared.
    - Resolved (3382bb8): the route without ALPN stays in all five proxies, logged.
    - Resolved (c1b4283): `b3.py`'s rows name the binaries they ran, so `check_rows.py` binds them.
    - Resolved (3382bb8): `N_BG_TLS` = `N_BG_MQTT` = `N_BG_SILENT` = 64, logged. How the mixed cell
-     holds its background: the generator change landed (0b63d62, `opcase hold`, M7c); still for the
-     coordinator, M7c's items: the keep-alive background read as WL3's closed loop, where the
-     silent connections go in dedicated mode, the placement.
-   - Open (M7c): the coordinator's readings of M7c's runners (M7c, "For the coordinator"), before
-     item 8, since the runners are frozen with the tests.
+     holds its background: the generator change landed (0b63d62, `opcase hold`, M7c); the
+     keep-alive background as WL3's closed loop, the silent connections on the dedicated HTTP/1.1
+     port and the placement logged (13004bc, items 1, 2, 7 and 8).
+   - Resolved (13004bc): M7c's items 1, 2, 3 and 5 for the coordinator (the mixed cell, B3's
+     other-mode dispatch, the TLS variants, M2's rate), logged as the entry "M7c's open items,
+     before the code freeze", the runners changed to match. Open: M7c's items 4, 6, 7 and 9, and
+     M2's TLS backend ("M7c follow-up", "For the coordinator"), before item 8, since the runners
+     are frozen with the tests.
 2. **The final merge of `m6b-windows`** into main, then the build of the merged tree:
+   - Merged at 74dc539 (fa8be6d, "M7c follow-up"); a later commit of the branch needs another
+     merge.
    - L: Debug, ASan+UBSan, TSan and MSan, the whole suite in each (as `checks_job.sh` ran M5's).
-   - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free.
+     Done: chk4 at fa8be6d (394 of 394) and chk5 at 8e77e28 (398 of 398), 0 warnings and 0 report
+     lines in each build.
+   - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free. Open: W has built
+     none of M7c's C++, of the merge or of 236ee3c.
    - Check `bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` against the merged tree
      (M6b built opgen on Windows): a compiled target added or removed stops the hash until the
-     list is right.
+     list is right. Done: they hold (no target added or removed).
 3. **The pins, re-read before the records**, since every record carries the sha256 of
    `bench/cmake/pins.cmake` and the gate refuses a build whose pins differ from its records':
    - The JDK. Section 2.3: Netty and Jetty "on the latest LTS JDK at the code freeze"; section
@@ -5354,6 +5581,10 @@ gave, the reason is in the item. Each item names what decides it.
   development), Papers commit 4af4be6 (local, not pushed). The submodule pointer is the
   coordinator's. For the coordinator: M7c's items ("M7c", "For the coordinator"); five readings
   logged (the revision log's entry "Readings fixed during engineering (M7c)").
+- M7c follow-up: Papers 4af4be6 and 3cb0bcd pushed; 2ce46ec bumps the submodule to fa8be6d;
+  ae30f03, 1 lab-journal line (e2e4, development); then a bump to this section's commit. Logged:
+  the entries "M7c's open items, before the code freeze" and "ANALYSIS_COMMIT, before the code
+  freeze". For the coordinator: "M7c follow-up", "For the coordinator".
 
 ## What M1 starts from
 
