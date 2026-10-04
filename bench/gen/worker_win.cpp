@@ -300,7 +300,7 @@ namespace oneport::opgen::detail
 		else
 		{
 			c.reading = false;
-			if (o_.proto == Proto::tls) drive_tls(i);
+			if (over_tls(o_.proto)) drive_tls(i);
 			else readable(i);
 		}
 		// Still the same connection? (The generation, not the exchange's id, which keep-alive
@@ -328,7 +328,7 @@ namespace oneport::opgen::detail
 			{
 				// Bytes, or the end, are there already: no packet. Read them, then post again.
 				io_->give(op);
-				if (o_.proto == Proto::tls) drive_tls(i);
+				if (over_tls(o_.proto)) drive_tls(i);
 				else readable(i);
 				if (!conns_[i].active || conns_[i].gen != gen) return;
 				continue;
@@ -379,7 +379,7 @@ namespace oneport::opgen::detail
 	bool Worker::flush(std::uint32_t i)
 	{
 		Conn& c = conns_[i];
-		if (o_.proto == Proto::tls) return flush_tls(i);
+		if (over_tls(o_.proto)) return flush_tls(i);
 		while (c.out_off < c.out.size())
 		{
 			const int n = ::send(static_cast<SOCKET>(c.fd), reinterpret_cast<const char*>(c.out.data() + c.out_off), static_cast<int>(c.out.size() - c.out_off), 0);
@@ -462,7 +462,7 @@ namespace oneport::opgen::detail
 			for (const auto& [i, gen] : again)
 			{
 				if (!conns_[i].active || conns_[i].gen != gen) continue;
-				if (o_.proto == Proto::tls) drive_tls(i);
+				if (over_tls(o_.proto)) drive_tls(i);
 				else flush(i);
 				if (conns_[i].active && conns_[i].gen == gen) arm_read(i);
 			}

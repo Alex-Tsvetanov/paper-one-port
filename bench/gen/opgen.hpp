@@ -8,7 +8,10 @@
 //     flight per connection.
 // Protocols: HTTP/1.1, h2c (prior knowledge, static-table header fields, read to END_STREAM),
 // TLS with HTTP/1.1 (the OpenSSL build and settings of bench/tls), MQTT 3.1.1, SSH, and the TLS
-// stub exchange (the recorded ClientHello, read the stub's 13 bytes to EOF).
+// stub exchange (the recorded ClientHello, read the stub's 13 bytes to EOF); and TLS with ALPN h2
+// (section 10's variant, churn only): the full handshake offering ALPN h2 alone, the negotiated
+// protocol checked to be h2, then h2c's exchange inside TLS (the preface, SETTINGS and HEADERS
+// with END_STREAM, read to END_STREAM, GOAWAY), and the client closes first, with close_notify.
 //
 // Counting. Only the measured window counts. The main thread takes the clock after the warm-up
 // and again after the window, and prints MEASURE_START and MEASURE_END at those instants (the
@@ -50,8 +53,11 @@ namespace oneport::opgen
 		mqtt,      // MQTT 3.1.1
 		ssh,
 		tls_stub,  // the recorded ClientHello against stub mode's TLS port
+		tls_h2,    // TLS with h2 (ALPN h2): section 10's variant, churn only
 	};
 	std::string_view name(Proto p) noexcept;
+	/// The protocols that run over TLS (OpenSSL's client): TLS with HTTP/1.1, TLS with h2.
+	constexpr bool over_tls(Proto p) noexcept { return p == Proto::tls || p == Proto::tls_h2; }
 
 	enum class Load : std::uint8_t
 	{

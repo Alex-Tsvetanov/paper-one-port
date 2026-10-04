@@ -8,17 +8,20 @@
 //     completed without error, and the server's view consistent with the generator's;
 //   - gen.open_loop.<backend>: WL2 at a fixed rate, the exchanges due counted from the schedule;
 //   - gen.probe.<backend>: the probe of each protocol;
+//   - gen.tls_h2_one_port.<backend>: section 10's TLS variant with ALPN h2 (tls-h2, whose churn
+//     gen.churn.tls-h2 runs in dedicated mode) against one-port mode, every connection TLS;
 //   - gen.source_block: every connection's source address lies in the block;
 //   - gen.failures: a refused port counts connect failures, a silent server counts timeouts;
 //   - gen.hold.<backend>: the mixed-protocol cell's silent background (opcase's holder) against
 //     one-port mode, whose T_dec closes it and the holder opens it again, and against dedicated ports;
 //   - gen.binaries: the opgen, opcase and ophold programs against the oneport program.
 // On Windows (M6b) the same loads and protocols run against the server on IOCP
-// (gen.<load>.<proto>.IOCP, gen.open_loop.IOCP, gen.probe.IOCP), and Windows' own forms of the
-// rest: gen.source_block and gen.failures with Winsock listeners (a refused loopback connect is
-// reported only after about 2 s on W, so its window is longer), gen.pin_reuse_unicastport (the
-// socket option opgen sets in place of IP_BIND_ADDRESS_NO_PORT, tested before use), and
-// gen.binaries with the oneport and opgen programs (opcase's and ophold's programs are Linux only).
+// (gen.<load>.<proto>.IOCP, gen.open_loop.IOCP, gen.probe.IOCP, gen.tls_h2_one_port.IOCP), and
+// Windows' own forms of the rest: gen.source_block and gen.failures with Winsock listeners (a
+// refused loopback connect is reported only after about 2 s on W, so its window is longer),
+// gen.pin_reuse_unicastport (the socket option opgen sets in place of IP_BIND_ADDRESS_NO_PORT,
+// tested before use), and gen.binaries with the oneport and opgen programs (opcase's and ophold's
+// programs are Linux only).
 // Functional and untimed: no rate is asserted.
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -113,6 +116,11 @@ namespace oneport::test
 			CHECK(!ok({"--port", "9", "--proto", "quic"}), "an unknown protocol");
 			CHECK(!ok({"--port", "9", "--proto", "ssh", "--load", "keepalive"}), "SSH has no keep-alive load (WL3)");
 			CHECK(!ok({"--port", "9", "--proto", "tls-stub", "--load", "keepalive"}), "the stub exchange has no keep-alive load");
+			const auto h = ok({"--port", "9", "--proto", "tls-h2"});
+			CHECK(h && h->proto == og::Proto::tls_h2 && og::name(h->proto) == "tls-h2" && og::over_tls(h->proto) && !og::over_tls(og::Proto::h2c),
+			      "TLS with ALPN h2");
+			CHECK(ok({"--port", "9", "--proto", "tls-h2", "--rate", "100"}), "TLS with ALPN h2 in open loop");
+			CHECK(!ok({"--port", "9", "--proto", "tls-h2", "--load", "keepalive"}), "TLS with ALPN h2 is churn only (section 10's variant is C1)");
 			CHECK(!ok({"--port", "9", "--proto", "http1", "--load", "keepalive", "--rate", "10"}), "open loop is churn's");
 			CHECK(!ok({"--port", "9", "--proto", "http1", "--src-base", "127.0.0.1"}), "a block holding the server's 127.0.0.1");
 			CHECK(!ok({"--port", "9", "--proto", "http1", "--src-base", "127.255.255.250", "--k-src", "6"}), "a block holding 127.255.255.255");
@@ -189,7 +197,8 @@ namespace oneport::test
 				case og::Proto::http1: return detect::Proto::http1;
 				case og::Proto::h2c: return detect::Proto::h2c;
 				case og::Proto::tls:
-				case og::Proto::tls_stub: return detect::Proto::tls;
+				case og::Proto::tls_stub:
+				case og::Proto::tls_h2: return detect::Proto::tls;
 				case og::Proto::mqtt: return detect::Proto::mqtt;
 				case og::Proto::ssh: return detect::Proto::ssh;
 			}
@@ -327,9 +336,37 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// Section 10's TLS variant with ALPN h2 against the server in one-port mode (one_load runs it
+		/// in dedicated mode): every connection classified TLS, every exchange h2 inside TLS. Untimed.
+		Result tls_h2_one_port()
+		{
+			ServerArgs a;
+			a.mode = Mode::one_port;
+			a.t_dec = 3000ms;
+			a.t_fb = 3000ms;
+			Running srv(a);
+			og::Options o = short_window(og::Proto::tls_h2, og::Load::churn, srv.port());
+			const og::Result r = og::run(o, nullptr);
+			CHECK(r.ok, "opgen failed: " << r.error);
+			CHECK(r.measure.completed > 0, "nothing completed in the window");
+			CHECK(r.measure.errors.total() == 0 && r.warmup.errors.total() == 0,
+			      "errors: window " << r.measure.errors.total() << " (tls " << r.measure.errors.tls << ", eof " << r.measure.errors.eof << ", protocol "
+			                        << r.measure.errors.protocol << ", reset " << r.measure.errors.reset << "), warm-up " << r.warmup.errors.total());
+			og::Options pr = o;
+			pr.probe = true;
+			const og::Result rp = og::run(pr, nullptr);
+			CHECK(rp.ok && rp.measure.completed == 1 && rp.measure.errors.total() == 0, "the probe: " << rp.probe_detail << " " << rp.error);
+			if (auto bad = srv.stop_and_check()) return bad;
+			const server::Counters c = srv.server->totals();
+			const auto tls = c.classified[static_cast<std::size_t>(detect::Proto::tls)];
+			CHECK(c.accepted == r.measure.connects + 1 && tls == c.accepted, "accepted " << c.accepted << ", classified TLS " << tls);
+			return std::nullopt;
+		}
+
 		Result probe()
 		{
-			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub})
+			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub,
+			                          og::Proto::tls_h2})
 			{
 				ServerArgs a;
 				a.mode = p == og::Proto::tls_stub ? Mode::stub : Mode::dedicated;
@@ -977,7 +1014,8 @@ namespace oneport::test
 					return fn();
 				};
 			};
-			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub})
+			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub,
+			                          og::Proto::tls_h2})
 			{
 				r["gen.churn." + std::string(og::name(p)) + s] = on([p] { return one_load(p, og::Load::churn); });
 			}
@@ -988,6 +1026,7 @@ namespace oneport::test
 			r["gen.open_loop" + s] = on(open_loop);
 			r["gen.hold" + s] = on(hold);
 			r["gen.probe" + s] = on(probe);
+			r["gen.tls_h2_one_port" + s] = on(tls_h2_one_port);
 		}
 		r["gen.source_block"] = source_block;
 		r["gen.failures"] = failures;
@@ -1002,7 +1041,8 @@ namespace oneport::test
 					return fn();
 				};
 			};
-			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub})
+			for (const og::Proto p : {og::Proto::http1, og::Proto::h2c, og::Proto::tls, og::Proto::mqtt, og::Proto::ssh, og::Proto::tls_stub,
+			                          og::Proto::tls_h2})
 			{
 				r["gen.churn." + std::string(og::name(p)) + s] = on([p] { return one_load(p, og::Load::churn); });
 			}
@@ -1012,6 +1052,7 @@ namespace oneport::test
 			}
 			r["gen.open_loop" + s] = on(open_loop);
 			r["gen.probe" + s] = on(probe);
+			r["gen.tls_h2_one_port" + s] = on(tls_h2_one_port);
 			r["gen.source_block"] = win_source_block;
 			r["gen.failures"] = win_failures;
 			r["gen.pin_reuse_unicastport"] = pin_reuse_unicastport;

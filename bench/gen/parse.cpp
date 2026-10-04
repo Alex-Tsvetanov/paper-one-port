@@ -1,11 +1,14 @@
 // opgen's readers of the server's bytes, per protocol (worker.hpp): HTTP/1.1 (also inside TLS),
-// h2 frames to END_STREAM, MQTT's CONNACK and PINGRESP, SSH's identification line, and the TLS
-// stub's 13 bytes.
+// h2 frames to END_STREAM (also inside TLS, ALPN h2), MQTT's CONNACK and PINGRESP, SSH's
+// identification line, and the TLS stub's 13 bytes.
 #include "hpack.hpp"
 #include "worker.hpp"
 
 #include <algorithm>
 #include <cstring>
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 
 namespace oneport::opgen::detail
 {
@@ -51,7 +54,8 @@ namespace oneport::opgen::detail
 				request_done(i, http_keep());
 				return;
 			}
-			case Proto::h2c: parse_h2(i); return;
+			case Proto::h2c:
+			case Proto::tls_h2: parse_h2(i); return;
 			case Proto::mqtt: parse_mqtt(i); return;
 			case Proto::ssh:
 			{
@@ -182,9 +186,15 @@ namespace oneport::opgen::detail
 			}
 			if (o_.load == Load::churn)
 			{
-				// WL1: read to END_STREAM, then GOAWAY; the client closes first.
+				// WL1: read to END_STREAM, then GOAWAY; the client closes first. Inside TLS the client
+				// then sends close_notify before it closes (RFC 8446 s6.1).
 				queue(c, h2_goaway());
 				if (!flush(i)) return;
+				if (c.ssl != nullptr)
+				{
+					SSL_shutdown(c.ssl);  // non-blocking: close_notify is written, the peer's is not awaited
+					ERR_clear_error();
+				}
 				complete(i);
 				return;
 			}
