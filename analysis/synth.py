@@ -34,6 +34,18 @@ def provenance() -> dict:
     return {"commit": "0" * 40, "dirty": False, "binaries": {k: BINARIES[k] for k in ("oneport", "opgen")}, "synthetic": True}
 
 
+# W's rows carry WL4 as the server's cycles per exchange (cells.CPU_FIELD); the synthetic rows give
+# it from the same value as cpu_us_per_exchange at 3.9e9 cycles per second, so a ratio of two arms
+# is the same on either field.
+SYNTH_CYCLES_PER_US = 3900.0
+
+
+def _w_cycles(row: dict) -> dict:
+    if row.get("backend") == "IOCP" and row.get("cpu_us_per_exchange") is not None:
+        row["cycles_per_exchange"] = row["cpu_us_per_exchange"] * SYNTH_CYCLES_PER_US
+    return row
+
+
 def _base(job: str, session: str, arm: str, position: int, valid: bool, reasons: list[str] | None, development: bool) -> dict:
     return {"job": job, "session": session, "arm": arm, "position": position, "development": development,
             "valid": valid, "invalid_reasons": list(reasons or ([] if valid else ["synthetic invalid window"])),
@@ -66,7 +78,7 @@ def cost_window(job: str, session: str, arm: str, position: int, *, workload: st
     if seed is not None:
         row["seed"] = seed
     row.update(extra or {})
-    return row
+    return _w_cycles(row)
 
 
 def cost_session(rng: np.random.Generator, job: str, session: str, *, hyp: str, proto: str, backend: str, ratio: float,
@@ -179,7 +191,7 @@ def m_session(rng: np.random.Generator, job: str, session: str, cell: C.Cell, ra
             row["hyp"] = cell.hyp
             row["workload"] = "open"
             row["metric"] = {"name": "ttfb_median_us", "value": value / 100.0}
-        out.append(row)
+        out.append(_w_cycles(row))
     return out
 
 

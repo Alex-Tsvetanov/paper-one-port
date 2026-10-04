@@ -245,6 +245,10 @@ def test_cost_known_answers(run):
     assert not io["tested"] and not io["passes"] and io["p_boot_holm"] == 1.0 and "fewer than R = 11" in io["verdict"]
     w = x["C1.W.IOCP.http1"]
     assert not w["holm"] and w["verdict"] == "not resolved at R <= 32" and w["ci95"][0] is not None and "passes" not in w
+    # W's churn h2c and churn MQTT are outside the family (revision log, "W before the code freeze",
+    # item 1): reported with that reason, not as "not resolved".
+    for cid in ("C1.W.IOCP.h2c", "C1.W.IOCP.mqtt"):
+        assert not x[cid]["holm"] and x[cid]["verdict"] == C.COST_OUTSIDE_FAMILY[cid] and x[cid]["sessions"] == 0
     rates = {e["cell"]: e for e in s["c3_rates"]}
     assert len(rates) == 12 and rates["C3.L.epoll.http1"]["lambda"] == run["pilot"]["rates"]["C3.L.epoll.http1"]["rate"]
     assert not rates["C3.L.epoll.http1"]["matches"]   # the synthetic C3 windows carry no rate
@@ -307,6 +311,9 @@ def test_secondary_cells(run):
     assert by[("m-ttfb-cpu", "S.m-ttfb.M1.L.epoll.http1", "value", False)]["median"] == pytest.approx(0.97, rel=0.01)
     assert by[("m-ttfb-cpu", "M1.L.epoll.http1", "cpu", False)]["median"] == pytest.approx(30 / 31)
     assert by[("wl4", "C1.L.epoll.http1", "cpu", False)]["interval"] is not None
+    # W's WL4 is its cycles per exchange (cells.CPU_FIELD), which the synthetic W rows carry.
+    assert by[("wl4", "C1.W.IOCP.http1", "cpu", False)]["interval"] is not None
+    assert by[("m-ttfb-cpu", "M1.W.IOCP.h2c", "cpu", False)]["median"] == pytest.approx(30 / 31)
     assert by[("wl4", "C3.L.epoll.http1", "ttfb_p99", False)]["interval"] is not None
     assert by[("wl4", "C1.L.io_uring.http1", "cpu", False)]["interval"] is None
     job = by[("by-job", "C1.L.epoll.http1", "value", True)]
@@ -453,3 +460,31 @@ def test_rule_e_relay_copy_per_backend():
                 {"epoll": "copy", "io_uring": "user-space"}):
         with pytest.raises(AN.AnalysisRefused):
             AN.check_rule_e(dict(RULE_E, relay_copy=bad))
+
+
+def test_w_cpu_is_the_cycles_never_the_ticks():
+    """WL4 on W is the server's cycles per exchange (revision log, "W before the code freeze", item
+    4; cells.CPU_FIELD): a W row's tick-based cpu_us_per_exchange is never read, a W row without
+    cycles has no CPU value, and L's rows keep utime + stime."""
+    w = {"backend": "IOCP", "cpu_us_per_exchange": 15.625, "cycles_per_exchange": 52000.0}
+    assert RW.row_host(w) == "W" and RW.window_value(w, "cpu") == 52000.0
+    assert RW.window_value({"host": "W", "cycles_per_exchange": 7.0}, "cpu") == 7.0
+    assert RW.window_value({"backend": "IOCP", "cpu_us_per_exchange": 15.625}, "cpu") is None
+    assert RW.window_value({"backend": "epoll", "cpu_us_per_exchange": 20.0, "cycles_per_exchange": 1.0}, "cpu") == 20.0
+    assert RW.row_host({"backend": "io_uring", "host": "L"}) == "L"
+    # A session ratio of two W arms is the ratio of their cycles, whatever the tick values say.
+    rng = np.random.default_rng(9)
+    rows = SY.cost_session(rng, "j", "s1", hyp="C1", proto="http1", backend="IOCP", ratio=1.0)
+    for r in rows:
+        r["cpu_us_per_exchange"] = 15.625 if r["mode"] == "one-port" else 31.25   # a tick-sampled 0.5
+        r["cycles_per_exchange"] = 51000.0 if r["mode"] == "one-port" else 50000.0
+    (s,) = RW.assemble(rows, lambda r: RW.row_info(r, RULE_E), AN.roles_for)
+    assert RW.session_ratio(s, "one-port", "dedicated", "cpu") == pytest.approx(1.02)
+
+
+def test_a_pilot_entry_resolving_a_cell_outside_the_family_is_refused():
+    base = {"synthetic": False, "complete": True, "n_sim": 1000, "R_C": 11}
+    assert AN.check_pilot(dict(base, resolved=["C1.W.IOCP.http1"], m_C=1), False)
+    for cid in ("C1.W.IOCP.h2c", "C1.W.IOCP.mqtt"):
+        with pytest.raises(AN.AnalysisRefused, match="outside the cost family"):
+            AN.check_pilot(dict(base, resolved=[cid], m_C=1), False)

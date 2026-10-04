@@ -61,6 +61,21 @@ def test_rule_on_hand_made_counts():
     assert none == {"resolved": [], "own_r": {}, "R_C": 31, "m_C": 0}
 
 
+def test_cells_outside_the_family_never_resolve():
+    """W's churn h2c and churn MQTT (c = 10 and 12; revision log, "W before the code freeze", item
+    1) meet the target everywhere here, and cell 9 only from R = 15: they are not resolved, so R_C
+    is cell 9's own and m_C counts it alone."""
+    n = 1000
+    cand = PL.CANDIDATES
+    assert PL.outside_numbers() == {10, 12}
+    everywhere = dict(zip(cand, (1000,) * 7, strict=True))
+    late = dict(zip(cand, (0, 0, 0, 0, 0, 0, 900), strict=True))   # if it were resolved, R_C would be 31
+    counts = {9: dict(zip(cand, (700, 850, 900, 950, 990, 1000, 1000), strict=True)), 10: late, 12: everywhere}
+    rule = PL.decide({9: True, 10: True, 12: True}, counts, n)
+    assert rule == {"resolved": [9], "own_r": {9: 15}, "R_C": 15, "m_C": 1}
+    assert PL.decide({10: True, 12: True}, {10: everywhere, 12: everywhere}, n) == {"resolved": [], "own_r": {}, "R_C": 31, "m_C": 0}
+
+
 def test_power_target_is_exact_at_0_80():
     assert PL.meets(800, 1000) and not PL.meets(799, 1000)
 
@@ -279,15 +294,24 @@ def test_synthetic_pilot_entry(tmp_path):
     rows = synthetic_pilot_rows()
     entry = PL.pilot_entry(rows, synthetic_parts(), SEEDS, n_sim=20)
     by = {e["cell"]: e for e in entry["cells"]}
-    want = sorted([f"{h}.L.epoll.http1" for h in C.COST_HYPS] + [f"{h}.W.IOCP.mqtt" for h in C.COST_HYPS],
+    # C1.W.IOCP.mqtt is outside the family (cells.COST_OUTSIDE_FAMILY): simulated, never resolved.
+    want = sorted([f"{h}.L.epoll.http1" for h in C.COST_HYPS] + [f"{h}.W.IOCP.mqtt" for h in ("C2", "C3")],
                   key=lambda x: [c.id for c in C.cost_cells()].index(x))
     assert entry["resolved"] == want
-    assert entry["R_C"] == 11 and entry["m_C"] == 6
+    assert entry["R_C"] == 11 and entry["m_C"] == 5
     assert entry["complete"]
+    w_mqtt = by["C1.W.IOCP.mqtt"]
+    assert not w_mqtt["resolved"] and w_mqtt["R_c"] is None and w_mqtt["pass_counts"]["31"] >= 16
+    assert w_mqtt["outside_family"] == C.COST_OUTSIDE_FAMILY["C1.W.IOCP.mqtt"]
+    assert sorted(entry["outside_family"]) == ["C1.W.IOCP.h2c", "C1.W.IOCP.mqtt"]
+    assert "outside_family" not in by["C1.L.epoll.http1"]
     assert not by["C1.L.io_uring.tls"]["resolved"] and by["C1.L.io_uring.tls"]["pass_counts"]["31"] < 16
     assert by["C3.L.io_uring.h2c"]["valid_sessions"] == 13 and "why_not_simulated" in by["C3.L.io_uring.h2c"]
     assert len(by["C3.L.io_uring.h2c"]["invalid_windows"]["A"]) + len(by["C3.L.io_uring.h2c"]["invalid_windows"].get("B", [])) == 3
-    assert [j["proto"] for j in entry["joint_powers"]] == ["http1", "mqtt"]
+    # MQTT on W has no joint power: its C1 cell is not resolved (the entry's item 1).
+    assert [j["proto"] for j in entry["joint_powers"]] == ["http1"]
+    # WL2's lambda for C3 MQTT on W still comes from the C1 pilot sessions.
+    assert entry["rates"]["C3.W.IOCP.mqtt"]["rate"] is not None and entry["rates"]["C3.W.IOCP.mqtt"]["c1_cell"] == "C1.W.IOCP.mqtt"
     assert entry["G"]["L"]["G_ms"] == 2 and entry["G"]["W"]["G_ms"] == 2
     assert entry["gap_split"]["GAP_SPLIT_ms"] == 5
     assert entry["rates"]["C3.L.epoll.http1"]["rate"] is not None

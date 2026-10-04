@@ -8,7 +8,9 @@ decisions.csv, from which analysis/macros.py writes results/macros.tex.
 Per family (2.2, never mixed), per cell, the frozen tests and the dual rule (4.2):
 - C (5.1): the two one-sided tests at [0.98, 1.02] (4.3) on the pilot entry's resolved cells at
   R_C, Holm over m_C; the cells the pilot did not resolve are reported as "not resolved at
-  R <= 32", with intervals from the family's draws (section 10);
+  R <= 32", with intervals from the family's draws (section 10); the cells a logged decision put
+  outside the family (cells.COST_OUTSIDE_FAMILY: W's churn h2c and churn MQTT) are reported with
+  that reason, and a pilot entry that resolves one is refused;
 - B3 (5.2): superiority of Q against 1.10, Holm over the 18 cells of 6.2; the 16 descriptive cells
   with the same statistic, deciding nothing; D = W_comp - W_srv with its 95% interval; the parts
   of each footprint and K_BASE (WL7);
@@ -104,6 +106,10 @@ def check_pilot(pilot: dict, synthetic: bool) -> dict:
     res = list(pilot.get("resolved") or [])
     if any(r not in ids for r in res) or res != sorted(res, key=ids.index) or len(res) != pilot.get("m_C"):
         raise AnalysisRefused("the pilot entry's resolved list and m_C do not fit the cost cells of 6.1")
+    outside = [r for r in res if r in C.COST_OUTSIDE_FAMILY]
+    if outside:
+        raise AnalysisRefused(f"the pilot entry resolves {outside}, which a logged decision put outside the cost family "
+                              "(revision log, \"W before the code freeze\", item 1)")
     return pilot
 
 
@@ -235,6 +241,8 @@ def verdict(x: dict) -> str:
     ci = x.get("ci95") or [None, None]
     lo, hi = ci
     if fam == "C":
+        if x["cell"] in C.COST_OUTSIDE_FAMILY:
+            return C.COST_OUTSIDE_FAMILY[x["cell"]]
         if not x["holm"]:
             return "not resolved at R <= 32"
         if x.get("passes"):

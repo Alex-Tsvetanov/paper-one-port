@@ -67,6 +67,23 @@ M3_PROTOS_6_3 = ("tls-stub", "http1")
 # together (the server alone in-process) per connection completed (analysis/rows.py).
 M2_METRIC = "wl6_cpu_us_per_conn"
 CHURN_METRIC = "conn_per_s"
+# Cost cells outside the confirmatory family by a logged decision, each with why. Alex's decision of
+# 2026-10-04 (hypotheses.md, revision log, "W before the code freeze", item 1): on W, WL1's churn
+# h2c and churn MQTT measure the generator, not the server. They run in the A/A pilot only, so that
+# WL2 has their medians for the open-loop rates of the C3 cells of h2c and MQTT on W (the
+# coordinator's decision, logged in M7e's entry); the pilot entry simulates them, as 9.2 asks of
+# every cost cell, and never resolves them, so they set neither R_C nor m_C (4.6 steps 5 to 7).
+COST_OUTSIDE_FAMILY = {
+    cid: ("outside the confirmatory cost family: generator-bound on W (Alex's decision of 2026-10-04; revision log, "
+          "entry W before the code freeze, item 1)")
+    for cid in ("C1.W.IOCP.h2c", "C1.W.IOCP.mqtt")
+}
+# WL4's CPU value of a window, by host (analysis/rows.py's window_value): on L the server's utime
+# plus stime per exchange (the M3 entry's reading 7); on W the server's cycles per exchange
+# (QueryProcessCycleTime; revision log, "W before the code freeze", item 4, a design choice), whose
+# ratio of two arms needs no conversion. The tick-based GetProcessTimes value W's rows carry beside
+# it (cpu_us_per_exchange) is never read.
+CPU_FIELD = {"L": "cpu_us_per_exchange", "W": "cycles_per_exchange"}
 
 # Replicates: 4.1 and 4.5 (R_B = R_M = 16); section 10 (secondary cells at R = 16).
 R_B = 16

@@ -39,8 +39,12 @@ aa.py, handoff.py and b3.py write them, with:
                    variant acceptex-buffer (role by iocp_accept buffer|no-buffer) or receive-form
                    (role by iocp_receive: rule E's form is the default); m-ttfb: hyp M1|M3 and its
                    fields, metric ttfb_median_us; b3-other-mode: b3.py's server rows, detect.
-Window values beyond the metric: cpu_us_per_exchange (WL4), rss_kb and peak_rss_kb (WL4),
-opgen.ttfb_ns.p99 (WL2), as window.py writes them.
+Window values beyond the metric: WL4's CPU per exchange, rss_kb and peak_rss_kb (WL4),
+opgen.ttfb_ns.p99 (WL2), as window.py writes them. WL4's CPU per exchange is cpu_us_per_exchange on
+L and cycles_per_exchange on W (a row whose backend is IOCP, or whose host is "W"; analysis/cells.py's
+CPU_FIELD): W's rows also carry a tick-based cpu_us_per_exchange from GetProcessTimes, which the
+revision log's entry "W before the code freeze" (item 4) does not take as W's WL4 value, so it is
+never read; a W row without cycles has no CPU value.
 
 A row of a driver fault (window.run_window's except branch) carries only the session fields; it
 takes its cell from the other rows of its session and its role from the other window of its arm
@@ -469,16 +473,23 @@ def metric_value(row: dict, name: str | None) -> float | None:
     return float(v) if v is not None else None
 
 
+def row_host(row: dict) -> str:
+    """The host of a window's row: W for a row whose backend is IOCP or whose host is "W" (W's
+    runners write both), L otherwise (section 2.1: epoll and io_uring on L, IOCP on W)."""
+    return "W" if row.get("host") == "W" or row.get("backend") == "IOCP" else "L"
+
+
 def window_value(row: dict, what: str, metric_name: str | None = None) -> float | None:
     """One window's value: "metric" (the row's metric, checked against `metric_name`), "W" (B3's
-    footprint at sample 2), "cpu", "rss", "rss_peak" (WL4) or "ttfb_p99" (WL2)."""
+    footprint at sample 2), "cpu" (WL4, by host: cells.CPU_FIELD), "rss", "rss_peak" (WL4) or
+    "ttfb_p99" (WL2)."""
     if what == "metric":
         return metric_value(row, metric_name)
     if what == "W":
         f = ((row.get("footprint") or {}).get("sample2") or {})
         return float(f["W"]) if f.get("W") is not None else None
     if what == "cpu":
-        v = row.get("cpu_us_per_exchange")
+        v = row.get(C.CPU_FIELD[row_host(row)])
     elif what == "rss":
         v = row.get("rss_kb")
     elif what == "rss_peak":

@@ -8,7 +8,12 @@ It computes, by the frozen rules and nothing else:
 - per cost cell (6.1, c = 1 to 36): the pilot's sessions, valid and invalid, and when the cell has
   P = 16 valid sessions, Power_c(R) at each candidate R (4.6 steps 2 to 4) and its own R_c;
 - the resolved list (step 5), R_C (step 6), m_C and the joint power of each protocol, backend
-  and host whose C1, C2 and C3 cells are all resolved (step 7);
+  and host whose C1, C2 and C3 cells are all resolved (step 7). A cell that a logged decision put
+  outside the confirmatory family (cells.COST_OUTSIDE_FAMILY: W's churn h2c and churn MQTT, the
+  revision log's entry "W before the code freeze", item 1) is simulated like every cost cell but
+  never resolved, with its reason, so it sets neither R_C nor m_C: the entry says the two cells
+  leave the family as a cell that is not resolved leaves it, and 4.6 step 6 takes R_C over the
+  resolved cells;
 - lambda for each C3 cell (WL2), from the C1 pilot sessions;
 - G_L and G_W from the timer part, and GAP_SPLIT from the split part (8 step 4, 9.2).
 
@@ -181,13 +186,20 @@ def meets(count: int, n_sim: int) -> bool:
     return Fraction(count, n_sim) >= POWER_TARGET
 
 
+def outside_numbers() -> set[int]:
+    """The cell numbers c of cells.COST_OUTSIDE_FAMILY (6.1's numbering: c = 10 and 12)."""
+    return {c.number for c in C.cost_cells() if c.id in C.COST_OUTSIDE_FAMILY}
+
+
 def decide(cells_valid: dict[int, bool], counts: dict[int, dict[int, int]], n_sim: int,
            candidates: tuple[int, ...] = CANDIDATES) -> dict:
-    """Steps 5 to 7: resolved = P valid sessions and Power_c(31) >= 0.80; R_c each resolved cell's
-    smallest candidate meeting the target; R_C the smallest candidate at which every resolved cell
-    meets it (31 when none is resolved); m_C the number resolved."""
+    """Steps 5 to 7: resolved = P valid sessions and Power_c(31) >= 0.80, never a cell outside the
+    family by a logged decision (cells.COST_OUTSIDE_FAMILY); R_c each resolved cell's smallest
+    candidate meeting the target; R_C the smallest candidate at which every resolved cell meets it
+    (31 when none is resolved); m_C the number resolved."""
     top = max(candidates)
-    resolved = [c for c in sorted(counts) if cells_valid.get(c) and meets(counts[c][top], n_sim)]
+    outside = outside_numbers()
+    resolved = [c for c in sorted(counts) if cells_valid.get(c) and c not in outside and meets(counts[c][top], n_sim)]
     own = {c: next(r for r in candidates if meets(counts[c][r], n_sim)) for c in resolved}
     if resolved:
         r_c = next(r for r in candidates if all(meets(counts[c][r], n_sim) for c in resolved))
@@ -342,6 +354,8 @@ def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int 
             e["power"] = {str(r): counts[c][r] / n_sim for r in CANDIDATES}
         e["resolved"] = c in rule["resolved"]
         e["R_c"] = rule["own_r"].get(c)
+        if e["cell"] in C.COST_OUTSIDE_FAMILY:
+            e["outside_family"] = C.COST_OUTSIDE_FAMILY[e["cell"]]
     hosts = {C.host_of(r["backend"]) for r in rows if r.get("backend")}
     incomplete = [f"no window of host {h}" for h in ("L", "W") if h not in hosts]
     resolved_ids = [e["cell"] for e in cells_out if e["resolved"]]
@@ -356,6 +370,7 @@ def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int 
         "order_seeds": {h: seeds[n] for h, n in PILOT_ORDER_SEED.items()},
         "cells": cells_out,
         "resolved": resolved_ids,
+        "outside_family": dict(C.COST_OUTSIDE_FAMILY),
         "R_C": rule["R_C"],
         "m_C": rule["m_C"],
         "joint_powers": joint_powers(rule["resolved"], counts, rule["R_C"], n_sim),
