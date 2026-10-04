@@ -1,0 +1,119 @@
+\section{Background and Related Work}\label{sec:related}
+
+\subsection{What the First Bytes Say}\label{sec:signatures}
+
+A listener can decide a protocol from the first bytes only if the client sends first. For the
+protocols this paper serves directly, the client does.
+\begin{itemize}
+\item \textbf{TLS.} The client opens with a handshake record that carries a
+ClientHello~\cite{rescorla2018rfc8446}. The record's content type and the handshake message type
+are fixed. The record's version field is a legacy field that receivers must ignore, so only its
+major version is a usable key.
+\item \textbf{HTTP/2 with prior knowledge.} The client opens with a fixed connection preface of
+\HtwocNeed{} bytes~\cite{thomson2022rfc9113}. The other way to start HTTP/2 on cleartext, the
+\texttt{Upgrade} header, is deprecated.
+\item \textbf{HTTP/1.1.} The client opens with a request line: a method token, one space, a
+target and a version~\cite{fielding2022rfc9112}. A server should ignore at least one empty line
+before it. The methods are those of HTTP semantics~\cite{fielding2022rfc9110} and
+PATCH~\cite{dusseault2010rfc5789}.
+\item \textbf{SSH.} Each side sends an identification string that starts with
+\texttt{SSH-}~\cite{ylonen2006rfc4253}. The standard does not say which side sends first, so a
+first-bytes listener can recognise only clients that send first.
+\item \textbf{MQTT.} The first packet of a client must be CONNECT. Its protocol name follows a
+Remaining Length field of variable size, so the name's offset depends on the
+length~\cite{banks2014mqtt311,banks2019mqtt5}.
+\item \textbf{PROXY.} A proxy may prepend a header that carries the original addresses, in a text
+form (v1) or a binary form (v2). The specification requires the receiver to be
+configured to expect it, and never to guess whether it is present~\cite{tarreau2026proxy}.
+\end{itemize}
+Server-speaks-first protocols, such as SMTP, have the server send a greeting
+first~\cite{klensin2008rfc5321}. A compliant client of such a protocol waits. Its connection
+delivers no byte from which to decide, so a first-bytes listener can serve it only after a timer.
+
+The signatures overlap in ways a detector must handle. The binary PROXY header starts with an
+empty line, which an HTTP/1.1 parser would skip. The HTTP/2 preface parses as an HTTP/1 request
+line with the method \texttt{PRI}. \texttt{SSH-} is a legal prefix of an HTTP method token. An
+inline command of the Redis protocol, such as \texttt{GET key}, shares its first bytes with an
+HTTP request. A server that tells such classes apart needs a rule that does not depend on the
+order in which it tries them.
+
+\subsection{Systems That Detect a Protocol from Its First Bytes}\label{sec:systems}
+
+We read the documentation and the source code of the systems below at the versions cited. Each
+statement here holds for that version.
+
+\runin{Proxies.} nginx's stream module reads the ClientHello before any handshake to route by its
+server name~\cite{nginx2026}. It peeks with \texttt{MSG\_PEEK} only when it does not terminate TLS
+and its events are edge-triggered, on epoll with peer half-close reporting or on kqueue. Otherwise
+it reads the bytes and replays them to the upstream. HAProxy inspects content in its
+TCP mode by reading into its buffer and evaluating its rules again on each new chunk, for at most
+its inspection delay~\cite{haproxy2026}. A connection that matches no rule passes to the default
+back end; the documentation discusses that delay with SMTP as its example. Envoy runs listener
+filters on the accepted socket~\cite{envoy2026}. Their shared buffer peeks with
+\texttt{MSG\_PEEK}; of the filters we read, only the PROXY filter consumes bytes. caddy-l4 tries ordered routes of matchers on a recorded
+buffer that it rewinds after each matcher, on top of Caddy~\cite{caddyl42026,caddy2026}. sslh reads
+the client's bytes, runs its probes on everything read so far, and connects to a configured
+protocol when its timeout expires~\cite{sslh2026}. sshttp peeks once and chooses between SSH and
+HTTP or HTTPS~\cite{sshttp2023}. Traefik splits TLS from other traffic by its first byte and reads
+and replays the bytes~\cite{traefik2026}.
+
+\runin{Libraries.} Netty's port unification example reads a few bytes without consuming them,
+rewires the connection's pipeline, and hands the accumulated bytes to the next
+handler~\cite{netty2026}. Jetty's detector asks each detecting connection factory in turn and
+copies the unread bytes into a new buffer for the chosen one~\cite{jetty2026}. cmux records the
+bytes it reads and lets each matcher start again from the first byte~\cite{cmux2021}.
+hyper-util's automatic connection reads at most the HTTP/2 preface to choose between HTTP/1 and
+HTTP/2, and replays it~\cite{hyperutil2026}. Go's HTTP server checks the preface in user space
+when unencrypted HTTP/2 is enabled~\cite{go2026}.
+
+\runin{What they share.} Most of these systems read the first bytes into user space and replay
+them; Envoy, and nginx on some paths, peek instead. None that we read documents a comparison of
+the two. A server-speaks-first protocol shares a detecting listener in two ways only. One is a
+timer, as HAProxy's default back end, sslh's timeout target and Envoy's default filter chain
+provide. The other is a listener that speaks first itself, as sshttp's SMTP mode does. Built-in detectors for SSH or MQTT
+appear in proxies (sslh and caddy-l4 for SSH, HAProxy for MQTT) and in none of the libraries
+above. Their documents do not say what happens when the first read is shorter than a signature.
+In the code, most of them wait for more bytes; sshttp decides on its single peek.
+
+\subsection{Kernel and Operating System Mechanisms}\label{sec:kernel}
+
+On Linux, a group of sockets can share a port with \texttt{SO\_REUSEPORT}. A program attached to
+the group selects the listener for a new TCP connection at its SYN, before any application byte
+exists~\cite{man2026socket,linux2026v72}. A socket-lookup program selects a socket by
+addresses, ports and interface, and sees no payload~\cite{kernel2026sklookup}.
+\texttt{TCP\_DEFER\_ACCEPT} delays the accept until data arrives, on the same
+socket~\cite{man2026tcp}. A socket map can redirect the data of an established socket, not the
+connection~\cite{kernel2026sockmap}. FreeBSD's accept filters hold a connection back from
+\texttt{accept} until a condition on its data holds~\cite{freebsd2026acceptfilter}. On Windows,
+\texttt{AcceptEx} can return the first block of data with the accepted socket; with a receive
+buffer, it completes only after data arrives~\cite{microsoft2026acceptex}. In the documentation
+and source code we read, none of these mechanisms routes a TCP connection to a listener by its
+first application bytes. They decide earlier, or they only delay.
+
+\subsection{Standards and Research}\label{sec:research}
+
+TCPMUX served many services on one TCP port by having the client name the service in its first
+line~\cite{lottor1988rfc1078}. It is now historic~\cite{zimmermann2016rfc7805}. ALPN negotiates
+the application protocol inside the TLS handshake, for several protocols behind one
+port~\cite{friedl2014rfc7301}. For UDP, a receiver can demultiplex several protocols by the first
+byte of each datagram~\cite{aboba2023rfc9443}.
+
+We found no peer-reviewed paper whose subject is a server that serves several protocols on one
+listener. Four lines of work touch the question. ALPACA shows that TLS does not bind a connection
+to the application protocol its client intended~\cite{brinkmann2021alpaca}. Work on
+probe-resistant proxies shows that how a server reacts to first bytes it does not recognise,
+including its timeouts, is a fingerprint~\cite{frolov2020probe,frolov2020httpt}. An analysis of
+STARTTLS finds defects where bytes read before a protocol switch are processed after
+it~\cite{poddebniak2021starttls}. A first-bytes server hands bytes it has already read to the next
+protocol, and must do so correctly. Traffic classification infers an application protocol from
+the content or the first packets of a flow, on monitors rather than on
+servers~\cite{dreger2006dynamic,deri2014ndpi,bernaille2006fly}.
+
+\subsection{Gaps}\label{sec:gaps}
+
+Four gaps follow from the sources above. No system we read publishes a measured cost of its
+detection. None documents a comparison of peek with read and replay. Server-speaks-first
+protocols are served only through a timer, or by a listener that speaks first. What happens when
+the first read is shorter than a signature is mostly undocumented. This paper measures the first
+two for one server. It turns the last two into rules of that server, stated before any run and
+tested on a table of hard cases.

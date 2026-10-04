@@ -147,7 +147,7 @@ namespace oneport::opgen
 		}
 #endif
 		tls::Ctx ctx;
-		if (o.proto == Proto::tls)
+		if (over_tls(o.proto))
 		{
 			try
 			{

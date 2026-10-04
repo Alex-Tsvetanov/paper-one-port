@@ -60,13 +60,6 @@
    "reason": "OpenSSL calls typed functions through generic function-pointer types by design, in macros of its public headers (DEFINE_STACK_OF in safestack.h, IMPLEMENT_PEM_read in pem.h, DEFINE_LHASH_OF), and clang 22's -fsanitize=function reports each such call. M2a's development checks on L met two, one per run: crypto/stack/stack.c line 440 (OPENSSL_sk_pop_free calling pd_free through OPENSSL_sk_freefunc, from crypto/property/property_parse.c line 400) and crypto/pem/pem_oth.c line 31 (PEM_ASN1_read_bio calling d2i_X509 through d2i_of_void, from PEM_read_bio_X509). OpenSSL's ASan+UBSan flavour is built with bench/third_party/openssl-ubsan.ignorelist, which leaves the function check out of all of OpenSSL; every other UBSan check stays on in all of OpenSSL, and oneport's own code and nghttp2 keep the function check."
   },
   {
-   "gap": "OpenSSL under TSan",
-   "sanitizers": [
-    "tsan"
-   ],
-   "reason": "Declared unless engineering builds OpenSSL with TSan and the suite passes, which the revision log of hypotheses.md then records."
-  },
-  {
    "gap": "io_uring kernel writes are invisible to MSan",
    "sanitizers": [
     "msan"

@@ -9,6 +9,9 @@
 namespace oneport::opcase
 {
 
+	/// One variant's frozen expectation as a JSON line (`opcase case --list`).
+	std::string variant_line(const Variant& v, int hc);
+
 	/// One run's JSON line: the variant, its frozen expectation, and the transcript.
 	std::string run_line(const Variant& v, int hc, unsigned replicate, std::uint16_t port, const Transcript& t);
 

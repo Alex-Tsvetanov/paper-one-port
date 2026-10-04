@@ -83,8 +83,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set_tests_properties(relay.binary.${_backend} PROPERTIES TIMEOUT 120 LABELS "relay;${_backend}")
         # opgen's loads and protocols against the server (hypotheses.md, section 11: the records
         # cover opgen, opcase and ophold).
-        foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub
-                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe)
+        foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub gen.churn.tls-h2
+                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe
+                      gen.hold gen.tls_h2_one_port)
             add_test(NAME ${_test}.${_backend} COMMAND oneport_tests test ${_test}.${_backend})
             set_tests_properties(${_test}.${_backend} PROPERTIES TIMEOUT 300 LABELS "gen;${_backend}")
         endforeach()
@@ -133,8 +134,9 @@ if(WIN32)
     # opgen on Windows (M6b): its loads and protocols against the server on IOCP, and Windows' own
     # forms of the source-block, failure, socket-option and program tests (tests/gen_tests.cpp).
     if(TARGET oneport_tls)
-        foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub
-                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe)
+        foreach(_test gen.churn.http1 gen.churn.h2c gen.churn.tls gen.churn.mqtt gen.churn.ssh gen.churn.tls-stub gen.churn.tls-h2
+                      gen.keepalive.http1 gen.keepalive.h2c gen.keepalive.tls gen.keepalive.mqtt gen.open_loop gen.probe
+                      gen.tls_h2_one_port)
             add_test(NAME ${_test}.IOCP COMMAND oneport_tests test ${_test}.IOCP)
             set_tests_properties(${_test}.IOCP PROPERTIES TIMEOUT 300 LABELS "gen;IOCP")
         endforeach()
@@ -212,6 +214,10 @@ if(Python3_FOUND)
     # The window runner's readers and rules (bench/run), on samples recorded on L.
     add_test(NAME run.test_runner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_runner.py)
     set_tests_properties(run.test_runner PROPERTIES TIMEOUT 120 LABELS run)
+    # The frozen runners (M7c): their rows against analysis/rows.py, the session engine, the freeze
+    # guard on a temporary git repository, rule E, the rates, the hard cases' judge.
+    add_test(NAME run.test_frozen COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_frozen.py)
+    set_tests_properties(run.test_frozen PROPERTIES TIMEOUT 300 LABELS run)
     # The W window runner's parsers and rules (M6b), on samples recorded on W; on Windows also W's
     # readings, a pinned start and the lab lock (bench/run/test_wrunner.py).
     add_test(NAME run.test_wrunner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_wrunner.py)

@@ -794,6 +794,20 @@ namespace oneport::test
 			}
 			opcase::Transcript t;
 			if (port != 0) t = opcase::run(Script{}.write(opcase::http_get()), port);
+			// The connection's lines reach the file while the server still runs (M7c: a runner reads
+			// them then, bench/run/hardcase_run.py and pilot_run.py's timer part).
+			bool closed_before_stop = false;
+			const std::string closed_key = "\"event\": \"closed\"";
+			const std::string peer_key = "\"peer_port\": " + std::to_string(t.local_port) + ",";
+			for (int i = 0; i < 250 && port != 0 && !closed_before_stop; ++i)
+			{
+				std::ifstream g(record);
+				for (std::string ln; std::getline(g, ln);)
+				{
+					if (ln.find(closed_key) != std::string::npos && ln.find(peer_key) != std::string::npos) closed_before_stop = true;
+				}
+				if (!closed_before_stop) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+			}
 			::kill(pid, SIGTERM);
 			while (read_more(10000))
 			{
@@ -807,6 +821,7 @@ namespace oneport::test
 			::unlink(record.c_str());
 			CHECK(port != 0, "the binary printed no listening line");
 			CHECK(t.received == text(http1::kResponse200) && !t.write_times.empty(), "the binary did not answer 200");
+			CHECK(closed_before_stop, "the record's close line did not reach the file while the server ran");
 			CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0, "the binary did not exit 0 after SIGTERM");
 			auto field = [](const std::string& ln, const std::string& k) -> std::string {
 				const auto at = ln.find("\"" + k + "\": ");

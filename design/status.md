@@ -15,8 +15,8 @@ has run.
 | M3 | Harness and A/A-noise engineering, in dedicated mode only | done, 2026-10-03 (below) |
 | M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
 | M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
-| M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) open |
-| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the freeze itself open |
+| M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) merged into main at its 74dc539 in fa8be6d, 2026-10-04 (below, "M7c follow-up"; `design/status-m6b.md`); W's runners open |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); the freeze itself open |
 
 ## Engineering constraints
 
@@ -4761,33 +4761,912 @@ In the M7 checklist's order (below), after these fixes:
    the gates and `measured-L.json`, and the freeze's revision-log entry with every value of
    section 9.1.
 
+## M7c, 2026-10-03: the frozen runners
+
+The runners that will produce the frozen data, written before the code freeze. Nothing here is a
+result: every window below is development data, journaled as such, and every number is a
+development reading. Every job on L ran under `lab_job.sh` (the lab lock, the clock floor, THP at
+madvise, NOTRACK) from fresh clones of the lab remote under `~/lab/p3/m7c/`. `m6b-windows` and W
+were not touched. Two first-party changes land before the freeze: opcase's holder of the mixed
+cell's silent background with `opcase case --list`, and `--record` writing each line through. One
+change of `analysis/`: rule E's relay copy is one choice per backend that relays.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 0b63d62 | feat(opcase): the mixed-protocol cell's silent background and the hard cases' expectations for a judge |
+| 7364fbb | fix(analysis): rule E's relay copy is one choice per backend that relays |
+| 6f19094 | feat(gate): check_rows.load_gates(accept_dry_run=True) for a development check |
+| 7f3e41b | feat(run): the frozen runners: the A/A pilot, the cost family, B3, M1 to M3, rule E, section 10 and the hard cases |
+| af99cd3 | feat(run): the runners record their own commit; development options for K_BASE's window count and devcheck's gate-only rows |
+| c5f324f | fix(run): rule E's decide takes the proposed default, with a note, for a choice whose development sessions did not run (development only) |
+| beed996 | fix(server): --record writes each line through to its file at once |
+| 81e1216 | fix(run): the hard cases' raw directory, printable first lines in the competitors' rows; --dev-r sizes the m2-rate part |
+| 071b0f9 | docs: status.md, M7c; hypotheses.md revision log, M7c's five readings |
+| 7d0a92d | fix(run): a frozen section 10 run refuses to start without --silent-ports (the check could not fire); a test |
+| f8734a2 | fix(run): a lab job runs at nice 0 (lab_job.sh refuses any other; the nice in every fingerprint and timer row) |
+
+Then this section's update (the commit after these). In the Papers repo, 4af4be6 and 3cb0bcd
+(local, not pushed): 18 lab-journal lines, one per runner of each end-to-end job, every one marked
+development. The submodule pointer is the coordinator's.
+
+### The runners (`bench/run/`)
+
+Every runner writes rows in the contract of `analysis/rows.py`, each with job, session, position,
+arm, cell (analysis/cells.py's id), `development` (false unless `--development`), the order's
+seed, the session's fingerprint (`pin.sh` with the notrack, clock-floor and THP states), and a
+provenance that names every first-party binary the window ran (`binaries`, {name: sha256}, the
+gate's names), the build's inputs hash per target as the gate hashes it (`inputs_hash_gate`), the
+build's commit and the runner's own (`runner_commit`). Every runner stops cleanly on SIGTERM,
+SIGINT and SIGHUP (window.py's `stop_on_signals`: every finally block stops the processes it
+started; the window cut short gets an invalid row naming the signal, then the job ends).
+
+| Runner | What it runs | Rows |
+|---|---|---|
+| `pilot_run.py` | 8 step 4 on L, dedicated mode only: P = 16 sessions of every cost cell of L (aa.py's windows; `window.run_window` refuses any other mode, and no flag of the runner names one), SEED_PILOT_L's order, the C1 and C2 cells and their reruns before the C3 cells; the timer part (per backend 128 runs of HC12 against the dedicated HTTP/1.1 port with PROXY on, one server with `--record`, lateness = wait_return - deadline); the split part (per backend 16 replicates of HC02.HTTP.k01 at each gap of 5, 10, 20, 50, 100 ms, one fresh server per replicate, `recv_data` = recv_calls - recv_eof - recv_again). Failed part runs are rows with valid false and the reason, never run again on their own. | `windows.jsonl` (aa.py's rows), `parts.jsonl` (pilot.py's timer and split rows) |
+| `cost_run.py` | 5.1 on L: the 24 cost cells at R_C (resolved or not), one-port (arm A, aa.PORT_A) against dedicated (arm B, PORT_OFFSET above), in-process, rule E's default detection mode in both arms' flags, SEED_ORDER_C_L, each C3 cell at the pilot entry's lambda passed unchanged. Refuses a frozen start unless the freeze guard passes with the pilot entry and rule E's file. | family C |
+| `b3_run.py` | 5.2 and 6.2 on L: the 18 Holm and 16 descriptive cells and section 10's 4 cells of the other detection mode, R_B = 16, one order with SEED_ORDER_B_L; b3.py's windows with rule E's default detection mode and relay copy (HAProxy with `option splice-auto` where the relay splices); the part `kbase`: ophold windows until 16 are valid, at most 4 more, never more than 16 valid. `--other-mode-system` has no default (below). | b3.py's (kind b3, family B3 or S/b3-other-mode), ophold's (kind ophold) |
+| `m_run.py` | 5.3 and 6.3 on L: M1 (default against other detection mode, in-process churn), M2 (in-process against relay to a server in dedicated mode on the cell's backend, open loop at M2_RATE, WL6's CPU per connection of front and backend together), M3 (the relay against each proxy, closed loop), R_M = 16, SEED_ORDER_M_L; the part `m2-rate`: 6 development sessions per M2 cell, closed loop, M2_RATE = RATE_FRAC x the smaller arm's median, written to `m2_rates.json`. | families M1, M2, M3 |
+| `rule_e.py` | Rule E on L after the pilot entry: per Linux backend 6 development sessions of HTTP/1.1 churn for the detection mode (replay against peek, one-port in-process) and for the relay copy (user space against splice, the relay in front of the stub); `decide` writes rule E's file (format below). | family rule-e (development), `rule_e_evidence_L.json` |
+| `s_run.py` | Section 10 on L, R = 16, SEED_ORDER_S_L: SSH C1 to C3 (C3 after the C1 sessions, at RATE_FRAC x the slower arm's median), the mixed cell, the two-core cells (one-port against dedicated; the SO_REUSEPORT group against the shared listener), the relay on io_uring against each proxy, M1's and M3's TTFB at a fixed load (lambda from the M runner's closed-loop rows). The TLS variants are listed as not runnable (below). | family S with the bullet |
+| `hardcase_run.py` | B1 and B2 on L: the 25 cases, epoll and io_uring, replay and peek, in-process and relay (8 entries), 16 replicates, the frozen timers (3 s), G_L and GAP_SPLIT from the pilot entry, HC7 skipped where 9.2 says so, rule E's relay copy; the measured binary with `--record`, one server per listener setup per entry, `opcase case --id` per run, the run's record lines matched by the client's port once the close is recorded; the judge is `tests/case_tests.cpp`'s check_run, check_reply and check_route ported line for line (the expectations come from `opcase case --list`); the part `competitors`: each proxy and library in its cases configurations at matched timers and at its defaults, R_COMP_CASES = 3, T_OBS = 60 s, descriptive rows. | `hardcases.jsonl` (kind hardcase, one per run with every B1 and B2 check; kind hardcase-servers at each entry's end), `hardcases-table-<job>.json`, `competitor_cases.jsonl` |
+| `devcheck.py` | The development end-to-end check (below). | `devcheck.json` |
+
+Shared: `sessions.py` (the session engine), `freeze_guard.py` (a frozen run's preconditions),
+`runlib.py` (the command line, provenance, the input files), `cellwin.py` (the in-process window in
+either mode, with the mixed cell's background). `lab_job.sh` now refuses a job that runs at any
+nice but 0 (exit 92; below, "A lab job's priority"), and every session's fingerprint records the
+runner's nice and timer slack (`priority`). `handoff.py` and `b3.py` gained the options the
+runners need (rule E's relay copy, a dedicated backend, an in-process front, an open-loop rate,
+WL6 over the exchanges due that completed in open loop); their earlier behaviour is the default.
+`competitors.py` fills HAProxy's new field `SPLICE_AUTO` (in `defaults`, where HAProxy takes the
+option). `journal.py` has a kind `runner`.
+
+### The session engine
+
+- The order is drawn before the first window from the runner's seed (Python's
+  `random.Random(seed)`, a design choice): the base sessions shuffled group by group (the pilot's
+  C1 and C2 cells, then its C3 cells; section 10's SSH C3 cells after the rest), then X per base
+  session in run order, then X per rerun slot, cell by cell, ceil(R/4) slots each. No draw depends
+  on which sessions fail, so a job that stops and a later job that resumes it run the same order.
+- A session with an invalid window, or with fewer than four windows, runs again at the end of its
+  group as a new session (`<cell>.r<k>`), in the order the invalid sessions ran, while the cell has
+  slots left; never more than R valid sessions (analysis/ refuses more).
+- A job resumes from every row already in the output's `windows.jsonl`, whichever job wrote it:
+  a session with a row is never run again under its id, and the rerun slots used are counted
+  across jobs.
+- A window that crashes, or that a signal cuts short, still gives a row: invalid, the reason, the
+  arm's identity fields (so analysis/rows.py takes its cell from them) and its provenance (so
+  check_rows.py binds it). A session of four fault rows still names its cell.
+
+### What a frozen run checks, and how the entries must be written
+
+`freeze_guard.py` runs before any window of a frozen run (no `--development`) and gives a
+Clearance whose record goes into every row. None of the entries exists yet; the runners find them
+by these tokens, which the coordinator's entries must carry:
+- CODE_FREEZE: a revision-log line holding the word `CODE_FREEZE` and the commit's full
+  40-character hash. The commit must be an ancestor of HEAD, `git diff CODE_FREEZE HEAD -- bench
+  tests CMakeLists.txt` empty, and the working tree clean there (the M7 checklist's item 8).
+- The seeds entry: the sha256 of the seeds JSON file (the 14 names of 4.7, as analysis/ reads it)
+  on a line holding the word "seed".
+- The pilot entry: the sha256 of `pilot.py`'s output on a line holding "pilot", added by a commit
+  that descends from CODE_FREEZE (and is not it); the output complete (both hosts), not synthetic,
+  at N_SIM = 1,000.
+- Rule E's file and M2's rates: each file's sha256 on a line holding "rule E" or "M2_RATE", added by
+  a commit that descends from the pilot entry's.
+- `hypotheses.md` committed and unchanged in the working tree.
+- The build: the sha256 of every binary the runner will start must be in a gate that passed, is
+  not a dry run and is citable (check_rows.py's rule, before the first window).
+The pilot runner needs CODE_FREEZE and the seeds; every other frozen runner also needs the pilot
+entry (section 8 step 7). The guard's tests run on a temporary git repository (below).
+
+### Rule E's file and how rule E is computed
+
+The file (`rule_e.json`), exactly the three keys `analysis/analyse.py` reads:
+`{"default": {"epoll": "replay"|"peek", "io_uring": ..., "IOCP": ...}, "relay_copy": {"epoll":
+"user-space"|"splice", "io_uring": ...}, "iocp_receive": "zero-byte"}`. `rule_e.py run` writes the
+evidence per backend and choice (`rule_e_evidence_L.json`: each session's option / default ratio,
+whether every valid session favours the option, each arm's operations per connection, the choice);
+`rule_e.py decide` writes the file from L's evidence and W's (the IOCP detection mode, from W's
+sessions by W's runner, in the same form), and refuses without W's in a frozen decision.
+- IOCP's receive form is decided (the coordinator's decision of 2026-10-03: the zero-byte form is
+  rule E's only candidate; no session runs, and it governs dedicated mode on W before W's pilot).
+- The detection mode and the relay copy exist only in one-port mode and are decided after the
+  pilot entry: per Linux backend, 6 development sessions of HTTP/1.1 churn each, X Y Y X, arm A the
+  proposed default, arm B the option, invalid sessions run again by 4.1's rule (at most 2). The
+  detection sessions run in-process; the relay-copy sessions run M3's arrangement (the server's
+  relay on CPU 14 in front of the stub on CPUs 10 and 12; section 4.1's hand-off placement).
+- The option replaces the default when the backend has at least 6 valid sessions, the option's
+  connections per second (the mean of its two windows) are strictly above the default's in every
+  one, and the option's operations per connection are not higher: the sum of the server's call
+  counters by kind (accept, receive, peek, zero-byte receive, send, setsockopt, the check of 1(b),
+  epoll_wait, epoll_ctl, io_uring_enter, GetQueuedCompletionStatus, connect, splice, shutdown) and
+  io_uring's submissions by opcode, over each window's server process, per accepted connection
+  (WL5; the M3 entry's item 6), averaged over the arm's valid windows. These are readings and
+  design choices for the coordinator (below).
+
+### The mixed cell's background (M7b's open item 6)
+
+What the frozen text defines: section 10, "C1's HTTP/1.1 churn with a fixed background of TLS
+keep-alive, MQTT keep-alive and silent connections, the same in both modes", and section 9.1's
+counts N_BG_TLS = N_BG_MQTT = N_BG_SILENT = 64 (logged). "Fixed" is met by holding each count:
+- Silent connections: `opcase hold` (bench/cases/hold.hpp, a generator change, in 0b63d62) holds
+  64 silent connections and keeps the count by one policy in both arms: a connection the peer
+  closes (EOF or reset seen) is closed and opened again at once to the same port, in the pass that
+  saw it close; a failed or slow connect (1 s) is counted and made again; bytes a port sends (the
+  SSH line, the SMTP greeting of a dedicated port) are read and discarded; at the stop every
+  connection is closed by reset. In one-port mode T_dec closes a silent connection (1 f, no
+  fallback on the cell's listener) and the holder opens it again, so the server keeps 64 pending
+  silent connections and handles about 64 / T_dec closes per second; in dedicated mode no
+  connection is closed and the policy never fires. The holder counts what the policy did
+  (`closed_by_peer`, `reopened`, `held_min`, `connect_failures`) and the window keeps it.
+- TLS and MQTT keep-alive: WL3 is the frozen text's only definition of keep-alive ("C connections
+  established before the window, one request in flight per connection": HTTP/1.1 GET over one TLS
+  connection; MQTT PINGREQ after one CONNECT), so each background is opgen's `--load keepalive`
+  with 64 connections, as a process of its own. This is a reading for the coordinator (below):
+  it makes the background a closed-loop load, not idle connections.
+- The background starts before the probe, is established (opgen's MEASURE_START, opcase's HOLD)
+  before the cell's opgen starts, and must still run when the cell's window ends; its connect
+  failures count as the window's (section 7), and its generators' error share is held to 0.1%.
+  `misclassified` on the one-port arm counts every class outside {HTTP/1.1, TLS, MQTT} and any
+  classified beyond the connections each generator opened (the probe included).
+- Open, for the coordinator (not in the frozen text): where the silent connections go in
+  dedicated mode (`--silent-ports http1` or `spread`, no default; the proposal's "dedicated mode
+  spreads it over its ports" is not frozen); the placement (a design choice of M7c: the cell's
+  opgen on CPUs 2 to 9, the TLS background on 10 and 11, the MQTT background and the holder on 12
+  and 13; section 4.1 names none).
+- Shown untimed: `gen.hold.{epoll,io_uring}` (one-port mode with T_dec = 200 ms: every close is
+  reopened and the server's silent outcomes equal the closes seen; the policy off as a control;
+  dedicated ports close none, the SSH lines discarded) and `gen.binaries` (opcase hold against the
+  oneport program in one-port mode, at least 3 reopened in 700 ms). In the end-to-end check the
+  background ran in the dedicated arm only (the one-port arm is a stub there).
+
+### No one-port window against dedicated mode, and how the check kept it
+
+Three locks, the first two in code and tested:
+1. `sessions.py`: for a cell marked `pairs_one_port_with_dedicated` (cost, SSH, mixed, two-core
+   two-cores), the engine calls the window of the one-port arm only with the freeze guard's
+   clearance, which only a frozen run that passed with the pilot entry gets. Without it, in
+   development, it writes a stub row (mode one-port, valid false, `stub` true, no binaries,
+   nothing started); a frozen run without it raises before the window.
+2. `cellwin.py`: the in-process window raises before any process starts when asked for a one-port
+   window of such a cell without a clearance that names the pilot entry.
+3. Test `NoOnePortAgainstDedicated` (test_frozen.py): with every process start recorded and
+   refused, a development session of two cost cells through cost_run's real window function never
+   starts a server with `--mode one-port`, every start it attempts is `--mode dedicated`, and
+   every one-port window is a stub.
+In the end-to-end jobs: the cost cell and section 10's SSH and mixed cells ran their dedicated
+arms and stubbed their one-port arms; and no one-port in-process window of the job shares a
+protocol and backend with a dedicated window of the job: the dedicated in-process windows ran on
+epoll (the pilot's and the cost cell's MQTT, the SSH and mixed cells' dedicated arms), every
+one-port in-process window on io_uring (M1 h2c, M2 HTTP/1.1, the reuseport cell, M1's TTFB), and
+rule E's detection sessions (one-port HTTP/1.1 in-process) did not run. One-port windows ran
+against one-port (M1, M2, the reuseport cell, rule E's relay copy) and against a competitor (M3,
+B3, the relay on io_uring), which section 8 step 2 allows before the code freeze; no dedicated
+window ran against a competitor (FC5). The dedicated windows timed alone (beside stubs) are
+dedicated timing as the A/A exception of the engineering constraints, journaled.
+
+### Tests
+
+- `bench/run/test_frozen.py` (run.test_frozen, 35 checks): each runner's rows written through the
+  engine with a stand-in window that sets the real window's fields, assembled by
+  `analysis/rows.py` and accepted by `analyse()` or `pilot_entry()` (cost, the cost stubs, the
+  pilot and its parts, B3 with the other-mode cells, M1 to M3, section 10's bullets, rule E's
+  file); the engine (the order fixed by the seed, resumption across jobs, the rerun cap, a rerun
+  after one invalid session, fault rows, a signal's row then a rerun); the guarantee above; the
+  freeze guard on a temporary git repository (it passes, and refuses: a short hash, an unlogged or
+  incomplete pilot output, a binary outside the gate, a dry-run gate, an uncommitted
+  hypotheses.md, a change under bench after CODE_FREEZE, a pilot logged in the CODE_FREEZE commit,
+  rule E logged before the pilot entry; and cost_run refuses before any window); rule E's choice
+  (each way it can fail), M2_RATE, the slower arm's rate, the pilot's lambda through pilot.py's
+  rates(); the hard cases' judge (a pass, B1 failures, B2(a) to (e), the route and TLS); HAProxy's
+  splice-auto in `defaults`; a frozen section 10 run without `--silent-ports` refused; on Linux,
+  `lab_job.sh` refusing a job at nice 5 and running it with ONEPORT_ALLOW_NICE=1, and
+  `priority_state`.
+- C++: `gen.hold.{epoll,io_uring}` (above); `gen.binaries` also runs `opcase hold` and `opcase
+  case --list`; `server.binary_record.{epoll,io_uring}` checks that the close line reaches the
+  record file while the server runs.
+- `bench/test_gates.py`: `load_gates` leaves a dry run's gate out by default and binds to it with
+  `accept_dry_run`.
+- `analysis/`: `test_rule_e_relay_copy_per_backend`. The analysis suite on the pinned numpy
+  (2.5.0, in a venv under `~/opt/analysis-numpy-2.5.0` from PyPI's wheel, sha256 checked; L's
+  system numpy is 2.5.3, which the command-line tools refuse): 70 passed, 1 skipped (the slow
+  Appendix A test); SciPy's cross-check ran with L's SciPy and passed.
+
+### The suite in four builds
+
+`checks_job.sh` (M7 fixes' script, the paths moved to `~/lab/p3/m7c/check/`): Debug and
+ASan+UBSan at once, then TSan and MSan at once, each `ninja -j 5` and `ctest -V -j 8`, each
+build's integration tests in their own port block. Three times: chk1 at 7f3e41b (the runners'
+first commit), chk2 at 81e1216 (the recorder's flush), and chk3 at f8734a2, the last commit that
+changes code (every later commit is docs). chk1 and chk2 ran at nice 5 (below); chk3 at nice 0.
+
+| Build | chk1 (7f3e41b) | chk2 (81e1216) | chk3 (f8734a2) |
+|---|---|---|---|
+| Debug | 0 warnings, 393 of 393, 0 report lines | the same | the same |
+| ASan+UBSan | the same | the same | the same |
+| TSan | the same | the same | the same |
+| MSan | the same | the same | the same |
+
+393 is M7 fixes' 390 and `gen.hold.epoll`, `gen.hold.io_uring` and `run.test_frozen`. As before
+M7c, three of the four logs show a thread's exception from `run.test_runner`'s stand-in stub
+(`B3Relay.serve_once`), which passed; it matches no report pattern and the test is older than M7c.
+chk3's logs (sha256), `~/lab/p3/m7c/check/f8734a2/`: debug build
+f8b5a52afa8f873dbd4144dad5173efd9ec6552ceab637dd488a93529aa973cf, ctest
+a4318fca10e0c2b2fef0677b46c5e65d13c2371b9f910f3eb6d3dfea2c5ec7d4; asan build
+4a5acf96064db54cd040d4b93ec7094fb5856027b2eeba5903d27f27a5fd03cf, ctest
+001bb40e54f383b24380c6f397d8d1f78e3b6e95dfb68f54211e2c4e95b07cbc; tsan build
+a6ba9df8b2ad6c496c7ff511c1506f6ba3194b2d5247f5190d55585c7a88d18e, ctest
+595b99a7d9b3b482b1c26e656f5f13171c15c910607f7641d5a3361c4766fae2; msan build
+fa80fe88d38aba2ef804c3e0003ff1b5a81e0511e85e91bea9102080ed7a6389, ctest
+7ef0c39f7926fe31a3f70b489afd8298f5106ae815f9161c622e64ee90b37a35. chk2's (81e1216): ctest debug
+4c57aa98cf2aceb355a39453557377955fedbfc2e3cea90490391cf39238f499, asan
+3be057c5f062e74395f3fa058280f9a41b15dd7c610c08c3542ca968cac48f57, tsan
+0c078be7fb574eae8bd52eacbeb2d2c8fbb612df63823f57001b7c3c29e83323, msan
+dd5feca0867b382884dfb134c259065cfcd5cf43c25ddb5e3beb2a4b0d0f7780.
+Before them, a scratch ASan job (try1, 0b63d62) built the C++ change with 0 warnings and passed
+`gen.hold`, `gen.binaries`, the CLI tests and three hard-case entries with 0 report lines.
+
+### The records drivers' dry runs
+
+Two dry runs of the records drivers (`DRY_RUN=1 bench/records_job.sh`, one lab job each, from a
+fresh clone; every record named `-dryrun` and marked, never citable, nothing copied anywhere),
+each because a first-party input changed: dryrun7 at 7f3e41b (opcase's holder and listing) and
+dryrun8 at 81e1216 (the recorder's flush). Every step exited 0 in both:
+
+| Step | dryrun7 (s) | dryrun8 (s) |
+|---|---|---|
+| release | 37 | 35 |
+| oneport ASan+UBSan, TSan (at once) | 156 | 158 |
+| oneport MSan | 149 | 148 |
+| harness_cmux ASan, TSan | 37, 44 | 37, 45 |
+| harness_hyper_util ASan, TSan | 54, 50 | 53, 50 |
+| gate | passed, `dry_run` true, `citable` false | the same |
+
+dryrun8's gate binaries (sha256, first 12): oneport 4c64edc25f76 (the recorder's flush), opgen
+0c0f3457a34c and ophold 3f405ac29c62 (unchanged since dryrun6), opcase 5fb264f876c9 (the holder
+and the listing; dryrun7's too), harness_hyper_util d6e52b94e88c; harness_cmux cfb13c2ae891,
+harness_netty 2ebcb736fee7 and harness_jetty 9541acf60827 differ from dryrun7's (f12b041f3f38,
+fe9039d2f637, eb9278b80984) with no input of theirs changed: they are not reproduced across build
+directories, as the M7 checklist's item 10 already says of the Rust harness, so the frozen runs
+must use the records job's own harnesses. Files (sha256), `~/lab/p3/m7c/dryrun8/`: gate-L.json
+b919e16267a87ca9cede26e742005af3f715856588a674129cffddd93257b26f, measured-L.json
+90a5b3d11106526050777ee7dc5e4c9521486569618508b14047ad9585d93714, records.log
+bfcacb78b96232f6fa18b733201ced3866434a2471b7f0e3b965394722d898a3.
+
+### End to end, development mode
+
+`~/lab/p3/m7c/e2e_job.sh SRC BUILD OUT` (sha256
+775b89e81a03aa3d5ab750a741fb6a8552a39621262340f09f506cbabbad2f50), one lab job: every runner in
+development mode on a tiny configuration (one cell or a few, one session, `--dev-r 1`) on a dry
+run's `build-release`, then `devcheck.py`: the rows fed to `analysis/` through its library
+functions (`refuse_flags` with development rows allowed, `pilot_entry`, `analyse`; the command
+lines refuse development rows and L's numpy), and every row that ran a binary bound to the dry
+run's gate (`load_gates(accept_dry_run=True)`; the output says `citable: false`). Development
+seeds 7701 to 7714 (one per name of 4.7), 7801 and 7802, journaled, so the seeds entry must not
+reuse them.
+
+e2e1 (runner code c5f324f, dryrun7's build) ran every step and found five things:
+1. The timer part found no T_hdr line for any run: `--record` was flushed only at the stop.
+   Fixed in beed996 (each line written through), with a test.
+2. The hard cases' server part never created its raw directory, so every run was a driver fault.
+   Fixed in 81e1216.
+3. The competitors' rows printed a TLS reply's raw bytes into the log. Fixed in 81e1216.
+4. M2's closed-loop rate sessions for TLS on io_uring: in every relay window one of the
+   dedicated backend's two cores was 92.6% to 100.4% busy (one worker took the handshakes), so
+   section 7's backend rule made all 8 sessions invalid and M2_RATE was not computable for the
+   cell (for the coordinator, below).
+5. One B3 window was invalid by section 7's TIME-WAIT rule (1 at both samples, 0 at the
+   baseline); I had opened ssh sessions to L during the B3 windows, which b3.py's docstring warns
+   against; its rerun was valid. e2e2 kept every ssh session out of the job's span.
+devcheck: rows accepted, 203 bound, 12 stubs, 0 refused.
+
+e2e2 (runner code and binaries 81e1216, dryrun8's build), every step exit 0:
+
+| Step | s | What ran, development data |
+|---|---|---|
+| pilot | 70 | C1 and C3 of MQTT on epoll, one A/A session each, all 8 windows valid; lambda for C3 from the C1 session by pilot.py's rates(); timer part 3 runs per backend, all valid, lateness on epoll 15.26 to 15.30 ms, on io_uring 0.25 to 0.39 ms; split part 2 replicates at 5 and 100 ms per backend, all valid, each with 2 receives that returned payload |
+| rule_e | 50 | the relay-copy sessions on epoll and io_uring, one each, valid; `decide`: user space on both (fewer than 6 sessions), the detection modes and IOCP's the proposed defaults, each with its note |
+| cost | 26 | C1 MQTT on epoll: a session and its rerun, 4 dedicated windows valid, 4 stubs |
+| m2rate | 25 | M2 HTTP/1.1 on io_uring, one session valid; M2_RATE written |
+| m | 76 | M1 h2c on io_uring, M2 HTTP/1.1 on io_uring at that rate (open loop, WL6 metric), M3 HTTP/1.1 against nginx: one session each, all valid |
+| s | 147 | SSH C1 on epoll and the mixed cell on epoll (a session and a rerun each, dedicated arms valid, one-port arms stubs; the mixed cell's background established before every window, 64 silent connections held at every pass, none reopened in dedicated mode, `--silent-ports spread`); the reuseport cell on io_uring, the relay on io_uring against nginx, M1 h2c's TTFB on io_uring at the rate from e2e2's M1 session: one session each, all valid |
+| b3 | 285 | one ophold window and one session of B3 silent against nginx on epoll, all valid |
+| hard | 13 | HC1, HC12, HC20 and HC21 on epoll replay in-process and io_uring peek relay, 2 replicates: 48 of 48 runs passed B1 and B2; every server's check at the end passed |
+| comp | 100 | nginx's cases configuration at matched timers and at its defaults, HC1 and HC6, 3 replicates: 42 runs recorded, 18 with the reply the server's table expects of the server (nginx routes only HTTP/1.1 and TLS) |
+| devcheck | 1 | ok: 188 rows, all development; 176 bound to dryrun8's gate (a dry run, not citable), 0 refused; 12 stub rows, each valid false with no binary; the pilot entry made (R_C 31, m_C 0: no cell has P = 16 sessions; GAP_SPLIT not computable without W's rows, as pilot.py says); `analyse()` accepted every family (no cell tested, each with fewer than R sessions); K_BASE not computed (1 of 16 ophold windows) |
+
+Files (sha256), `~/lab/p3/m7c/e2e2/`: devcheck.json
+7426df3f8b76384800e0826beb90029810c472c70148f43800e170dda0762c33, e2e2.log
+51817e3da53750b80a73995b9d69e7a5bcfcb1691483a5fbbe530850408df112, pilot/windows.jsonl
+9e401073f4ab897def4aa887058fe49fba4ea9c1ec75f841312d7d846a78189f, pilot/parts.jsonl
+4cf2cfa615e0d5b42f19f0abb75d87b50250fd34b878e7f3073d70d8693ccd6c, cost/windows.jsonl
+ea478f5ed2777e092a2342eb58e64001eefc3be5070b44d9daa46c3a4234a08f, m/windows.jsonl
+8c057552b905b1001963a7b0f96c8e3cfb355ed696d1b0723eb99b028fa63b7a, s/windows.jsonl
+21968a4aa0c6842a85ceca800efd87f97ae1f59b650d2bffbd562f80463e325e, b3/windows.jsonl
+b9612080aa7194a98ec514b56d08d30906ce7de673580ebb4835c800460656b1, hard/hardcases.jsonl
+c725161dc3d794d994b50acb3b5c573bbbc5c738362d9066c0d8f5306e043c5b, hard/competitor_cases.jsonl
+af07a9fb31c7a6788442a9bc7b04b1fab56c983dede5283c40aa447a3a5e7119.
+
+The timer part's 15.3 ms on epoll is explained below ("A lab job's priority"). A development
+reading for the coordinator, not a result: in the mixed cell's dedicated arm, with the WL3 background, the cell's HTTP/1.1 churn ran at 17,536 to 17,662
+connections per second while the TLS and the MQTT background each completed 443,778 to 448,970
+requests over its run; dedicated HTTP/1.1 churn alone on epoll ran at 44,655 to 44,980 in job
+aa-floor1 (the revision log's entry "Host clock floor", item 3). So read as WL3's closed loop,
+the background takes most of the server's core.
+
+e2e3 (runner code f8734a2, dryrun8's build: no compiled input changed since; launched from bash,
+nice 0; `~/lab/p3/m7c/e2e3_job.sh`, sha256
+37e9c63eca09d5264a5c4e902ba7c1a6ddbe8481adec7cb8bdb3722509961dc3): what e2e2 exercised least.
+
+| Step | s | What ran, development data |
+|---|---|---|
+| timer | 19 | the timer part, 3 runs per backend, all valid, the server at nice 0: lateness on epoll 3.26 to 3.31 ms, on io_uring 0.05 to 0.30 ms |
+| hard | 91 | all 25 cases (164 variants) on epoll replay in-process and io_uring peek relay, one replicate: 328 of 328 runs passed B1 and B2, every branch of the judge reached (the PROXY source and reason, the TLS flight, 400, the dedicated HTTP/1.1 reply, the SMTP fallback's transcript, HC7 at a G of 100 ms, HC4's drip, HC16, HC22's reset, the header write's anchor); 13 servers checked at the entries' ends, all passed |
+| comp | 2 | HAProxy and cmux in "cases" and "cases-fallback" at matched timers and at their defaults, HC1, HC11 and HC21, 3 replicates: 126 runs recorded (HAProxy's PROXY listener 6, the fallback kinds 24), 69 with the reply the server's table expects of the server; every system started and stopped (HAProxy's exit is SIGTERM's) |
+| devcheck | 1 | ok: 481 rows, all development, all bound to dryrun8's gate (not citable) |
+
+Files (sha256), `~/lab/p3/m7c/e2e3/`: devcheck.json
+e028821f85eb5ffc8d8ea6a8e7205d155d6d737a2ea78997c5e53f1340b3e78c, pilot/parts.jsonl
+14dcb556a66ea5cc95485249dd6ada96af8b89159ddfb72c8e3c9407d76a27bf, hard/hardcases.jsonl
+4cb6e4b61dad3895bd0e7b87dee535156999323b7ccf5ecd34578590336c564b, hard/competitor_cases.jsonl
+2eb91deef5f91d319472824e79bf905e03454d144ce3b69398980ae8a7667390. The server's timer slack could
+not be read from its `/proc` entry by the runner (the field is None in the rows); its nice was.
+
+### A lab job's priority (found in M7c, fixed in f8734a2)
+
+e2e2's timer part handled every T_hdr deadline on epoll about 15.3 ms late, e2e3's about 3.3 ms.
+The cause: a job launched as `(setsid nohup bash lab_job.sh ... &)` from L's login shell, zsh, runs
+at nice 5, since zsh lowers every background job's priority (its BG_NICE option, on by default);
+shown on L: the same line from zsh gave a process at nice 5, from bash at nice 0. epoll_pwait2's
+timeout takes the kernel's slack from `select_estimate_accuracy` (fs/select.c): 0.1% of the time
+left at nice 0 and 0.5% above it, capped at 100 ms, so a 3 s wait may end about 3 ms or about 15
+ms after its deadline; io_uring's timeout does not take that slack, which fits its 0.05 to 0.39 ms.
+So G_L, "the smallest whole number of milliseconds above the largest lateness" (9.2), would be 16
+ms from a pilot at nice 5 and about 4 ms at nice 0, and every process of a job at nice 5 competes
+at a lower priority than the host's own. M7c's jobs e2e1, e2e2, dryrun7, dryrun8, chk1, chk2 and
+try1 ran at nice 5 (none timed anything that a rule uses); e2e3 and chk3 at nice 0. Earlier
+milestones' jobs launched the same way from zsh will have run at nice 5 too; no job recorded its
+nice before f8734a2, and all of them are development data. The fix: `lab_job.sh` refuses a job at
+any nice but 0 (exit 92, unless ONEPORT_ALLOW_NICE=1) and says how to launch from bash; every
+session's fingerprint records the runner's nice and timer slack, and each timer row the server's
+nice. The timer part's lateness and G_L are B2's reported distributions and 9.2's G; the
+coordinator may want the slack named in the methods.
+
+### Analysis changes
+
+One: `analyse.check_rule_e` takes `relay_copy` as one choice per backend that relays, {"epoll",
+"io_uring"} (7364fbb), with a test. Section 8 gives rule E "three choices per backend" and section
+2.1 has the relay on Linux only; the contract held one value. Nothing else in `analysis/` reads it.
+`design/status-m7a.md`'s line on the rule E file names the old form; this entry supersedes it.
+
+### Readings logged in the revision log (entry "Readings fixed during engineering (M7c)")
+
+1. Rule E's relay copy is chosen per backend that relays; HAProxy's `option splice-auto` follows
+   the server's relay copy in the same cell.
+2. The pilot's C1 and C2 cells, with their reruns, end before its first C3 session; section 10's SSH
+   cells likewise.
+3. The timer part's lateness is wait_return - deadline of the T_hdr event, one connection at a time.
+4. A split replicate runs against a fresh server, so its counters are its one connection's.
+5. "The slower arm's median" and WL6's "the smaller of its two arms' median": each arm's session
+   value the mean of its two windows, the median over the valid sessions, the smaller of the two.
+
+### For the coordinator (not logged: each chooses what runs, or is open)
+
+1. The mixed cell's keep-alive background as WL3's closed loop (above); where its silent
+   connections go in dedicated mode (`--silent-ports`, no default); its placement.
+2. Section 10's B3 cells of the other detection mode name no dispatch: `b3_run.py
+   --other-mode-system one-port-relay|one-port-inproc` has no default, and a frozen B3 run refuses
+   without it.
+3. Section 10's TLS variants cannot run on the frozen binaries: opgen offers only ALPN http/1.1
+   and never resumes a session, and the server issues no ticket and keeps no session cache
+   (section 2.1's settings, which the frozen text fixes for every TLS endpoint). Running them needs
+   generator (and, for resumption, server) changes before CODE_FREEZE, or the 6 cells are reported
+   as not run. `s_run.py` lists them as not runnable.
+4. Rule E's computation as above (at least 6 valid sessions; strictly higher in every one; the
+   operations summed; the relay-copy sessions in M3's arrangement).
+5. M2: the relay arm's backend (a server in dedicated mode) runs the cell's backend; the in-process
+   arm is the server alone on CPU 14 in the hand-off placement. Found in e2e1: in M2's closed-loop
+   rate sessions for TLS on io_uring, one of the backend's two cores was 92.6% to 100.4% busy in
+   every relay window (one worker took the handshakes), so section 7's backend rule invalidated
+   every relay window and M2_RATE was not computable for that cell from valid sessions as the
+   runner reads WL6. HTTP/1.1 on io_uring (e2e2): one session valid in e2e2, both arms (no backend core above 90%), so the rule bites in TLS only so far.
+6. The cost family's dedicated arm gets the default detection mode's flag too (it does nothing in
+   dedicated mode; section 2.1 names the flags both modes share).
+7. Design choices: K_BASE's ophold windows at most 4 beyond 16; the hard cases' runs wait at most
+   20 s for a script (HC4's drip and T_dec), one server per listener setup per entry, one reference
+   transcript per variant and entry; the competitors' rows say whether the reply equals what the
+   server's table expects of the server, descriptively; the development stub sessions are rerun
+   like any invalid session.
+8. The entries' tokens the frozen runners look for (above, "What a frozen run checks").
+9. `runlib.HOST` is L: W's pilot, cost, M1 and section 10 cells need W's runner (M6b), which
+   should write the same rows; `window.py` and `cellwin.py` read `/proc`.
+
+### What the freeze still needs
+
+In the M7 checklist's order, after M7c:
+1. The coordinator's decisions on M7c's items above (before item 8: the runners are frozen with the
+   tests), and `ANALYSIS_COMMIT` after 7364fbb (`analysis/` changed in M7c).
+2. The final merge of `m6b-windows` and W's checks: W has built none of M7c's C++ (`hold.cpp`,
+   `run_cases.cpp`'s listing, `record.cpp`'s flush, `gen_tests.cpp`, `server_tests.cpp`); W's
+   runners (W's pilot and its parts, the cost cells on IOCP, M1 on IOCP, rule E's IOCP detection
+   sessions and W's evidence file, section 10's W cells, the IOCP forms, the hard cases on IOCP)
+   do not exist and must write the same rows; `runlib.HOST`, `window.py` and `cellwin.py` are L's.
+3. The pins, the slab re-read, the seeds entry (avoiding the development seeds above), the values of
+   section 9.1, the final `coverage.json`, `CODE_FREEZE`, the records at it and the gates, as the
+   checklist says; each entry written with the tokens the runners look for (above); every lab
+   job launched at nice 0 (from bash, as `lab_job.sh` now requires).
+4. Then, in order: `pilot_run.py` on L (frozen: `--seeds --code-freeze --gate`) and W's pilot;
+   `pilot.py` on the pinned numpy; the pilot entry; `rule_e.py run` and W's IOCP sessions, then
+   `rule_e.py decide`, logged; `m_run.py --part m2-rate`, logged; `b3_run.py` (K_BASE first);
+   then `cost_run.py`, `m_run.py`, `s_run.py`, `hardcase_run.py` (both parts), each family in its
+   own order.
+
+## M7c follow-up, 2026-10-04
+
+The coordinator's follow-up of M7c: the merge of `m6b-windows` at 74dc539, the suite on L, the
+pushes, M7c's open items settled against the frozen text and logged, `ANALYSIS_COMMIT`. Nothing
+here is a result: every window below is development data, journaled as such. Every job on L ran
+under `lab_job.sh` at nice 0, launched from bash (`bash -c '(setsid nohup bash ... &)'`), from
+fresh clones of the lab remote under `~/lab/p3/m7c/`. The `one-port-m6b` work tree and W were not
+used for any build, job or timing; on W (this session's own host) only `run.test_frozen` and
+`run.test_wrunner` ran as pure Python, about 10 s, after W's night A/A job had ended (02:31).
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line) |
+|---|---|
+| fa8be6d | chore: merge m6b-windows at 74dc539 into main |
+| 236ee3c | feat(gen): opgen's tls-h2, section 10's TLS variant with ALPN h2 |
+| 8e77e28 | feat(run): section 10's ALPN h2 cells, the logged choices of M7c's open items |
+| 3623df6 | fix(run): the mixed cell's rows keep each background generator's CPU time (cpus, cpu) in the background report; a test |
+| 13004bc | docs: hypotheses.md revision log, M7c's open items, before the code freeze |
+| d16d8b4 | docs: hypotheses.md revision log, ANALYSIS_COMMIT = 7364fbb... |
+
+Then this section's update. Papers: 4af4be6 and 3cb0bcd pushed; 2ce46ec bumps `papers/one-port`
+to fa8be6d (pushed); ae30f03, e2e4's lab-journal line (development); then a second bump to this
+section's commit. `main` went to `origin` at fa8be6d once chk4 had passed, and to `lab` before it
+(the fresh clones of the suite come from the lab remote, as in M7c); everything after is pushed
+to both with this section.
+
+### The merge (fa8be6d)
+
+`m6b-windows` merged at exactly 74dc539 (the branch's head then; later commits of the branch are
+not in). The brief expected a conflict in `bench/server/record.cpp`; there was none: git merged
+main's write-through (beed996) and M6b's `_MSC_VER`-only pragma around `fopen` (2b6aed0) on its
+own, both kept. Two files conflicted, both kept on both sides:
+- `bench/cases/run_cases.cpp`: M6b renamed the JSON helper `quoted` to `json_quoted` (MSVC's
+  `std::quoted` won argument-dependent lookup); main had added `variant_line` and the TLS fields
+  group, sigalg, verified and resumable with the old name. The merge keeps main's fields and gives
+  every use the new name (no `quoted(` call is left).
+- `tests/CMakeLists.txt`: main's `run.test_frozen` and M6b's `run.test_wrunner`, both registered.
+`bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` hold for the merged tree: no target
+was added or removed (M7c's `hold.cpp` is in the `opcase` library, Linux-only by its own guard;
+M6b's `worker_win.cpp` is in `opgen_core`).
+
+### The suite in four builds
+
+`~/lab/p3/m7c/checks_job.sh` (M7c's script, sha256
+387d87734f8a693dcd248df2931fa88135c1efd2bcff3a4584cc4cc1301988ff), Debug and ASan+UBSan at once,
+then TSan and MSan at once; report lines counted with the lab's shared pattern.
+
+| Build | chk4 (fa8be6d, the merge) | chk5 (8e77e28, the follow-up's code) |
+|---|---|---|
+| Debug | 0 warnings, 394 of 394, 0 report lines | 0 warnings, 398 of 398, 0 report lines |
+| ASan+UBSan | the same | the same |
+| TSan | the same | the same |
+| MSan | the same | the same |
+
+394 is chk3's 393 and `run.test_wrunner` (pure on Linux). 398 adds `gen.churn.tls-h2` and
+`gen.tls_h2_one_port` on both backends. As in M7c, logs of `run.test_runner` show a thread's
+exception from its stand-in stub, which passed (chk4: four logs; chk5: three); it matches no
+report pattern. After
+3623df6 and 13004bc, which change only `bench/run/*.py` and docs, the suite's Python tests ran
+again from a fresh clone at 13004bc (job py1): `test_frozen` 40 of 40 (on L none skipped),
+`test_runner` 63 of 63, `test_wrunner` 19 of 19, `test_gates` and `test_record_writers` passed.
+Logs (sha256), `~/lab/p3/m7c/check/`: fa8be6d debug build
+fdf88874393f073998dae8bf79dddfb3fe9367ceaef88553f01344c7cc753183, ctest
+b404b6a3b5beec1011c6bcc75a24a9a54cd0d8801219ccb7b42f356878b9b511; asan build
+68c95dcdb7344f12afcaa77812b6b86c8cb3eb7e34b68c31ee38976ca974c919, ctest
+91a121f281af4121c1f47f88299c1194a2c1dff3813e4a4d94905fbd787411dd; tsan build
+51567c88f65a5730bb63f0486182d8c62ccde7e080443a2c9859d34ecb0cb6da, ctest
+ff77a9497db3ac192a6dce9202a83512f6c4e356b2446950021c0eea6ab66d66; msan build
+83ba5a555121d6a6d911944d50b3c0dbf6c13975456127c1c5afb7d1007a70bb, ctest
+4a09dabfe08ea1b619b353912b4bfecf62d7e820aea62431448c164dd0258b5b. 8e77e28 debug build
+53536889ca9af2a0c37ba4c84394e0287bf5ba7ca90f8d1fe3cfbbcbc8d2c24b, ctest
+0bf0180a453ac6a7f3983721a96cd0e47e0196c45ef384c92f83bf06ab5fae88; asan build
+3c0db3a5184446c751054a7081b4aa3f7a63b3cb020b45ea78174db9031ac01d, ctest
+94bfcf5366c33dd17411f841ec8b2535b1a3305aa8ad9f455eeaa3a246424125; tsan build
+c764d16db0c0a0a333cb58dc594e6b2ee0b731c323905358970483d771cd612a, ctest
+342b000c0049440af989cb128970a660ef08f725f52b2974da20fc2a65e82f98; msan build
+c657fcdf88043f40d155d23ed70dccb46ce613f46ad59130cfaff2858d314600, ctest
+b5724e94023de259d0c598d897cd357e60f44774869a3a0f5220cb01ed770455.
+
+### M7c's open items (revision log, entry "M7c's open items, before the code freeze")
+
+Logged as one entry (13004bc), eight items, each labelled; the entry gives every reason in full.
+The runners apply items 2 to 6, and a frozen run of the section 10, B3 or M runner refuses to start
+without the entry's heading (`freeze_guard.M7C_ITEMS`).
+
+| Item | Label | What | Code |
+|---|---|---|---|
+| 1 | reading | The mixed cell's TLS and MQTT keep-alive background is WL3 with C = 64 each, a closed loop: WL3 is the text's only keep-alive, 9.1 sizes the background by counts alone, and a fixed rate would need a λ with no rule. Consequence (e2e2): the cell's churn about 17.6k against about 44.7k alone; the background generators 15.5% to 30.1% busy, so the server set the background's rate | unchanged; 3623df6 keeps the generators' CPU in the row |
+| 2 | design choice | Silent connections of the dedicated arm on the HTTP/1.1 port: the listener of the measured load, as in one-port mode; spread would add the SSH and SMTP ports' first lines, which the one-port arm never sends a silent connection | `s_run.py` default http1, frozen run refuses spread |
+| 3 | reading (silent case: design choice) | B3's other-mode cells in relay: WL7 says the peek side of these cells leaves bytes queued, which in the partial-ClientHello case only pass-through does; in-process the handler reads the bytes at byte 6 in either mode (m5b3b: the same U in replay and peek) | `b3_run.py` default one-port-relay, frozen run refuses in-process |
+| 4 | reading | TLS with ALPN h2 runs: 2.1's ALPN http/1.1 is scoped to the cost cells (6.1), which section 10's variants are not; the exchange composed from WL1's TLS and h2c rows | 236ee3c (opgen), 8e77e28 (runner) |
+| 5 | reading | TLS with session resumption is not run (3 cells): 2.1 fixes no tickets and no session cache for every endpoint, unscoped, and TLS 1.3 resumes only from a ticket; section 10 decides nothing, so no claim changes | `s_run.py` lists them as not run, with why |
+| 6 | reading and design choice | An M2 cell whose rate 9.3 cannot compute has no rate (section 9), so no valid session, p = 1 in Holm (4.1, 4.2), "a difference was not shown" (section 12); the runner starts none of its windows (design choice) | `m_run.py`, `not-run-<job>.json` |
+| 7 | design choice (M7c's) | The mixed cell's placement: cell opgen 2 to 9, TLS background 10 and 11, MQTT background and holder 12 and 13 | unchanged |
+| 8 | reading | Section 7's generator rule in the mixed cell reads the cell's generator only; the background generators' CPU is recorded | unchanged |
+
+The brief's tokens: the frozen runners find the later entries by a word and a file's sha256
+(CODE_FREEZE, the seeds, the pilot, rule E, M2_RATE; M7c, "What a frozen run checks"). This entry
+names no file by its sha256, so it can match none of them; the one token a runner looks for in it
+is its heading, "M7c's open items, before the code freeze".
+
+### What was implemented (item 4, and the runners' choices)
+
+- `opgen --proto tls-h2` (236ee3c): the full handshake offering ALPN `h2` alone; after it, the
+  negotiated protocol must be `h2` or the exchange fails (counted as a TLS failure); then h2c's WL1
+  exchange inside TLS (preface, SETTINGS and HEADERS with END_STREAM, read to END_STREAM, GOAWAY),
+  close_notify, close. Churn and open loop; keep-alive refused by the parser. Linux and Windows
+  share the code (`over_tls()` replaces the TLS-only checks, `worker_win.cpp` included); W has not
+  built it.
+- Tests: `gen.options` (the protocol, open loop, keep-alive refused); `gen.churn.tls-h2.<backend>`
+  and `gen.probe.<backend>` against dedicated mode; `gen.tls_h2_one_port.<backend>` against
+  one-port mode (every connection classified TLS, the probe); registered for IOCP too.
+- `s_run.py` (8e77e28): the ALPN h2 cells on epoll and io_uring (rows `proto` tls, `variant`
+  alpn-h2, opgen's tls-h2 through `cellwin.py`'s `gen_proto`), pairing one-port with dedicated
+  mode, so their one-port arms are stubs in development; resumption listed as not run on every
+  host; `--silent-ports` defaults to http1 and a frozen run refuses spread.
+- `b3_run.py`: `--other-mode-system` defaults to one-port-relay; a frozen run refuses
+  one-port-inproc. `m_run.py`: an M2 cell with a null rate is not run, listed in
+  `not-run-<job>.json`. `freeze_guard.py`: `check(entries=...)`; the section 10, B3 and M runners
+  refuse a frozen run whose revision log lacks the heading "M7c's open items, before the code
+  freeze". `window.py`: `stop_on_signals` sets SIGHUP only where it exists, so `run.test_frozen`
+  passes on Windows (it failed there on `signal.SIGHUP`, found running it on W; W's suite registers
+  it since the merge).
+- `test_frozen.py`: 39 checks (35 before): the ALPN h2 cells' rows accepted by `analysis/` and their
+  window (the probe and opgen run tls-h2 on the dedicated TLS port, or on the one-port listener
+  with a clearance and never without), the resumption cells not run, the silent ports and the
+  other-mode system with their frozen refusals, an M2 cell without a rate (not run; `analyse()`
+  leaves it untested with 0 sessions), the guard's entry check.
+
+### The records drivers' dry run and the development check
+
+`~/lab/p3/m7c/e2e4_job.sh` (sha256 e55beef8c89466b5c1647627fd733b9493270fb53b11732eed28d683f115cff7),
+one lab job at 8e77e28 (opgen and opcase changed): `DRY_RUN=1 bench/records_job.sh` (dryrun9),
+then on its `build-release` the section 10 runner in development mode, then `devcheck.py`.
+
+| Step | s | What ran |
+|---|---|---|
+| dryrun9 | 526 | release 36 s; oneport ASan+UBSan and TSan 156 s; MSan 149 s; cmux ASan 36 s, TSan 45 s; hyper-util ASan 53 s, TSan 50 s; gate passed, `dry_run` true, `citable` false |
+| s | 95 | the mixed cell on epoll and the ALPN h2 cells on epoll and io_uring, a session and its rerun each (dev seed 7956, `--dev-r 1`): every one-port window a stub (nothing started), all 12 dedicated windows valid |
+| devcheck | 0 | ok: 24 rows; 12 bound to dryrun9's gate (a dry run, not citable), 0 refused; 12 stubs; `analyse()` accepted the rows |
+
+Development readings, not results, dedicated arms only: the mixed cell's churn 17,676.6 to
+17,727.8 connections per second, each background 444,894 to 449,500 requests per 10 s run, the 64
+silent connections held on the HTTP/1.1 port throughout (closed 0, reopened 0, bytes received 0,
+64 connects); TLS with ALPN h2 3,435.6 to 3,463.0 connections per second on epoll and 3,657.8 to
+3,684.2 on io_uring, 0 failed exchanges in every warm-up and window. dryrun9's gate binaries
+(sha256, first 12): oneport 4c64edc25f76 (byte for byte dryrun8's: the server did not change),
+opgen a25faa11e47f (tls-h2), opcase 49cb3c049250 (the merge's `json_quoted` rename in
+`run_cases.cpp`), ophold 3f405ac29c62, harness_cmux 8c98565a3247, harness_hyper_util d6e52b94e88c,
+harness_jetty 54034332a39d, harness_netty a74b43885186 (the harnesses again differ from dryrun8's
+with no input of theirs changed, as M7c found). Files (sha256), `~/lab/p3/m7c/`: dryrun9/gate-L.json
+b262681b446bfa2557f6ba17a931aff6efffe5881337d62f29b1ef3de193f931, dryrun9/measured-L.json
+2d6bf33259105f869d999296429bd1ab9e63345100b2d4d304da8ec2e8de7c94, dryrun9/records.log
+3e3774b1cd482e58c010a06970288c338ab0ad0b8864c46303eff15dd7bd22c8, e2e4/s/windows.jsonl
+53c7fce000cc6a24a6f798962d6f86c606ee350f35ba452acb146b6126130321, e2e4/s/not-run-e2e4-s.json
+8f1aecbc013f868884935a125ac6170d73a32f40fd5691cbf202e9d0d38cce8b, e2e4/devcheck.json
+98bcb18a88bebe00f45d4b116697e94d27eae2f24961f6283d1f5c8531c5251b. No one-port window ran against
+dedicated mode, and no window against a competitor. Lab journal: one line (Papers ae30f03).
+
+### ANALYSIS_COMMIT
+
+Logged (d16d8b4): `ANALYSIS_COMMIT` = 7364fbbbf356e22bb0d6a74b0b9bc29b62c3534b, the last
+commit that changed `analysis/`; nothing in `analysis/` was left to change (the rows of every
+cell this follow-up touched are forms it reads, `test_frozen.py`). The tests, from fresh clones on
+L, in `~/opt/analysis-numpy-2.5.0/venv` (numpy 2.5.0, Python 3.14.7):
+`~/lab/p3/m7c/ana_job.sh` (sha256 10890a8f1c40951c498d32b8b18d52f964d3985bbf66f618a6f3cc5271e662d2,
+job ana1) at 7364fbb and at 8e77e28: 70 passed, 1 skipped each (logs
+75a2c66cf2b7f3ee087cd3e1e22a152a462b4ec0c86fe36e4eae5704c6ad4193 and
+9b6ef09d75e9d27df497d040826220c177539f95195ff1f5f02d54922824032a); the skipped Appendix A test
+alone with `ONEPORT_SLOW=1` (`ana_slow_job.sh`, sha256
+8d43d0c1efd6d9b3ad2217f8b0f38eb887b5f1ecd57b24a21a9db4df0aa2b178, job ana2) at 7364fbb: 2 passed
+in 119 s (log af3b9364d090f9ae9e8b7b06f113062f4ddbf1e0cbc77b27562f52d0914906de). The seeds entry
+was not written (the brief).
+
+### For the coordinator
+
+1. M2's TLS cells. If the frozen rate sessions behave as e2e1's, both enter Holm with p = 1 and
+   M2's claim narrows to HTTP/1.1 (item 6). e2e1's rows show the cause: the backend (dedicated
+   mode, two workers on CPUs 10 and 12) shares one listener, and in 15 of 16 relay windows one
+   worker took nearly every connection (core 12 92.6% to 100.4%, core 10 at most 7.6%); in the
+   one window where both took a share (41.2% and 59.2%) the window was valid at the same rate.
+   The frozen text fixes the backend's cores (4.1) and one worker per core (2.1), not its
+   listener; dedicated mode already accepts `--listener reuseport` on epoll and io_uring. A
+   backend in an SO_REUSEPORT group might keep each core under 90% and make the rate computable.
+   That is a design choice for the coordinator before CODE_FREEZE (`handoff.py`'s backend
+   command, then development rate sessions to check it); it was not made here. M2's TLS cell on
+   epoll has not run rate sessions.
+2. Resumption (item 5) is a reading against the proposal's intent (I24: "Session resumption is a
+   secondary cell"), not against the frozen text; 3 secondary cells are reported as not run.
+   Alex may want to know.
+3. W: the ALPN h2 IOCP cell and every W cell need W's runner. W has built none of M7c's C++, of
+   the merge, or of 236ee3c (`worker_win.cpp` changed; `gen.churn.tls-h2.IOCP` and
+   `gen.tls_h2_one_port.IOCP` are registered), and `run.test_frozen` is now in W's suite (it
+   passed on W as pure Python after 8e77e28's SIGHUP fix; the other agent's work tree was not
+   touched). `m6b-windows` is merged at 74dc539 only; later commits of the branch need another
+   merge before CODE_FREEZE.
+4. M7c's "For the coordinator" items 4 (rule E's computation), 6 (the cost family's dedicated arm
+   gets the detection flag), 7 (M7c's design choices: K_BASE's 4 extra windows, the hard cases'
+   20 s wait, one server per listener setup, the competitors' rows, stub sessions rerun) and 9
+   (`runlib.HOST` is L) were not in this follow-up's brief and are not logged.
+5. Development seeds used so far, which the seeds entry must avoid: 7701 to 7714, 7801, 7802
+   (M7c), 7951 to 7964 (e2e4), 861 and 20261003 (W, M6b).
+
+### What the freeze still needs
+
+In the M7 checklist's order:
+1. The coordinator's answer to item 1 above (or none), and to M7c's unlogged items 4, 6, 7 and 9;
+   any change lands before item 8, since the runners are frozen with the tests.
+2. W's half of checklist item 2: Debug and MSVC ASan of the merged tree, the whole suite, with
+   Alex's yes when W is free (W has built neither M7c's C++ nor 236ee3c); any later
+   `m6b-windows` commits merged first. W's runners (W's pilot and its parts, the cost cells on
+   IOCP, M1 on IOCP, rule E's IOCP evidence, section 10's W cells including ALPN h2 on IOCP, the
+   IOCP forms, the hard cases on IOCP) do not exist and must write the same rows.
+3. The pins re-read (item 3), the slab re-read (item 4), the seeds entry (item 5, avoiding the
+   development seeds above), the values of section 9.1 (item 6), the final `coverage.json` (item
+   7), `CODE_FREEZE` (item 8), the records at it on L and W (item 9), the gates (item 10) and the
+   code freeze's entry (item 11), each entry with the tokens the runners look for; every lab job
+   at nice 0.
+
+## M7d, 2026-10-04: the pre-freeze items on L
+
+The M7 checklist's items that need L only, before the code freeze: M2's backend listener, M7c's
+open items 4, 6, 7 and 9, the pins re-read, the slab re-read, section 9.1's values, the final
+`bench/coverage.json`, and the seeds entry. CODE_FREEZE is not declared. Nothing here is a result:
+the one timed job (m2l) is development data, journaled as such. Every job on L ran under
+`lab_job.sh` at nice 0, launched from bash, from fresh clones of the lab remote under
+`~/lab/p3/m7d/`; the reads (pins, slab, scans, the draw) ran under the lab lock. The
+`one-port-m6b` work tree was not touched, and W (this session's host) ran no build, job or
+timing: git, editing, and two short read-only Python scans of the lab journal's seeds.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 64f4c98 | feat(run): M2's dedicated backend takes a listener layout (shared or a SO_REUSEPORT group); --dev-backend-listener for a development comparison (the rule of the choice in its message, before the comparison ran) |
+| 1bc1e53 | feat(run): M2's dedicated backend runs its two workers in a SO_REUSEPORT group; a frozen M run checks the M7d entry; a test |
+| 9d7aa15 | docs: hypotheses.md revision log, the pre-freeze items on L (M7d) |
+| 8057e52 | chore: coverage.json drops the declared gap "OpenSSL under TSan"; build_deps.sh's comment on the UBSan ignorelist |
+| 45d8b03 | docs: hypotheses.md revision log, the seeds of section 4.7 (M7d): the procedure, written before the draw |
+| 2e6b539 | docs: hypotheses.md revision log, the seeds: the draw on L and its values; design/seeds.json |
+
+Then this section's commit. Papers: 7a838e6, the lab journal's 2 lines for job m2l (development),
+then the bump of `papers/one-port`.
+
+### 1. M2's backend listener (revision log, entry "The pre-freeze items on L (M7d)", item 1)
+
+What the frozen text says: section 4.1 puts the hand-off backend on CPUs 10 and 12, section 2.1
+runs one worker per server core, and 5.3 gives M2's relay arm "a backend that terminates" TLS.
+No line names the backend's listener. The Words give dedicated mode "one listening socket per
+protocol", but section 10 calls the `SO_REUSEPORT` group "one-port mode", whose Words are "one
+listening TCP socket per process", so the text counts a group on one port as that port's
+listening socket. Section 11's "two workers on the shared listener" is the TSan suite's setting.
+So the choice is open (a reading, logged with the choice).
+
+Which cells use which backend (`handoff.start_stub`):
+- the dedicated-mode backend, two workers: M2's relay arm only, in both parts of the M runner;
+- the stub, two workers: M3, B3's relay systems, section 10's relay cells on io_uring, rule E's
+  relay-copy sessions, perfrec and systrace; fixed by the M4a entry, item 8, and unchanged;
+- the hard cases' relay backend: one worker (`hardcase_run.py`, no `--workers`), so no layout.
+So the choice touches no competitor's cell. The stub's balance in earlier development rows (e2e1's and
+e2e2's M3 against nginx and relay on io_uring against nginx, e2e2's rule E relay copy): its two
+cores were 1.6% to 38.8% busy, uneven but far below section 7's 90%; an observation only.
+
+The rule, fixed in 64f4c98's message before the job: adopt the group if the text leaves the
+listener open and the group balances the backend's two workers; report validity and the
+closed-loop rate beside it; never read WL6's CPU per connection (M2's metric).
+
+Job m2l (`~/lab/p3/m7d/m2l_job.sh`, sha256
+57e73a538b27414ec604fee5f75b86f8dcb844565cbd6c4bcbf9ba2b72157b1c; one-port 64f4c98 on dryrun9's
+`build-release`, oneport 4c64edc2 and opgen a25faa11, the dry-run gate's): the m2-rate part, the
+four M2 cells of L, 6 sessions each with the runner's reruns (at most 2), 112 windows per layout,
+first the shared listener (dev seed 8101), then the group (dev seed 8102). Both arms are one-port
+fronts (in-process against relay), so no one-port window against dedicated mode and no window
+against a competitor. devcheck: 224 rows bound to dryrun9's gate (a dry run, not citable), 0
+refused. Summary (`m2l_summary.py`, sha256
+14974de01d4dec13784fb9934e233e2373a8e6a9f79e7affe2b62f54426cf64e; output
+5276f87e7e6f8e9235bb5993f1bd16bf314c02ddf377688b9c6572058e90afd0), relay windows only for the
+backend; "share" is core 10's share of the two backend cores' busy time:
+
+| Cell | Layout | Valid sessions | Share | Busier backend core | Relay arm, conn/s | In-process arm, conn/s |
+|---|---|---|---|---|---|---|
+| HTTP/1.1, epoll | shared | 6 of 6 | 0.009 to 0.626 | at most 43.0% | 13,627.6 to 13,753.2 | 43,834.2 to 44,211.6 |
+| HTTP/1.1, epoll | group | 6 of 6 | 0.487 to 0.509 | at most 24.4% | 13,759.6 to 13,836.6 | 44,139.1 to 44,413.3 |
+| HTTP/1.1, io_uring | shared | 6 of 6 | 0.217 to 0.763 | at most 29.6% | 14,842.2 to 14,994.8 | 51,652.6 to 52,325.2 |
+| HTTP/1.1, io_uring | group | 6 of 6 | 0.486 to 0.512 | at most 22.4% | 14,809.4 to 14,935.6 | 51,845.3 to 52,366.4 |
+| TLS, epoll | shared | 0 of 8 | 0.401 to 0.501 | 99.2% to 99.8% | 6,330.9 to 7,628.9 | 3,817.0 to 3,855.8 |
+| TLS, epoll | group | 0 of 8 | 0.492 to 0.499 | 99.0% to 100.0% | 7,448.7 to 7,558.1 | 3,827.2 to 3,866.6 |
+| TLS, io_uring | shared | 0 of 8 | 0.000 to 0.010 | 99.4% to 100.4% | 3,926.0 to 3,974.7 | 3,902.8 to 3,940.6 |
+| TLS, io_uring | group | 0 of 8 | 0.493 to 0.500 | 99.2% to 100.0% | 7,640.5 to 7,739.3 | 3,900.0 to 3,952.8 |
+
+In the HTTP/1.1 cells the relay arm is front-bound (the front 99.6% to 100.2% busy) and slower
+than the in-process arm, so it sets M2_RATE (development values: 6,840.8 and 7,447.1 with the
+shared listener, 6,900.5 and 7,434.2 with the group, epoll and io_uring). In the TLS cells every
+relay window was invalid by section 7's backend rule under both layouts (with the group both
+cores 96.8% to 100.0% busy), every in-process window was valid, and no session was valid, so
+`m2_rates.json` has no rate for either TLS cell under either layout.
+
+Decision: the group balances the workers, so it is adopted (1bc1e53), labelled a design choice:
+`m_run.M2_BACKEND_LISTENER = "reuseport"` in both parts; `--dev-backend-listener` stays for
+development comparisons and a frozen run refuses it; a frozen M run, in either part, refuses to
+start unless the revision log holds the entry "The pre-freeze items on L (M7d), before the code
+freeze" (`freeze_guard.M7D_ITEMS`); rows name `backend_listener` and the backend's command. Test:
+`test_m2_backend_listener` (test_frozen.py, now 41 checks): the M2 cells carry the group in both
+parts and M3's the stub with the shared listener, the window hands the layout to the backend,
+`start_stub` refuses the group for the stub and any other layout, and both frozen parts refuse
+`--dev-backend-listener`. From a fresh clone at 1bc1e53 on L: test_frozen 41 of 41, test_runner
+63 of 63.
+
+### 2. M7c's open items 4, 6, 7 and 9 (same entry, items 2 to 5)
+
+| M7c item | Label | Settled as |
+|---|---|---|
+| 4, rule E's computation | reading | "favours" is strictly above in every one of at least 6 valid sessions (a tie counts against, as in 4.2); at most 2 reruns (⌈6/4⌉); "its operations per connection" the sum over section 2.1's kinds per accepted connection, averaged over the arm's valid windows, an equal sum not higher; detection in the in-process placement, the relay copy in the hand-off placement |
+| 6, the detection flag in dedicated mode | design choice | both arms get rule E's default; inert in dedicated mode (`Worker::peeks` reads it only for a listener that detects, and no dedicated listener detects); keeps the cost and pilot command lines equal but for mode and port (5.1 "same binary", 4.6 "same binary and flags") |
+| 7, M7c's design choices | each labelled | (a) K_BASE's 4 extra windows: reading with a design choice, no B3 decision depends on K_BASE; (b) the 20 s script wait (`SERVER_WAIT_MS`), (c) one server per listener setup per entry, (d) one reference transcript per variant and entry, (f) stub sessions rerun (development only): design choices; (e) the competitors' rows' field: reading of section 10's descriptive table |
+| 9, `runlib.HOST` is L | neither | a statement of what the L runners cover; W's runner is the open half of checklist item 2 |
+
+### 3. Pins, slab, section 9.1's values, coverage.json (same entry, items 6 to 9)
+
+Files on L, `~/lab/p3/m7d/` (sha256): `pins_read.sh` 9cddd1dde42efe5daf13fddbb48ecae125b7216198d78c241baa83259e155c73,
+its log 07a6739109270e4b919ec3802119d23a5158dc9f609ebd69ac72221a47560fa8; `pins_read2.sh`
+7a53ec0a41499a89b075414ed9c6472802ba3cfdc4839493967445a911ea5d92, its log
+f0baa971d8a85a2ec769ec0dd0f03ef94c4cdc3661789818daa60a0fce1e68c1; `slab_read.sh`
+9a2d4e95113212ecbb93c3c900de9fb3928664a7510bfc635c80f41666af7acc, its log
+cd73e15c2e1bbf8106cef142a4da5c44914c19a7347590850c5c6f2d584f2dcf; `ksrc_scan2.py`
+64ecf61529077b98499b6806a08575b75fe4684bd7a4ad124567fd4b8b557577, its log
+577efee64acc804c3a007a61d71267a52afae47c1ba083ddbef203acf7b346f4; `ossl_check.sh`
+72701e05c1a91ecd0516044d7329c73a07b05b855c5093afc46171d83133256a, its log
+8da18fb0a4be326e3cdc3b36b5aa6faa4580d1e15cb6e1bd1d7cad9b495ed142; `rustpkg.log`
+97218de79b6bfc0c50c9e9c0d217a77f886d53ab55f579ae0bf4bd7e5942828b. (A first scan, `ksrc_scan.py`,
+matched every key holding "connect", counts of connects included; its second pass reads only the
+keys that record a failed connect.)
+
+- Pins (read 2026-10-04 04:48 and 04:49 +0300): no pin changes. Every pinned version is still the
+  latest of its line (OpenSSL 3.5.9, nghttp2 v1.70.0, nginx stable 1.30.5, HAProxy 3.4.6, Envoy
+  1.39.2, xcaddy 0.4.7, caddy-l4 v0.1.2 at 42db5690 and master's head, sslh v2.3.1, Netty
+  4.2.18.Final, Jetty 12.1.13, cmux v0.1.5, hyper-util 0.1.21); Temurin 25's latest GA build is
+  still 25.0.4.1+1 (25.0.5 not published), so the checklist's rule stands: read again on the
+  freeze day. Two readings logged: Caddy v2.11.6 and v2.11.7 do not move caddy-l4's pin (Caddy's
+  version is the one caddy-l4 v0.1.2's go.mod requires, and the text named v2.11.4 a day after
+  v2.11.6 came out); Rust 1.99.0 does not move the toolchain's pin (section 9.1 has no "latest"
+  rule for it). No competitor's configuration changed.
+- Slab (read 04:50 +0300, as root, read only): as WL7 and the 12:11 re-read of 2026-10-03.
+- Section 9.1's values for the code freeze's entry: `K_SRC` 16 (no failed connect in 3,528 rows of
+  129 row files since the M3 entry), `N_ACCEPTEX` 64, `RELAY_BUF` 4096, `N_BG_*` 64, ℓ 206.
+- coverage.json: "OpenSSL under TSan" removed (8057e52) after the revision log recorded that
+  OpenSSL ran under TSan (954 object files of the tsan flavour's `libcrypto.a` and 90 of its
+  `libssl.a` call `__tsan_func_entry`; chk5's TSan build linked them and passed 398 of 398). Every
+  other gap read true; the Windows gap waits for W's build of the merged tree.
+
+### 4. The seeds entry (revision log, "The seeds of section 4.7 (M7d), before the code freeze")
+
+The procedure was committed (45d8b03) before the draw; the draw ran once on L at 05:29:12 +0300
+(`seeds/draw_seeds.py` 4d0e205f4c361e029428e3faf950de2e7597d21e4264e045af6f97af30ed82aa, its log
+84412a89fb561959b55285af0b4fbd8fe026cfa2972174b503265f2c2f38e1a5): `secrets.randbits(32)` per name
+in 4.7's order, excluding every integer of the Papers journal at 7a838e6 and of one-port's four
+status files at 45d8b03 (5,634 integers with the named development seeds); each first call was
+kept. `design/seeds.json` (2e6b539), sha256
+3a2dd43623aa96190b5b3fac737d96af5a8fabed9853a82233c3a3c9f4c35b3e, equal byte for byte to the
+draw's file. Checked on L from a fresh clone at 2e6b539: `runlib.load_seeds` and
+`analysis/cells.check_seeds` accept it (14 names), `freeze_guard.lines_with` finds its sha256 on
+exactly one revision-log line with "seed", and `check_entries` finds both entry headings the M
+runner needs. No run uses these seeds before CODE_FREEZE.
+
+### The suite in four builds
+
+`~/lab/p3/m7d/checks_job.sh` (M7c's script, the paths moved to `~/lab/p3/m7d/check/`; sha256
+68d4fbf1c5723bbf77230cc8df52385b38d04457408c31832f7135c8a2e2f24f), job chk6 at 2e6b539, which holds
+M7d's three commits that change code or the suite's inputs (64f4c98, 1bc1e53, 8057e52): Debug,
+ASan+UBSan, TSan and MSan each built with 0 warnings and passed 398 of 398 tests with 0 report
+lines. 398 is chk5's count: `run.test_frozen` is one test, now of 41 checks (41 of 41 in every
+build). As before, three logs (ASan+UBSan, TSan, MSan) show a thread's exception from
+`run.test_runner`'s stand-in stub, which passed; it matches no report pattern. Logs (sha256),
+`~/lab/p3/m7d/check/2e6b539/`: debug build
+05a3ddf92e3d40c41223ef0fac0b7359bce4b02ff20aeebd4ded7d5b7277bf96, ctest
+f50487127cb3edbe55b8ba62572f0437c310b57f705c8e3fc45174fde650fd14; asan build
+4f810344ad570cce5c691b4a694caa33f7d999b76585df2b62a847c6e721993a, ctest
+72cf542aab430bc6d4c9c5cdd8de93ba7b64dd44988d5228c53398c0e0b7ca4b; tsan build
+3f62f0320d6e7799e45d6a881063377aa7d615a75fb8f74ec2204b4d7e2540cc, ctest
+3034a5961b85d871b63ef227241777d18997619d39c8c7d0fb513251d4f0d2a6; msan build
+7a0daa0216982ba486a35b25e178aa89ad92f13317a370208e243dd4b9f62fd6, ctest
+d98706c79dab0ace1def253af063b734c35e94a8016d0a277847c508d0f94044.
+
+### For the coordinator and Alex
+
+1. M2's TLS cells. The listener was not the cause: with the backend balanced, both of its cores
+   are 96.8% to 100.0% busy in every closed-loop relay window, because the backend that
+   terminates TLS is the relay arm's limit (the relay arm then runs about twice the in-process
+   arm's rate). So under section 7's backend rule no TLS rate session is valid on either backend,
+   `M2_RATE` cannot be computed by 9.3's rule as read (M7c's reading 5: valid sessions), and the
+   follow-up's item 6 applies to both TLS cells: not run, p = 1, M2's claim narrows to HTTP/1.1.
+   Changing that needs a decision on how the rate sessions apply section 7 (for example, whether
+   WL6's "the smaller of its two arms' median" may take the in-process arm's valid windows when
+   every relay window is invalid only by the backend rule). It changes what M2 can claim, so it
+   was not decided here.
+2. The Caddy reading (revision log, M7d item 6 (a)) keeps caddy-l4 on Caddy v2.11.4. The other
+   reading would move Caddy to v2.11.7 under section 2.3's rule; v2.11.6's notes list breaking
+   changes from security hardening (default idle read and write timeouts among them), and whether
+   any reaches the layer4 app was not established, so that reading would need caddy-l4 rebuilt
+   and its probes, route checks and B3 feasibility run again.
+3. Proposal I4 says the `SO_REUSEPORT` layout "is measured only in the secondary 2-core cells".
+   That sentence is not in the frozen text, and M2's relay arm now measures its backend's CPU in
+   a group (M7d item 1), as M7c's item 5 flagged I24.
+4. L: Arch's `rust` is now 1:1.99.0-1. A `pacman -Syu` on L before the records would replace the
+   pinned 1:1.98.1-1 (its package is still in pacman's cache).
+5. Development seeds used in M7d: 8101 and 8102 (job m2l), excluded from the drawn seeds.
+
+### What the freeze still needs
+
+In the M7 checklist's order:
+1. The coordinator's answer on M2's TLS cells (item 1 above), or none: then they stay not run.
+2. W's half of checklist item 2: any later `m6b-windows` commits merged; Debug and MSVC ASan of
+   the merged tree with the whole suite (W has built none of M7c's C++, of the merge or of
+   236ee3c), with Alex's yes when W is free; W's runners, writing the same rows; the Windows
+   coverage gap settled by that build.
+3. On the day of the freeze, before its commit: the pins read again (the JDK first: 25.0.5, if
+   published by then, is pinned by the checklist's rule, with the Java harnesses rebuilt, their
+   probes and route checks, and the heap bounds; Netty's allocator read again with it), every
+   change logged.
+4. `CODE_FREEZE` (item 8), the records at it on L and W (item 9), the gates (item 10), and the code
+   freeze's entry (item 11) naming section 9.1's values as M7d item 8 lists them, the slab as
+   M7d item 7 read it (or a re-read that day), and the pins as frozen.
+5. Then the pilot on L and W with `design/seeds.json`, and the rest in section 8's order.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
 gave, the reason is in the item. Each item names what decides it.
 
-1. **Open decisions that block the freeze** (the coordinator's, or Alex's where named). All but
-   `ANALYSIS_COMMIT` are resolved ("M7 fixes, 2026-10-03"):
+1. **Open decisions that block the freeze** (the coordinator's, or Alex's where named). All are
+   resolved ("M7 fixes, 2026-10-03"; "M7c follow-up, 2026-10-04"), except what the follow-up's
+   "For the coordinator" leaves open:
    - Resolved (d15e775): M5's reading 4. The reassembler refuses at a record header that would
      take the handshake bytes past B_CH, and the storage stays within B_CH and 5 bytes per
      record; case B sits at that bound (the reading is in "M7 fixes", item 2, for the coordinator).
-   - Open: `ANALYSIS_COMMIT` (section 8 step 2: "the analysis code that runs 4.6 is committed with
-     its tests" before engineering ends). `analysis/` holds only `appendix_a_r_rule.py`, which says
-     it is not that code; the analysis branch `m7-analysis` is another agent's. Section 8 makes
-     each step start after the one before it is committed, so this precedes the code freeze.
+   - Resolved (d16d8b4): `ANALYSIS_COMMIT` = 7364fbbbf356e22bb0d6a74b0b9bc29b62c3534b, logged,
+     with its tests on the pinned numpy ("M7c follow-up", "ANALYSIS_COMMIT").
    - Resolved (97a5363): the harnesses' LeakSanitizer. Both end on SIGTERM by a normal exit, and
      a harness record is green only if every run ended so; no gap is declared.
    - Resolved (3382bb8): the route without ALPN stays in all five proxies, logged.
    - Resolved (c1b4283): `b3.py`'s rows name the binaries they ran, so `check_rows.py` binds them.
-   - Resolved (3382bb8): `N_BG_TLS` = `N_BG_MQTT` = `N_BG_SILENT` = 64, logged. Open with it, for
-     the coordinator: how the mixed cell holds its background (above, "M7 fixes", item 5); if it
-     needs a generator change, that change lands before item 8.
+   - Resolved (3382bb8): `N_BG_TLS` = `N_BG_MQTT` = `N_BG_SILENT` = 64, logged. How the mixed cell
+     holds its background: the generator change landed (0b63d62, `opcase hold`, M7c); the
+     keep-alive background as WL3's closed loop, the silent connections on the dedicated HTTP/1.1
+     port and the placement logged (13004bc, items 1, 2, 7 and 8).
+   - Resolved (13004bc): M7c's items 1, 2, 3 and 5 for the coordinator (the mixed cell, B3's
+     other-mode dispatch, the TLS variants, M2's rate), logged as the entry "M7c's open items,
+     before the code freeze", the runners changed to match.
+   - Resolved (9d7aa15, 1bc1e53): M7c's items 4, 6, 7 and 9, and M2's backend listener (a
+     `SO_REUSEPORT` group), logged as the entry "The pre-freeze items on L (M7d)" ("M7d"). Open:
+     M2's TLS cells, whose rate sessions are invalid under either listener ("M7d", "For the
+     coordinator and Alex", item 1), before item 8.
 2. **The final merge of `m6b-windows`** into main, then the build of the merged tree:
+   - Merged at 74dc539 (fa8be6d, "M7c follow-up"); a later commit of the branch needs another
+     merge.
    - L: Debug, ASan+UBSan, TSan and MSan, the whole suite in each (as `checks_job.sh` ran M5's).
-   - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free.
+     Done: chk4 at fa8be6d (394 of 394) and chk5 at 8e77e28 (398 of 398), 0 warnings and 0 report
+     lines in each build.
+   - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free. Open: W has built
+     none of M7c's C++, of the merge or of 236ee3c.
    - Check `bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` against the merged tree
      (M6b built opgen on Windows): a compiled target added or removed stops the hash until the
-     list is right.
+     list is right. Done: they hold (no target added or removed).
 3. **The pins, re-read before the records**, since every record carries the sha256 of
    `bench/cmake/pins.cmake` and the gate refuses a build whose pins differ from its records':
    - The JDK. Section 2.3: Netty and Jetty "on the latest LTS JDK at the code freeze"; section
@@ -4805,30 +5684,38 @@ gave, the reason is in the item. Each item names what decides it.
      the survey's), caddy-l4's commit (Appendix B: "read again at the code freeze"), xcaddy, the
      Rust toolchain; Netty's allocators read again (M4b-2's reading 11). A changed library is
      rebuilt in every flavour (`build_deps.sh` on L, `build_deps.ps1` on W) before item 9.
+   - Read on 2026-10-04 at 04:48 +0300 (M7d, logged in its entry, item 6): no pin changes;
+     Temurin 25.0.5 not published; Caddy's v2.11.6 and v2.11.7 and Rust 1.99.0 do not move a pin
+     (two readings). Read again on the freeze day, the JDK first.
 4. **The `/sys/kernel/slab/` re-read on L** (section 9.1): as root, read only: that
    `/proc/slabinfo` exists; for skbuff_head_cache, skbuff_fclone_cache and skbuff_small_head, the
    name `/proc/slabinfo` lists each under and the co-tenants of a merged one (the links in
    `/sys/kernel/slab/`, `aliases`); the page size. Compared with WL7's reading and the re-read of
    2026-10-03 12:11 (the entry "Host change before the code freeze", item 1); a difference is
-   handled by WL7's rule for merged caches and logged.
+   handled by WL7's rule for merged caches and logged. Done on 2026-10-04 at 04:50 +0300 (M7d,
+   its entry's item 7): unchanged.
 5. **The seeds entry** (sections 4.7, 8 step 2 and 9.1): one revision-log entry fixing every seed,
    `SEED_ORDER_C_L`, `SEED_ORDER_C_W`, `SEED_ORDER_B_L`, `SEED_ORDER_M_L`, `SEED_ORDER_M_W`,
    `SEED_ORDER_S_L`, `SEED_ORDER_S_W`, `SEED_BOOT_C`, `SEED_BOOT_B`, `SEED_BOOT_M`,
    `SEED_BOOT_S`, `SEED_PILOT_L`, `SEED_PILOT_W` and `SEED_SIM`, each checked against the Papers
    repo's `lab/journal.jsonl` as used by no earlier run, committed before the code-freeze commit
-   and never changed after.
+   and never changed after. Done (M7d): the entry "The seeds of section 4.7 (M7d)", its procedure
+   in 45d8b03 before the draw, its values and `design/seeds.json` in 2e6b539.
 6. **The values engineering set**, ready for the code freeze's entry (section 9.1): `K_SRC` = 16
    (logged, M3 entry item 9), `N_ACCEPTEX` = 64 (M6a), `RELAY_BUF` = 4096 bytes per direction
    beside each proxy's default, the three background counts, 64 each (logged, entry "The code
    freeze's preparation (M7)", item 2), ℓ from `tests/fixtures/tls/clienthello.hex`, and the pins
-   as item 3 leaves them.
+   as item 3 leaves them. Read in M7d (its entry's item 8): `K_SRC` 16 holds (no failed connect
+   since the M3 entry), `N_ACCEPTEX` 64, `RELAY_BUF` 4096, the counts 64, ℓ 206.
 7. **The final `bench/coverage.json`**, in the freeze commit: every declared gap of section 11 as
    now, plus what item 2 decides (any third-party library W cannot build with MSVC's ASan, which
    section 11 asks to declare "before the code freeze"); the harnesses' leak check runs since
    97a5363, so it needs no gap. One
    gap may go: OpenSSL's tsan flavour is built with `-fsanitize=thread` (`build_deps.sh`), so if
    the TSan record is green, section 11 lets the revision log record that OpenSSL ran under TSan
-   and the gap "OpenSSL under TSan" is removed.
+   and the gap "OpenSSL under TSan" is removed. Done in M7d (its entry's item 9; 8057e52): the
+   suite passed under TSan with the instrumented OpenSSL, the gap is removed, every other gap read
+   true; the Windows gap waits for item 2's W build.
 8. **The code-freeze commit, `CODE_FREEZE`** (section 8 step 3): one commit of the server, the
    generators, the holder, the harnesses, the pins and the tests, with the suite passing on L
    (four builds) and W (Debug, ASan). From then on no commit may touch a first-party input
@@ -4905,6 +5792,18 @@ gave, the reason is in the item. Each item names what decides it.
   run are untimed). No Papers commit. The submodule pointer is the coordinator's. For the
   coordinator: the bound's reading for case B, and how the mixed cell holds its background
   ("M7 fixes", items 2 and 5).
+- M7c: 16 lab-journal lines (the end-to-end jobs e2e1 and e2e2, one line per runner, each marked
+  development), Papers commit 4af4be6 (local, not pushed). The submodule pointer is the
+  coordinator's. For the coordinator: M7c's items ("M7c", "For the coordinator"); five readings
+  logged (the revision log's entry "Readings fixed during engineering (M7c)").
+- M7c follow-up: Papers 4af4be6 and 3cb0bcd pushed; 2ce46ec bumps the submodule to fa8be6d;
+  ae30f03, 1 lab-journal line (e2e4, development); then a bump to this section's commit. Logged:
+  the entries "M7c's open items, before the code freeze" and "ANALYSIS_COMMIT, before the code
+  freeze". For the coordinator: "M7c follow-up", "For the coordinator".
+- M7d: Papers 7a838e6, 2 lab-journal lines (job m2l, development); then a bump to this section's
+  commit. Logged: the entries "The pre-freeze items on L (M7d), before the code freeze" and "The
+  seeds of section 4.7 (M7d), before the code freeze". For the coordinator and Alex: "M7d", "For
+  the coordinator and Alex".
 
 ## What M1 starts from
 

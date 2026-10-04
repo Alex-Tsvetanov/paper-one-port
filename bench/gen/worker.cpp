@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #if defined(_WIN32)
@@ -313,6 +314,7 @@ namespace oneport::opgen::detail
 			case Proto::ssh: queue(c, ssh_line()); break;
 			case Proto::tls_stub: queue(c, stub_hello()); break;
 			case Proto::tls:
+			case Proto::tls_h2:
 			{
 				c.ssl = SSL_new(ctx_);
 				// On Windows OpenSSL's socket BIO takes the SOCKET as an int (c.fd holds it).
@@ -327,7 +329,10 @@ namespace oneport::opgen::detail
 				SSL_set_connect_state(c.ssl);
 				SSL_set_tlsext_host_name(c.ssl, std::string(tls::kServerName).c_str());
 				SSL_set1_host(c.ssl, std::string(tls::kServerName).c_str());
-				static const std::vector<unsigned char> alpn = tls::alpn_wire("http/1.1");
+				// ALPN http/1.1 (section 2.1, the cost cells), or h2 alone (section 10's variant).
+				static const std::vector<unsigned char> alpn_http1 = tls::alpn_wire("http/1.1");
+				static const std::vector<unsigned char> alpn_h2 = tls::alpn_wire("h2");
+				const std::vector<unsigned char>& alpn = o_.proto == Proto::tls_h2 ? alpn_h2 : alpn_http1;
 				SSL_set_alpn_protos(c.ssl, alpn.data(), static_cast<unsigned>(alpn.size()));
 				c.handshaking = true;
 				drive_tls(i);
@@ -351,7 +356,7 @@ namespace oneport::opgen::detail
 	bool Worker::flush(std::uint32_t i)
 	{
 		Conn& c = conns_[i];
-		if (o_.proto == Proto::tls) return flush_tls(i);
+		if (over_tls(o_.proto)) return flush_tls(i);
 		while (c.out_off < c.out.size())
 		{
 			const ssize_t n = ::send(c.fd, c.out.data() + c.out_off, c.out.size() - c.out_off, MSG_NOSIGNAL);
@@ -408,7 +413,7 @@ namespace oneport::opgen::detail
 			connected(i);
 			if (!c.active || c.xid != xid) return;  // ended (and the slot may hold a new connection)
 		}
-		if (o_.proto == Proto::tls)
+		if (over_tls(o_.proto))
 		{
 			// The first byte is stamped at the socket read inside OpenSSL (on_bio), not at this
 			// event: a later step of the same event can read the server's bytes too.
@@ -490,7 +495,23 @@ namespace oneport::opgen::detail
 				return;
 			}
 			c.handshaking = false;
-			queue(c, o_.load == Load::churn ? http_close() : http_keep());
+			if (o_.proto == Proto::tls_h2)
+			{
+				// The server must have chosen h2; anything else fails the exchange.
+				const unsigned char* sel = nullptr;
+				unsigned sel_len = 0;
+				SSL_get0_alpn_selected(c.ssl, &sel, &sel_len);
+				if (sel == nullptr || std::string_view(reinterpret_cast<const char*>(sel), sel_len) != "h2")
+				{
+					fail(i, End::tls);
+					return;
+				}
+				queue(c, h2_opening());  // churn only (options.cpp refuses keep-alive)
+			}
+			else
+			{
+				queue(c, o_.load == Load::churn ? http_close() : http_keep());
+			}
 			if (o_.load == Load::keepalive)
 			{
 				// The handshake is the connection's setup: the first request starts now.

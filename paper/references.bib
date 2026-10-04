@@ -1,0 +1,538 @@
+% References for P3, "One listener for every protocol". Verified on 4 October 2026.
+%
+% How each kind was verified (every request without an e-mail address, a mailto parameter or
+% any personal header; plain curl with its default agent):
+%   - DOIs: metadata from https://api.crossref.org/works/<doi>; title, authors, year, venue,
+%     volume, issue and pages as Crossref gives them.
+%   - RFCs: Crossref's record of the DOI 10.17487/RFC<n> (the RFC Editor registers them).
+%   - Papers without a DOI: the publisher's page (usenix.org), its citation metadata.
+%   - Standards and documents: the official page, fetched, with its title and editors read.
+%   - Software: the release URL or tag page at the version pinned in bench/cmake/pins.cmake or
+%     named in hypotheses.md, fetched (HTTP 200); for the three tarballs nginx, HAProxy and sslh,
+%     the downloaded archive's sha256 equals the one pins.cmake records. Release dates from the
+%     project's release page, CHANGES file or release history.
+% Left out because they could not be verified: Holm (1979), "A simple sequentially rejective
+% multiple test procedure" (doi.org has no DOI for it and the JSTOR page answered a bot
+% challenge).
+%
+% Titles are as their source gives them, except where a source title holds a dash: the dash is
+% then a colon, noted at the entry. Page ranges are written as 1\bibhyph{,}4 (paper/TEMPLATE.md
+% explains why), so no style prints a range dash.
+%
+% Alex Tsvetanov's own work: the two entries at the end are copied from bib/own.bib, the source of
+% truth for their status; keys unchanged.
+
+% mdpi.bst defines no month strings, so the months are defined here.
+@string{jan = "January"}
+@string{feb = "February"}
+@string{mar = "March"}
+@string{apr = "April"}
+@string{may = "May"}
+@string{jun = "June"}
+@string{jul = "July"}
+@string{aug = "August"}
+@string{sep = "September"}
+@string{oct = "October"}
+@string{nov = "November"}
+@string{dec = "December"}
+
+% ===========================================================================
+% (a) Protocol standards
+% ===========================================================================
+
+@techreport{rescorla2018rfc8446,
+  author      = {Rescorla, E.},
+  title       = {The Transport Layer Security ({TLS}) Protocol Version 1.3},
+  type        = {RFC},
+  number      = {8446},
+  institution = {RFC Editor},
+  year        = {2018},
+  month       = aug,
+  doi         = {10.17487/RFC8446}
+}
+
+% Crossref lists Thomson and Benfield as editors.
+@book{thomson2022rfc9113,
+  editor    = {Thomson, M. and Benfield, C.},
+  title     = {{HTTP/2}},
+  series    = {RFC},
+  number    = {9113},
+  publisher = {RFC Editor},
+  year      = {2022},
+  month     = jun,
+  doi       = {10.17487/RFC9113}
+}
+
+@book{fielding2022rfc9112,
+  editor    = {Fielding, R. and Nottingham, M. and Reschke, J.},
+  title     = {{HTTP/1.1}},
+  series    = {RFC},
+  number    = {9112},
+  publisher = {RFC Editor},
+  year      = {2022},
+  month     = jun,
+  doi       = {10.17487/RFC9112}
+}
+
+@book{fielding2022rfc9110,
+  editor    = {Fielding, R. and Nottingham, M. and Reschke, J.},
+  title     = {{HTTP} Semantics},
+  series    = {RFC},
+  number    = {9110},
+  publisher = {RFC Editor},
+  year      = {2022},
+  month     = jun,
+  doi       = {10.17487/RFC9110}
+}
+
+@techreport{dusseault2010rfc5789,
+  author      = {Dusseault, L. and Snell, J.},
+  title       = {{PATCH} Method for {HTTP}},
+  type        = {RFC},
+  number      = {5789},
+  institution = {RFC Editor},
+  year        = {2010},
+  month       = mar,
+  doi         = {10.17487/RFC5789}
+}
+
+% Crossref lists Ylonen as author and Lonvick as editor; the author is given.
+@techreport{ylonen2006rfc4253,
+  author      = {Ylonen, T.},
+  title       = {The Secure Shell ({SSH}) Transport Layer Protocol},
+  type        = {RFC},
+  number      = {4253},
+  institution = {RFC Editor},
+  year        = {2006},
+  month       = jan,
+  doi         = {10.17487/RFC4253}
+}
+
+@techreport{friedl2014rfc7301,
+  author      = {Friedl, S. and Popov, A. and Langley, A. and Stephan, E.},
+  title       = {Transport Layer Security ({TLS}) Application-Layer Protocol Negotiation Extension},
+  type        = {RFC},
+  number      = {7301},
+  institution = {RFC Editor},
+  year        = {2014},
+  month       = jul,
+  doi         = {10.17487/RFC7301}
+}
+
+@techreport{klensin2008rfc5321,
+  author      = {Klensin, J.},
+  title       = {Simple Mail Transfer Protocol},
+  type        = {RFC},
+  number      = {5321},
+  institution = {RFC Editor},
+  year        = {2008},
+  month       = oct,
+  doi         = {10.17487/RFC5321}
+}
+
+@techreport{lottor1988rfc1078,
+  author      = {Lottor, M.},
+  title       = {{TCP} Port Service Multiplexer ({TCPMUX})},
+  type        = {RFC},
+  number      = {1078},
+  institution = {RFC Editor},
+  year        = {1988},
+  month       = nov,
+  doi         = {10.17487/RFC1078}
+}
+
+@techreport{zimmermann2016rfc7805,
+  author      = {Zimmermann, A. and Eddy, W. and Eggert, L.},
+  title       = {Moving Outdated {TCP} Extensions and {TCP}-Related Documents to Historic or Informational Status},
+  type        = {RFC},
+  number      = {7805},
+  institution = {RFC Editor},
+  year        = {2016},
+  month       = apr,
+  doi         = {10.17487/RFC7805}
+}
+
+@techreport{aboba2023rfc9443,
+  author      = {Aboba, B. and Salgueiro, G. and Perkins, C.},
+  title       = {Multiplexing Scheme Updates for {QUIC}},
+  type        = {RFC},
+  number      = {9443},
+  institution = {RFC Editor},
+  year        = {2023},
+  month       = jul,
+  doi         = {10.17487/RFC9443}
+}
+
+% The specification's own citation format: edited by Andrew Banks and Rahul Gupta, 29 October 2014.
+@book{banks2014mqtt311,
+  editor    = {Banks, Andrew and Gupta, Rahul},
+  title     = {{MQTT} Version 3.1.1},
+  publisher = {OASIS},
+  year      = {2014},
+  month     = oct,
+  note      = {OASIS Standard. Available online: \url{https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html}}
+}
+
+% The specification's own citation format: edited by Andrew Banks, Ed Briggs, Ken Borgendale and
+% Rahul Gupta, 07 March 2019.
+@book{banks2019mqtt5,
+  editor    = {Banks, Andrew and Briggs, Ed and Borgendale, Ken and Gupta, Rahul},
+  title     = {{MQTT} Version 5.0},
+  publisher = {OASIS},
+  year      = {2019},
+  month     = mar,
+  note      = {OASIS Standard. Available online: \url{https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html}}
+}
+
+% doc/proxy-protocol.txt as HAProxy 3.4.6 ships it; its date line reads 2026/04/27.
+@www{tarreau2026proxy,
+  author  = {Tarreau, Willy},
+  title   = {The {PROXY} Protocol Versions 1 \& 2},
+  url     = {https://www.haproxy.org/download/3.4/doc/proxy-protocol.txt},
+  urldate = {4 October 2026},
+  note    = {HAProxy Technologies; the text shipped with HAProxy 3.4.6, dated April 2026}
+}
+
+% ===========================================================================
+% (b) Research
+% ===========================================================================
+
+% The publisher's title separates the two parts with a spaced hyphen; a colon is used here.
+@inproceedings{brinkmann2021alpaca,
+  author    = {Brinkmann, Marcus and Dresen, Christian and Merget, Robert and Poddebniak, Damian and M{\"u}ller, Jens and Somorovsky, Juraj and Schwenk, J{\"o}rg and Schinzel, Sebastian},
+  title     = {{ALPACA}: Application Layer Protocol Confusion: Analyzing and Mitigating Cracks in {TLS} Authentication},
+  booktitle = {30th {USENIX} Security Symposium ({USENIX} Security 21)},
+  publisher = {USENIX Association},
+  year      = {2021},
+  pages     = {4293\bibhyph{,}4310},
+  url       = {https://www.usenix.org/conference/usenixsecurity21/presentation/brinkmann}
+}
+
+@inproceedings{poddebniak2021starttls,
+  author    = {Poddebniak, Damian and Ising, Fabian and B{\"o}ck, Hanno and Schinzel, Sebastian},
+  title     = {Why {TLS} is Better without {STARTTLS}: A Security Analysis of {STARTTLS} in the Email Context},
+  booktitle = {30th {USENIX} Security Symposium ({USENIX} Security 21)},
+  publisher = {USENIX Association},
+  year      = {2021},
+  pages     = {4365\bibhyph{,}4382},
+  url       = {https://www.usenix.org/conference/usenixsecurity21/presentation/poddebniak}
+}
+
+% Crossref's container title is "Proceedings 2020 Network and Distributed System Security
+% Symposium"; mdpi.bst prints "Proceedings of the" itself, so the word is left out here.
+@inproceedings{frolov2020probe,
+  author    = {Frolov, Sergey and Wampler, Jack and Wustrow, Eric},
+  title     = {Detecting Probe-resistant Proxies},
+  booktitle = {2020 Network and Distributed System Security Symposium},
+  publisher = {Internet Society},
+  year      = {2020},
+  doi       = {10.14722/ndss.2020.23087}
+}
+
+@inproceedings{frolov2020httpt,
+  author    = {Frolov, Sergey and Wustrow, Eric},
+  title     = {{HTTPT}: A Probe-Resistant Proxy},
+  booktitle = {10th {USENIX} Workshop on Free and Open Communications on the Internet ({FOCI} 20)},
+  publisher = {USENIX Association},
+  year      = {2020},
+  url       = {https://www.usenix.org/conference/foci20/presentation/frolov}
+}
+
+% The usenix.org abstract page gives the pages of the proceedings.
+@inproceedings{dreger2006dynamic,
+  author    = {Dreger, Holger and Feldmann, Anja and Mai, Michael and Paxson, Vern and Sommer, Robin},
+  title     = {Dynamic Application-Layer Protocol Analysis for Network Intrusion Detection},
+  booktitle = {15th {USENIX} Security Symposium},
+  publisher = {USENIX Association},
+  year      = {2006},
+  pages     = {257\bibhyph{,}272},
+  url       = {https://www.usenix.org/legacy/event/sec06/tech/dreger.html}
+}
+
+@inproceedings{deri2014ndpi,
+  author    = {Deri, Luca and Martinelli, Maurizio and Bujlow, Tomasz and Cardigliano, Alfredo},
+  title     = {{nDPI}: Open-Source High-Speed Deep Packet Inspection},
+  booktitle = {2014 International Wireless Communications and Mobile Computing Conference ({IWCMC})},
+  publisher = {IEEE},
+  year      = {2014},
+  month     = aug,
+  pages     = {617\bibhyph{,}622},
+  doi       = {10.1109/IWCMC.2014.6906427}
+}
+
+% The third author's name is spelled as Crossref registers it.
+@article{bernaille2006fly,
+  author    = {Bernaille, Laurent and Teixeira, Renata and Akodkenou, Ismael and Soule, Augustin and Salamatian, Kave},
+  title     = {Traffic Classification on the Fly},
+  journal   = {ACM SIGCOMM Computer Communication Review},
+  volume    = {36},
+  number    = {2},
+  pages     = {23\bibhyph{,}26},
+  year      = {2006},
+  month     = apr,
+  doi       = {10.1145/1129582.1129589}
+}
+
+% ===========================================================================
+% (c) Statistics
+% ===========================================================================
+
+@article{efron1987bca,
+  author    = {Efron, Bradley},
+  title     = {Better Bootstrap Confidence Intervals},
+  journal   = {Journal of the American Statistical Association},
+  volume    = {82},
+  number    = {397},
+  pages     = {171\bibhyph{,}185},
+  year      = {1987},
+  month     = mar,
+  doi       = {10.1080/01621459.1987.10478410}
+}
+
+@book{efron1993bootstrap,
+  author    = {Efron, Bradley and Tibshirani, Robert J.},
+  title     = {An Introduction to the Bootstrap},
+  publisher = {Springer US},
+  year      = {1993},
+  doi       = {10.1007/978-1-4899-4541-9}
+}
+
+@article{schuirmann1987tost,
+  author    = {Schuirmann, Donald J.},
+  title     = {A Comparison of the Two One-Sided Tests Procedure and the Power Approach for Assessing the Equivalence of Average Bioavailability},
+  journal   = {Journal of Pharmacokinetics and Biopharmaceutics},
+  volume    = {15},
+  number    = {6},
+  pages     = {657\bibhyph{,}680},
+  year      = {1987},
+  month     = dec,
+  doi       = {10.1007/BF01068419}
+}
+
+% The record Crossref holds is Routledge's issue of 2018; the frozen text cites the rule of thumb
+% from the book's first edition (1986). No page is cited, since the pagination of this issue was
+% not checked.
+@book{silverman2018density,
+  author    = {Silverman, B. W.},
+  title     = {Density Estimation for Statistics and Data Analysis},
+  publisher = {Routledge},
+  year      = {2018},
+  doi       = {10.1201/9781315140919}
+}
+
+% ===========================================================================
+% (d) Software, at the versions the paper pins or read
+% ===========================================================================
+
+@www{nginx2026,
+  author  = {{nginx contributors}},
+  title   = {nginx},
+  url     = {https://nginx.org/download/nginx-1.30.5.tar.gz},
+  urldate = {4 October 2026},
+  note    = {Version 1.30.5, September 2026}
+}
+
+@www{haproxy2026,
+  author  = {{HAProxy contributors}},
+  title   = {{HAProxy}},
+  url     = {https://www.haproxy.org/download/3.4/src/haproxy-3.4.6.tar.gz},
+  urldate = {4 October 2026},
+  note    = {Version 3.4.6, September 2026}
+}
+
+@www{envoy2026,
+  author  = {{Envoy contributors}},
+  title   = {Envoy Proxy},
+  url     = {https://github.com/envoyproxy/envoy/releases/tag/v1.39.2},
+  urldate = {4 October 2026},
+  note    = {Release v1.39.2, October 2026}
+}
+
+@www{caddyl42026,
+  author  = {{caddy-l4 contributors}},
+  title   = {caddy-l4, the Layer 4 App for {Caddy}},
+  url     = {https://github.com/mholt/caddy-l4/releases/tag/v0.1.2},
+  urldate = {4 October 2026},
+  note    = {Release v0.1.2, commit 42db5690dea199f930a6f08005fe2e4aab10dcc9, July 2026}
+}
+
+@www{caddy2026,
+  author  = {{Caddy contributors}},
+  title   = {Caddy},
+  url     = {https://github.com/caddyserver/caddy/releases/tag/v2.11.4},
+  urldate = {4 October 2026},
+  note    = {Release v2.11.4, June 2026}
+}
+
+@www{sslh2026,
+  author  = {{sslh contributors}},
+  title   = {sslh},
+  url     = {https://github.com/yrutschle/sslh/releases/tag/v2.3.1},
+  urldate = {4 October 2026},
+  note    = {Release v2.3.1, March 2026}
+}
+
+@www{sshttp2023,
+  author  = {{stealth}},
+  title   = {sshttp},
+  url     = {https://github.com/stealth/sshttp/tree/91be220338249e9c7a937c8d9790f559a9fe1a60},
+  urldate = {4 October 2026},
+  note    = {Commit 91be220338249e9c7a937c8d9790f559a9fe1a60}
+}
+
+@www{traefik2026,
+  author  = {{Traefik contributors}},
+  title   = {Traefik},
+  url     = {https://github.com/traefik/traefik/releases/tag/v3.7.13},
+  urldate = {4 October 2026},
+  note    = {Release v3.7.13, September 2026}
+}
+
+@www{netty2026,
+  author  = {{Netty contributors}},
+  title   = {Netty},
+  url     = {https://github.com/netty/netty/releases/tag/netty-4.2.18.Final},
+  urldate = {4 October 2026},
+  note    = {Release 4.2.18.Final, September 2026}
+}
+
+@www{jetty2026,
+  author  = {{Jetty contributors}},
+  title   = {Eclipse {Jetty}},
+  url     = {https://github.com/jetty/jetty.project/releases/tag/jetty-12.1.13},
+  urldate = {4 October 2026},
+  note    = {Release 12.1.13, September 2026}
+}
+
+@www{cmux2021,
+  author  = {{cmux contributors}},
+  title   = {cmux: Connection Multiplexer for {Go}},
+  url     = {https://github.com/soheilhy/cmux/releases/tag/v0.1.5},
+  urldate = {4 October 2026},
+  note    = {Release v0.1.5, 2021}
+}
+
+@www{hyperutil2026,
+  author  = {{hyper contributors}},
+  title   = {hyper-util},
+  url     = {https://github.com/hyperium/hyper-util/releases/tag/v0.1.21},
+  urldate = {4 October 2026},
+  note    = {Release v0.1.21, September 2026}
+}
+
+@www{go2026,
+  author  = {{The Go Authors}},
+  title   = {The {Go} Programming Language, including net/http},
+  url     = {https://github.com/golang/go/tree/go1.27.1},
+  urldate = {4 October 2026},
+  note    = {Release go1.27.1, September 2026}
+}
+
+@www{openssl2026,
+  author  = {{The OpenSSL Project}},
+  title   = {{OpenSSL}},
+  url     = {https://github.com/openssl/openssl/releases/tag/openssl-3.5.9},
+  urldate = {4 October 2026},
+  note    = {Release 3.5.9, September 2026}
+}
+
+@www{nghttp22026,
+  author  = {{nghttp2 contributors}},
+  title   = {nghttp2: {HTTP/2} {C} Library},
+  url     = {https://github.com/nghttp2/nghttp2/releases/tag/v1.70.0},
+  urldate = {4 October 2026},
+  note    = {Release v1.70.0, July 2026}
+}
+
+@www{linux2026v72,
+  author  = {{Linux kernel contributors}},
+  title   = {The {Linux} Kernel Source Tree},
+  url     = {https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tag/?h=v7.2},
+  urldate = {4 October 2026},
+  note    = {Tag v7.2}
+}
+
+% ===========================================================================
+% (e) Operating system documentation
+% ===========================================================================
+
+@www{man2026socket,
+  author  = {{Linux man-pages project}},
+  title   = {socket(7): {Linux} Socket Interface},
+  url     = {https://man7.org/linux/man-pages/man7/socket.7.html},
+  urldate = {4 October 2026}
+}
+
+@www{man2026tcp,
+  author  = {{Linux man-pages project}},
+  title   = {tcp(7): {TCP} Protocol},
+  url     = {https://man7.org/linux/man-pages/man7/tcp.7.html},
+  urldate = {4 October 2026}
+}
+
+@www{man2026epoll,
+  author  = {{Linux man-pages project}},
+  title   = {epoll(7): {I/O} Event Notification Facility},
+  url     = {https://man7.org/linux/man-pages/man7/epoll.7.html},
+  urldate = {4 October 2026}
+}
+
+@www{man2026iouring,
+  author  = {{Linux man-pages project}},
+  title   = {io\_uring(7): Asynchronous {I/O} Facility},
+  url     = {https://man7.org/linux/man-pages/man7/io_uring.7.html},
+  urldate = {4 October 2026}
+}
+
+@www{kernel2026sklookup,
+  author  = {{Linux kernel documentation}},
+  title   = {{BPF} sk\_lookup Program},
+  url     = {https://docs.kernel.org/bpf/prog_sk_lookup.html},
+  urldate = {4 October 2026}
+}
+
+@www{kernel2026sockmap,
+  author  = {{Linux kernel documentation}},
+  title   = {{BPF\_MAP\_TYPE\_SOCKMAP} and {BPF\_MAP\_TYPE\_SOCKHASH}},
+  url     = {https://docs.kernel.org/bpf/map_sockmap.html},
+  urldate = {4 October 2026}
+}
+
+@www{freebsd2026acceptfilter,
+  author  = {{The FreeBSD Project}},
+  title   = {accept\_filter(9): Filter Incoming Connections},
+  url     = {https://man.freebsd.org/cgi/man.cgi?query=accept_filter&sektion=9},
+  urldate = {4 October 2026}
+}
+
+@www{microsoft2026acceptex,
+  author  = {{Microsoft}},
+  title   = {{AcceptEx} Function (mswsock.h)},
+  url     = {https://learn.microsoft.com/en-us/windows/win32/api/mswsock/nf-mswsock-acceptex},
+  urldate = {4 October 2026}
+}
+
+@www{microsoft2026wsarecv,
+  author  = {{Microsoft}},
+  title   = {{WSARecv} Function (winsock2.h)},
+  url     = {https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsarecv},
+  urldate = {4 October 2026}
+}
+
+% ===========================================================================
+% (f) Alex Tsvetanov's prior work: copied from bib/own.bib, the source of truth. Keys unchanged.
+% ===========================================================================
+
+@unpublished{tsvetanov2026wake,
+  author = {Tsvetanov, Alex I.},
+  title  = {Bounded-Wait Wake Defects in Portable Event Loops},
+  note   = {In preparation},
+  year   = {2026}
+}
+
+@unpublished{tsvetanov2026routing,
+  author = {Tsvetanov, Alex I.},
+  title  = {A Fast {HTTP} Route Matcher with Compile-Time Checks: {RegexMatcher}~v2 Measured Against Sixteen Routers in {C}, {C++}, {Rust} and {Go}},
+  note   = {In preparation},
+  year   = {2026}
+}

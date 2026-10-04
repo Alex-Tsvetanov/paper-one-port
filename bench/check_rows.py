@@ -24,8 +24,13 @@ import sys
 from pathlib import Path
 
 
-def load_gates(paths: list[Path]) -> tuple[dict[tuple[str, str], str], list[str]]:
-    """(name, sha256) -> the gate file that covers it; and why gates were left out."""
+def load_gates(paths: list[Path], accept_dry_run: bool = False) -> tuple[dict[tuple[str, str], str], list[str]]:
+    """(name, sha256) -> the gate file that covers it; and why gates were left out.
+
+    accept_dry_run (M7c) lets a development check bind rows to the gate of a dry run of the
+    records drivers, to show the binding works before the code freeze; whatever it binds is never
+    citable, and the caller says so (bench/run/devcheck.py). Without it, as before, a dry run's
+    gate covers nothing."""
     covered: dict[tuple[str, str], str] = {}
     left_out: list[str] = []
     for p in paths:
@@ -33,7 +38,7 @@ def load_gates(paths: list[Path]) -> tuple[dict[tuple[str, str], str], list[str]
         if g.get("passed") is not True:
             left_out.append(f"{p.name}: did not pass")
             continue
-        if g.get("dry_run") or g.get("citable") is False:
+        if (g.get("dry_run") or g.get("citable") is False) and not accept_dry_run:
             left_out.append(f"{p.name}: a dry run of the records drivers, never citable")
             continue
         for name, sha in (g.get("binaries") or {}).items():

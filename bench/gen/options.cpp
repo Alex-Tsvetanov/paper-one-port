@@ -21,6 +21,7 @@ namespace oneport::opgen
 			case Proto::mqtt: return "mqtt";
 			case Proto::ssh: return "ssh";
 			case Proto::tls_stub: return "tls-stub";
+			case Proto::tls_h2: return "tls-h2";
 		}
 		return "?";
 	}
@@ -76,7 +77,7 @@ namespace oneport::opgen
 
 	std::string usage()
 	{
-		return "usage: opgen --port N --proto http1|h2c|tls|mqtt|ssh|tls-stub [--load churn|keepalive]\n"
+		return "usage: opgen --port N --proto http1|h2c|tls|mqtt|ssh|tls-stub|tls-h2 [--load churn|keepalive]\n"
 		       "             [--conns C] [--rate R] [--threads N] [--cpus LIST] [--src-base A.B.C.D] [--k-src K]\n"
 		       "             [--warmup-ms MS] [--duration-ms MS] [--timeout-ms MS] [--spin-us US] [--probe] [--out FILE]\n"
 		       "  --load churn       a new connection per exchange (WL1); with --rate, open loop (WL2)\n"
@@ -163,6 +164,7 @@ namespace oneport::opgen
 				else if (v == "mqtt") o.proto = Proto::mqtt;
 				else if (v == "ssh") o.proto = Proto::ssh;
 				else if (v == "tls-stub") o.proto = Proto::tls_stub;
+				else if (v == "tls-h2") o.proto = Proto::tls_h2;
 				else return bad();
 				have_proto = true;
 			}
@@ -233,7 +235,7 @@ namespace oneport::opgen
 			if (have_threads && o.threads != o.cpus.size()) return std::unexpected("--threads differs from the count of --cpus");
 			o.threads = static_cast<std::uint32_t>(o.cpus.size());
 		}
-		if (o.load == Load::keepalive && (o.proto == Proto::ssh || o.proto == Proto::tls_stub))
+		if (o.load == Load::keepalive && (o.proto == Proto::ssh || o.proto == Proto::tls_stub || o.proto == Proto::tls_h2))
 		{
 			return std::unexpected("--load keepalive serves http1, h2c, tls and mqtt (WL3)");
 		}

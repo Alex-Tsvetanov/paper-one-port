@@ -1,0 +1,68 @@
+\section{Introduction}\label{sec:intro}
+
+A network service that speaks several protocols usually listens on one port per protocol. Each
+port is a socket of its own, a rule of its own in every firewall on the path, and a number every
+client must be told. The alternative is one listening socket for all of them. The server reads
+the first bytes a client sends and decides the protocol of the connection from them. We call this
+first-bytes demultiplexing.
+
+Many systems already do it. Proxies such as nginx, HAProxy, Envoy, caddy-l4 and sslh choose a
+route from the first bytes of a connection, before a back end sees
+it~\cite{nginx2026,haproxy2026,envoy2026,caddyl42026,sslh2026}. Server libraries such as Netty,
+Jetty, cmux and hyper-util choose a protocol handler inside one
+process~\cite{netty2026,jetty2026,cmux2021,hyperutil2026}. Standards leave room for it. A client
+of HTTP/2 with prior knowledge opens with a fixed preface~\cite{thomson2022rfc9113}. A TLS client
+opens with a ClientHello~\cite{rescorla2018rfc8446}. A proxy that prepends a PROXY header does so
+on a listener configured to expect it~\cite{tarreau2026proxy}.
+
+What the decision costs is not known. In the documentation and source code we read, no project
+publishes a measured cost of its detection; at most, a project calls the cost small. We found no
+peer-reviewed paper whose subject is a server that serves several protocols on one listener
+(Section~\ref{sec:related}). Three questions follow.
+\begin{itemize}
+\item \textbf{Cost.} Under load of one protocol at a time, does a listener that detects the
+protocol cost more than the same server with one dedicated port per protocol? We ask it for
+throughput with a new connection per exchange, for requests per second on kept-alive connections,
+and for latency at a fixed load.
+\item \textbf{Robustness.} Does the detector decide a fixed table of hard cases as specified? Are
+its timed events bounded? Does it hold less memory per pending connection than the proxies and
+libraries that detect protocols today?
+\item \textbf{Mechanism.} Which internal choices matter? We compare leaving the first bytes in the
+kernel (peek) with reading them once and replaying them. We compare handing a connection to an
+in-process handler with relaying it to a back end. And we compare the server's relay with each
+proxy.
+\end{itemize}
+
+We answer these questions for one server, \oneport, built for this paper. The answers are claims
+about this server, on two hosts, under stated conditions; they are not claims about every
+server. The hypotheses, their tests, the rules of validity and the order of every run were
+written and frozen on \FrozenDate, before any code of the server existed. Changes after that date
+went only into a dated revision log.
+
+The paper contributes four things, each built and tested for the purpose:
+\begin{enumerate}
+\item A minimal C++23 server with one listening socket per process, for HTTP/1.1, HTTP/2 over
+cleartext with prior knowledge (h2c), TLS, SSH and MQTT. Its detector is a table of
+\texttt{constexpr} matchers. Checks at compile time confirm that the classes are prefix-disjoint
+over a corpus taken from the specifications, so the order of the table cannot change a decision
+on it. A PROXY header is parsed per listener, and one server-speaks-first protocol can be reached
+through a timed fallback.
+\item Two detection modes (replay and peek) and two dispatch modes (in-process, and relay with TLS
+passed through by its ClientHello). They run on three backends: epoll and io\_uring on Linux and
+I/O completion ports (IOCP) on Windows. The same binary runs a dedicated mode with one port per
+protocol and no detection. That mode is the baseline of the cost questions.
+\item A pre-specified evaluation in three families. Cost is tested for equivalence within a ratio
+of \MarginLow{} to \MarginHigh. Robustness has a frozen table of \HardCases{} hard cases, bounds on
+every timed event, and a test of the memory held per pending connection against five proxies and
+four libraries. The mechanisms get superiority tests. Every tested cell needs both a clustered
+bootstrap interval and an exact sign test to pass. The number of sessions of the cost family is
+sized from an A/A pilot before any comparison of the two modes runs.
+\item Load and case generators, a holder that measures the kernel's memory for a bare socket, and
+pinned configurations of every competitor. Every measured build is gated on green sanitizer
+records of its first-party code.
+\end{enumerate}
+
+Section~\ref{sec:related} reviews the protocols' first bytes, the systems that detect them, and
+related research. Section~\ref{sec:design} describes the server. Section~\ref{sec:method} gives
+the hypotheses and the method as frozen. Section~\ref{sec:threats} lists the threats to validity
+known before any data. Sections~\ref{sec:results} to~\ref{sec:conclusions} report the results.
