@@ -348,10 +348,13 @@ def windows_readings():
 @check
 def cycle_rate_reading():
     """The cycle counter's rate over a pinned busy loop (wsys.cycle_rate, M6d): above 1e9 per
-    second, and the loop busy through the span by GetProcessTimes (whole ticks, so near 1)."""
+    second, and the loop busy through the span by GetProcessTimes (whole ticks, so near 1). The
+    loop runs on the server's CPU (wsys.SERVER_CPUS), where the runners read the rate and which the
+    quiet check covers; CPU 0, where Windows takes most interrupts and DPCs, is outside the quiet
+    check, so a loop there could be preempted on a W that passed it (found in W's suite, M7 freeze)."""
     if not wsys.IS_WINDOWS:
         return "skipped: not Windows"
-    r = wsys.cycle_rate([0], settle_s=0.3, span_s=0.5)
+    r = wsys.cycle_rate(wsys.SERVER_CPUS, settle_s=0.3, span_s=0.5)
     assert r["spinner_exit"] == 0, r
     assert r["cycles_per_s"] > 1e9 and r["cycles"] > 0, r
     assert 0.85 <= r["cpu_s"] / r["wall_s"] <= 1.15, r

@@ -220,9 +220,11 @@ if(Python3_FOUND)
     add_test(NAME run.test_frozen COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_frozen.py)
     set_tests_properties(run.test_frozen PROPERTIES TIMEOUT 300 LABELS run)
     # The W window runner's parsers and rules (M6b), on samples recorded on W; on Windows also W's
-    # readings, a pinned start and the lab lock (bench/run/test_wrunner.py).
+    # readings, a pinned start and the lab lock (bench/run/test_wrunner.py). It runs alone: on W its
+    # cycle-rate check needs its busy loop to hold the server's CPU through the span, which another
+    # test's process could take (M7 freeze).
     add_test(NAME run.test_wrunner COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_wrunner.py)
-    set_tests_properties(run.test_wrunner PROPERTIES TIMEOUT 120 LABELS run)
+    set_tests_properties(run.test_wrunner PROPERTIES TIMEOUT 120 LABELS run RUN_SERIAL TRUE)
     # W's frozen runners (M7e): their cells and rows against analysis/, the pilot's parts with W's
     # processes, the hard cases on IOCP, the W window's guard, the job context (pure, every platform).
     add_test(NAME run.test_wfrozen COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/bench/run/test_wfrozen.py)
