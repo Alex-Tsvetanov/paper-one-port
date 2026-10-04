@@ -5628,6 +5628,254 @@ In the M7 checklist's order:
    M7d item 7 read it (or a re-read that day), and the pins as frozen.
 5. Then the pilot on L and W with `design/seeds.json`, and the rest in section 8's order.
 
+## M7e, 2026-10-04: W's frozen-row runners and the job's warm-up
+
+The last engineering before CODE_FREEZE: the analysis ingestion check for W's rows, a job-level
+warm-up in the session engine, the coordinator's two decisions on W, and W's frozen-row runners on
+the shared engine. Nothing here is a result. No window ran on any host: W (Alex's, in use) ran no
+job, no functional check and no timing; on W this session ran git, file edits, read-only reads of
+waa2's and waa3's rows and of W's excluded port ranges (`netsh`), the pure Python tests, and one
+Windows compile check (below). Every job on L ran under `lab_job.sh` at nice 0, launched from bash,
+from fresh clones of the lab remote under `~/lab/p3/m7e/`. The `one-port-m6b` work tree was not
+used.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 141e516 | fix(analysis): W's WL4 is its cycles per exchange; the cost cells outside the family never set R_C |
+| 9de26d6 | style(analysis): cells.py with LF line endings again |
+| ed15f97 | feat: W's frozen-row runners, opcase case and hold on Windows, the job's warm-up phase (M7e) |
+| 2055e63 | docs: hypotheses.md revision log, ANALYSIS_COMMIT moved (M7e) and the job's warm-up and W's runners (M7e) |
+
+Then this section's commit. Papers: the bump of `papers/one-port`.
+
+### 1. The analysis ingestion check (revision log, entry "ANALYSIS_COMMIT moved (M7e), before the code freeze")
+
+(a) At 7364fbb `analysis/rows.py` read WL4's CPU per exchange from `cpu_us_per_exchange` for
+every row, and `analysis/cells.py` named no CPU field by host. W's rows fill that field from
+`GetProcessTimes`, the tick-based value the entry "W before the code freeze" (item 4) sets aside,
+so section 10's CPU intervals of W's cost cells and of M1's IOCP cells would have been taken on
+it. Changed: `cells.CPU_FIELD` = {L: `cpu_us_per_exchange`, W: `cycles_per_exchange`};
+`rows.window_value(row, "cpu")` reads the field of the row's host (W: backend IOCP or host W); a W
+row without cycles has no CPU value. L's rows read as before. `analysis/synth.py`'s W rows carry
+cycles.
+
+(b) `analysis/pilot.py` computed R_C over a list in the code, 6.1's 36 cells
+(`cells.cost_cells()`): every cell with P = 16 valid sessions was simulated and, at a power of at
+least 0.80 at 31, resolved, so W's churn h2c and churn MQTT, which run in the pilot, could have
+been resolved and could have driven R_C and m_C. Changed: `cells.COST_OUTSIDE_FAMILY` holds the
+two cells with the reason (the entry "W before the code freeze", item 1); `pilot.decide` never
+resolves them (it still simulates them: 9.2 records Power_c(R) for every cost cell); the pilot
+entry's output names them (`outside_family`); `analyse.check_pilot` refuses a pilot entry that
+resolves one; their verdict is the reason. WL2's λ for C3 h2c and MQTT on W still comes from their
+C1 pilot sessions.
+
+`ANALYSIS_COMMIT` = 9de26d614c85b606fb5169ed16528b7189a87ac4 (logged in 2055e63). 141e516 wrote
+`analysis/cells.py` with CRLF line endings; 9de26d6 gives the file its LF endings back and changes
+no other byte, so against 7364fbb the diff of `analysis/` is the change alone (7 files, 137 lines
+added, 15 removed). Tests, from fresh clones on L, numpy 2.5.0 and Python 3.14.7 in
+`~/opt/analysis-numpy-2.5.0/venv` (`~/lab/p3/m7e/ana_job.sh`, sha256
+46cab7b799ae8aff72cdbaca6da3b706e9b7d6a79c065464f4ddfc2f7857f5f1; the suite, then the slow
+Appendix A test alone with `ONEPORT_SLOW=1`):
+
+| Job | Commit | Suite | Slow test | Logs (sha256) |
+|---|---|---|---|---|
+| ana1 | 141e516 | 73 passed, 1 skipped | 2 passed (115 s) | b5ce60ba2ff954a74b378257db6ffa754b4928092189fe9d135f361690260df2, 33b42a857b5e6d0e33f703d181eec423752a1f8b679d9c0edf23c50536d63e79 |
+| ana2 | 9de26d6 | 73 passed, 1 skipped | 2 passed (119 s) | febf4f9a5b47fff2d0e6c720899b6aeb2476e2de2489b5d5f0e4b59ab7a61b83, 310aafa7ab79e0aa2d0cacff16d6c14e7ecae89cdbdc45577adfbfba48961abc |
+
+73 is 70 and three new tests (a W row's CPU is its cycles, never its ticks; the two cells are
+never resolved and leave R_C unchanged; a pilot entry resolving one is refused); three earlier
+tests now check the change too. On W (numpy 2.5.0, Python 3.14.5): 72 passed, 2 skipped.
+
+### 2. The job's warm-up (same session's entry "The job's warm-up and W's runners (M7e)", item 1)
+
+The evidence, from waa2's and waa3's rows (read only, `C:\Users\alext\lab\p3\w-aa\`), each window's
+metric over its cell's median in the job:
+
+| Job | The slow windows | Their ratio to the cell's median | The next window | The cell's later windows | Span |
+|---|---|---|---|---|---|
+| waa2 (seed 861) | keep-alive h2c, s02, positions 0 to 2 (00:25:19 to 00:25:31) | 0.931, 0.917, 0.935 | s02 position 3, 0.987; then churn TLS (another cell), 0.999 | 0.984 to 1.030 | 18.5 s |
+| waa3 (seed 7901) | keep-alive h2c, s04 positions 0 to 3, s06 position 0 (12:04:27 to 12:04:58) | 0.940, 0.936, 0.918, 0.923, 0.688 (cycles per request 1.063 to 1.175 of the median) | s06 position 1, 1.045 | 0.989 to 1.047 | 37.7 s |
+
+Span: from the first window's warm-up start to the end of the last slow window's measured period,
+by opgen's clock in the rows. In both jobs the same cell's later sessions were not slow, so the
+slowness was the job's, not the cell's or a session's; in waa3 it crossed a session boundary. In
+both, the job's first cell was keep-alive h2c and no other cell ran inside the slow span, so
+whether it crosses a cell boundary was not observed (not refuted either). The cause is not
+established.
+
+The phase (`bench/run/sessions.py`, `Engine.warm_up`), a design choice: before the first session
+a job runs, windows of that session's cell, arms X then Y alternating, back to back, by the
+runner's own window function, until `JOB_WARMUP_S` = 80 s of wall time have passed (the window
+running then completes). Rule: at least twice the longest slow start seen (37.7 s), rounded up to
+a whole 10 s. No row, no metric; its record `warmup-<runner>-<job>.json` (start, end, cell, arms,
+each window's start, length and fault, the phase's own fingerprint); the first session's
+fingerprint is read after it. The plan is untouched. It goes through the stub check, so a
+development cost job warms up on its dedicated arm only. Two driver faults in a row end it; a
+resumed job with nothing left runs none; a signal ends it with its record. Every engine runner,
+L's too (symmetry), takes it; L's frozen runners now also check the M7e entry's heading
+(`freeze_guard.M7E_ITEMS`). Not covered: `b3_run.py`'s K_BASE windows, the pilot's timer and
+split parts, the hard cases (outside the engine). Tests (`test_frozen.py`, class `JobWarmUp`, 7
+checks): before the first session and no row; the order and rows unchanged; never a stub; two
+faults; a resumed job; a signal; the runners never set the length. A job is about 80 s to 120 s
+longer on W (keep-alive windows are 6.3 s; a churn or open-loop window waits up to 30 s for W's
+TIME-WAIT table first).
+
+### 3. The decisions and choices logged (same entry, items 2 to 6)
+
+| Item | Label | What |
+|---|---|---|
+| 2 | the coordinator's decision | W's churn h2c and MQTT in the dedicated-only pilot only, not in the confirmatory cost runs; the evidence from the pilot's rows: `server_cores_busy`, `gen_cpus_busy_pct`, `opgen.cpu.pct`, and now `cpu_shares` (server CPU busy, the server process's share from its cycles, generator CPUs busy, opgen's share) |
+| 3 | the coordinator's decision | the 2-core IOCP cell not run in P3 (one IOCP worker; multi-worker IOCP is a new threading model days before the freeze; it belongs to the portable I/O core paper); both section 10 runners list it as not run |
+| 4 | design choice | the mixed cell on W: cell opgen CPUs 2 to 5, TLS background 6 and 7, MQTT background and holder 8 and 9 |
+| 5 | reading, with a design choice | the IOCP forms: both arms one-port, in-process, listener without a fallback, rule E's detection mode; arm A the form (AcceptEx with a buffer; the posted receive), arm B the default; workload C1's HTTP/1.1 churn (the design choice) |
+| 6 | record | opcase on Windows (case, hold), the holder on Winsock, the judge's IOCP bound, the W job's context and ports |
+
+### 4. W's frozen-row runners (`bench/run/w*.py`)
+
+Each is L's runner on the shared engine with host "W": the same cells (L's cell builders now take
+a host: `pilot_run.pilot_cells`, `cost_run.cost_cells`, `m_run.m_cells`, `s_run.s_cells`), the same
+order and rerun rules, the same rows. What differs: the window (`wcellwin.py`, W's in-process window
+in either mode, mirroring `cellwin.py`; the pilot keeps `wwindow.run_window`, dedicated only), the
+fingerprint (`wwindow.fingerprint`, with the cycle rate), the provenance (`wrunlib.job_provenance`:
+`build_inputs.py --host W`, W's binaries oneport.exe, opgen.exe, opcase.exe), the stop
+(`waa.stop_on_signals`, `wsys.watch_stop`: `wjob.py stop` ends the runner through SystemExit).
+
+| Runner | What it runs | Seed | Rows |
+|---|---|---|---|
+| `wpilot_run.py` | 8 step 4 on W: W's 12 cost cells A/A (churn h2c and MQTT included), C1 and C2 then C3 at pilot.py's λ; the timer part on IOCP (128 runs of HC12, PROXY on, `--record`); the split part (16 replicates at 5, 10, 20, 50, 100 ms), both by `pilot_run`'s code with W's process functions (`PartProcs`) | SEED_PILOT_W | windows.jsonl, parts.jsonl |
+| `wcost_run.py` | 5.1 on W: 10 cost cells at R_C, one-port against dedicated; churn h2c and MQTT listed in `not-run-<job>.json` | SEED_ORDER_C_W | family C |
+| `wm_run.py` | M1 on IOCP (HTTP/1.1, h2c), R_M = 16 | SEED_ORDER_M_W | family M1 |
+| `wrule_e.py` | rule E's IOCP detection sessions (6, replay against peek, one-port in-process), `rule_e_evidence_W.json` for `rule_e.py decide --evidence-w` | a development seed | family rule-e |
+| `ws_run.py` | section 10 on W: SSH C1 to C3, the mixed cell, TLS with ALPN h2, the two IOCP forms, M1's TTFB on IOCP (from W's M rows); the 2-core IOCP cell and resumption listed as not run | SEED_ORDER_S_W | family S |
+| `whardcase_run.py` | B1 and B2 on IOCP, replay and peek, in-process (2 entries), 25 cases, 16 replicates, G_W and GAP_SPLIT; `hardcase_run`'s judge (`CaseProcs` for W's processes; replay's bound after IOCP's switch, as `check_run`'s _WIN32 branch) | none | hardcases.jsonl |
+
+A frozen W run checks, before any window: the freeze guard as on L (CODE_FREEZE, the seeds file's
+sha256 on a "seed" line, the pilot entry, rule E's file, the binaries in W's citable gate), the
+headings "W before the code freeze" and "The job's warm-up and W's runners (M7e), before the code
+freeze" (`wrunlib.ENTRIES`; section 10 also "M7c's open items"), the W job's context (inside
+`wjob.py run`, which holds W's lab lock, runs the quiet check and switches to the lab plan and
+back; not a functional job), and its ports outside W's excluded TCP ranges (read on W:
+5357, 31064 to 31363, 50000 to 50059, 60905 to 61204; the runners' ports 20000 to 20105, 24000 to
+24005, 26000 to 26115 are outside). WL4 in W's rows: `cycles_per_exchange` (WL4),
+`cycles_us_per_exchange` (through the session's cycle rate), `cpu_us_per_exchange`
+(GetProcessTimes, beside it), and `cpu_shares`.
+
+C++ (one-port ed15f97): `opcase` builds on Windows with `case` and `hold` (`open` and
+`probe-reset` stay Linux only); `hold.cpp` has a Winsock form of the holder (WSAPoll,
+`SO_REUSE_UNICASTPORT`, reset close), stopped by its event `Local\oneport-stop-<pid>`;
+`bench/build_inputs.py` names `opcase_bin` for W and `opcase.exe` among W's binaries; the
+program's PDB is named `opcase_bin` (MSVC would otherwise give the program and the library's
+compile PDB one name). W's suite: `gen.hold.IOCP` (the Linux test, now on both platforms) and
+`gen.binaries` with opcase (its case listing, the holder stopped by its event, `open` refused).
+Neither runs before W's suite runs (W's records at the freeze run it). `bench/records_job_w.ps1`:
+W's records job (the Release build, the ASan record by `sanitize_oneport.ps1`, `gate-W.json` and
+`measured-W.json`), checked only by PowerShell's parser. The W ASan driver itself was complete
+(M6b's dry run).
+
+Tests: `bench/run/test_wfrozen.py` (24, registered as `run.test_wfrozen`, every platform): W's
+cells, W's rows through the engine against `analysis/` (the pilot entry with the two cells never
+resolved and λ from their C1 sessions; the cost cell's CPU interval on the cycles; M1; section 10
+with the IOCP forms' roles; rule E's IOCP evidence and `decide`), the pilot's parts with injected
+processes, the hard cases' IOCP bound and G_W, the W window's command lines and guard, the job
+context, the ports, the entries. `test_wrunner.py`: `cpu_shares` (22 checks). A second reader
+(a code-review agent) read the change before the compile: it found a PDB name clash in the W
+Debug and ASan builds, a test that patched a Windows-only function (an error on Linux), the
+mixed cell's background left running on a stop during its start (L's `cellwin.py` had the same,
+fixed in both), and a refusal naming G_L on W; all fixed in ed15f97.
+
+### 5. Checks
+
+W, the one Windows compile check (the brief allowed one Release build): a clone at ed15f97 in
+`C:\Users\alext\lab\p3\m7e\src-ed15f97`, `compile.cmd` (MSVC 19.51.36246, Build Tools 18,
+Ninja at -j 2, Release, no test run; sha256
+9cfb55c25393c15eb9222e2206570ea7c4e94341331f3c72eec2ff491ed8ef8e): 54 of 54 steps, 0 warnings, 55 s
+(log sha256 31fdf3f3b09d0949d681043744c4140cb46c8475c249c20328cb6a45bc859da7); `build_inputs.py
+--host W`: 10 targets, no mismatch (opcase_bin among them). The binaries (sha256): oneport.exe
+2b8d5d1bed2d3c5f9892b91b918aba544c25216f152d629e26675fb41740aba4, opgen.exe
+b8d7fed89a1ec076b22e8ce1b64de663bcd191bc78be2854019603eea1f8a9e9, opcase.exe
+8be1476c029b80250f15bf797276e64568feed2883f698cbb183a1ff9bcc894c. Python on W (pure):
+`test_frozen` 46 passed, 2 skipped; `test_wfrozen` 24; `test_wrunner` 22; `test_runner` 63 (13
+skipped); `test_gates`, `test_record_writers` passed.
+
+L, the four builds: job chk8 (`~/lab/p3/m7e/checks_job.sh`, M6d's script with the paths moved,
+sha256 9ccf4e3fcbfa12e30c1483e70f7bfc2d68c45ef883ce8be58952bd138d770211) from a fresh clone of the
+lab remote at 2055e63, which holds every M7e change to code (ed15f97); 13:52:48 to 13:58:00 +0300,
+exit 0, under the lab lock with the clock floor, THP at madvise and NOTRACK, each set back.
+
+| Build | Warnings | CTest | Report lines |
+|---|---|---|---|
+| Debug | 0 | 399 of 399 | 0 |
+| ASan+UBSan | 0 | 399 of 399 | 0 |
+| TSan | 0 | 399 of 399 | 0 |
+| MSan | 0 | 399 of 399 | 0 |
+
+399 is 398 and `run.test_wfrozen`; the Python tests run in every build (`test_frozen`, `test_wfrozen`,
+`test_runner`, `test_wrunner`, the gates). Report lines recounted with the shared pattern (the
+script's own line prints "0" then "NA", from its `grep -c || echo NA`). As before, three logs show a
+thread's exception from `run.test_runner`'s stand-in stub (test 395), which passed; it matches no
+report pattern. Logs (sha256), `~/lab/p3/m7e/check/2055e63/`: debug build
+9e5449023f2ce13b3c385a5d71fbf73a85946675d6e5153dea38da54fde9e1e1, ctest
+9e0fe890db272966bdcfa5a7257168e70b85ba2dffe3b85477a443a097afbd70; asan build
+bbc9f8e98072aa3d4b6c2ba853f27dca344b4f9e8b192731e4cd48fbe910e45d, ctest
+47f162b8a32ac4ddc6c409333d0b688497890f38aafbb16564c6aca917f5cb34; tsan build
+0ddbada8cac2dae4eede6f5ad0d4cbf97384f6e962b0cfb8035445c4c053a291, ctest
+daaa28ad19b3cd4ff4064c66dcebaf8e26897328ba330f42544b1a938adf2da8; msan build
+a3cfc38ddca938a0b5e4bd5cdbe64ff155ae94b20e44e9d207c3a5f4bc7d1a62, ctest
+139e3999b32e531f7bbd475f0e9b83b3c76c5f5fce2b0d4c9f2671b3f8404392.
+
+### 6. W's functional check, for the coordinator when W is free
+
+Development only, dedicated windows only (every one-port arm is a stub: nothing is started for
+it), on the compile check's build, from its clone, each runner its own W lab job, one after the
+other. Development seeds 8201, 8202 and 8203 (unused: not in the Papers journal, the status files
+or `design/seeds.json`; to be journaled). With `--allow-noisy` the job runs as a functional check if
+W is not quiet (the rows say development either way); without it a busy W refuses the job.
+
+    set PY=C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe
+    set SRC=C:\Users\alext\lab\p3\m7e\src-ed15f97
+    set BLD=C:\Users\alext\lab\p3\m7e\build-ed15f97
+    set OUT=C:\Users\alext\lab\p3\m7e\wfunc
+    %PY% %SRC%\bench\run\wjob.py run --dir %OUT% --name wf1 -- %PY% %SRC%\bench\run\wpilot_run.py --build %BLD% --out %OUT%\pilot --job wf1 --development --dev-seed 8201 --dev-r 1 --only C1.W.IOCP.http1,C1.W.IOCP.mqtt,C2.W.IOCP.tls,C3.W.IOCP.mqtt --timer-runs 3 --split-replicates 2 --split-gaps 5,100
+    %PY% %SRC%\bench\run\wjob.py run --dir %OUT% --name wf2 -- %PY% %SRC%\bench\run\wcost_run.py --build %BLD% --out %OUT%\cost --job wf2 --development --dev-seed 8202 --dev-r 1 --only C1.W.IOCP.http1
+    %PY% %SRC%\bench\run\wjob.py run --dir %OUT% --name wf3 -- %PY% %SRC%\bench\run\ws_run.py --build %BLD% --out %OUT%\s --job wf3 --development --dev-seed 8203 --dev-r 1 --only S.mixed.C1.W.IOCP,S.ssh.C1.W.IOCP,S.tls-variants.C1.W.IOCP.alpn-h2
+
+A job is stopped with `%PY% %SRC%\bench\run\wjob.py stop --dir %OUT% --name wfN`; each writes
+`%OUT%\wfN.pid`, `.preflight.json`, `.plan.json`, `.log` and `.done`. What each exercises: wf1 the
+warm-up, W's fingerprint, the pilot's windows and λ from a C1 session (C3 MQTT), opcase.exe in the
+timer part (3 runs) and the split part (2 replicates at 5 and 100 ms); wf2 W's cost window
+(`wcellwin`) on its dedicated arm, the stubbed one-port arm, a rerun; wf3 the mixed cell's
+background (two keep-alive opgens and `opcase hold`, stopped by its event) on the dedicated arm,
+SSH's dedicated port, opgen's tls-h2. Not in it, since each starts one-port servers: `wm_run.py`,
+`wrule_e.py` (one-port against one-port, timed) and `whardcase_run.py` (one-port servers, untimed);
+the coordinator decides whether to check them before the freeze.
+
+Expected length, an estimate from M6b's measured parts (func2b: a full window 6 s and 0.26 s to
+0.35 s of overhead; the TIME-WAIT wait after a churn or open-loop window 24.8 s to 30.1 s; a
+session's fingerprint 3.8 s to 4.8 s, and in waa3, with the cycle rate's busy loop, about 7 s from a
+session's last window to the next session's first; the job's start 11 s): wf1
+16 windows (7 to 12 minutes with its warm-up and parts), wf2 4 windows after a warm-up of about
+3 windows (about 4 to 5 minutes), wf3 12 windows with the background (about 9 to 11 minutes); about
+20 to 30 minutes in all, longer if a session is invalid and runs again.
+
+### What the freeze still needs
+
+1. The coordinator's answers: M2's TLS cells (still "not run", M7d); whether W's functional check
+   (above) runs before the freeze, and whether it also covers `wm_run.py`, `wrule_e.py` and
+   `whardcase_run.py`.
+2. W's suite on the merged tree with M7e's C++ (Debug and MSVC ASan, the whole suite with
+   `gen.hold.IOCP` and opcase in `gen.binaries`), with Alex's yes when W is free; until then only
+   the compile check above has seen the Windows holder.
+3. On the day of the freeze, before its commit: the pins read again (the JDK first).
+4. `CODE_FREEZE` (checklist item 8), the records at it on L (`records_job.sh`) and on W
+   (`records_job_w.ps1`, or `sanitize_oneport.ps1` and the gate by hand), the gates `gate-L.json`
+   and `gate-W.json` (item 10), and the code freeze's entry (item 11) with section 9.1's values,
+   the slab and the pins.
+5. Then the pilot on L (`pilot_run.py`) and on W (`wpilot_run.py`, inside `wjob.py run`), with
+   `design/seeds.json`; `pilot.py` on the pinned numpy at ANALYSIS_COMMIT 9de26d6; the pilot entry;
+   then section 8 step 7 in its order, on L and W.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
@@ -5640,7 +5888,9 @@ gave, the reason is in the item. Each item names what decides it.
      take the handshake bytes past B_CH, and the storage stays within B_CH and 5 bytes per
      record; case B sits at that bound (the reading is in "M7 fixes", item 2, for the coordinator).
    - Resolved (d16d8b4): `ANALYSIS_COMMIT` = 7364fbbbf356e22bb0d6a74b0b9bc29b62c3534b, logged,
-     with its tests on the pinned numpy ("M7c follow-up", "ANALYSIS_COMMIT").
+     with its tests on the pinned numpy ("M7c follow-up", "ANALYSIS_COMMIT"). Moved (2055e63):
+     `ANALYSIS_COMMIT` = 9de26d614c85b606fb5169ed16528b7189a87ac4, W's WL4 on the cycles and W's
+     churn h2c and MQTT never resolved ("M7e", item 1).
    - Resolved (97a5363): the harnesses' LeakSanitizer. Both end on SIGTERM by a normal exit, and
      a harness record is green only if every run ended so; no gap is declared.
    - Resolved (3382bb8): the route without ALPN stays in all five proxies, logged.
@@ -5663,7 +5913,9 @@ gave, the reason is in the item. Each item names what decides it.
      Done: chk4 at fa8be6d (394 of 394) and chk5 at 8e77e28 (398 of 398), 0 warnings and 0 report
      lines in each build.
    - W: Debug and MSVC ASan, the whole suite, with Alex's yes when W is free. Open: W has built
-     none of M7c's C++, of the merge or of 236ee3c.
+     none of M7c's C++, of the merge or of 236ee3c. Since then: M6d's suite on W at 330c961 (163 of
+     163); M7e's C++ (opcase and its holder on Windows) only compiled (one Release build, 0
+     warnings), its suite on W still open.
    - Check `bench/build_inputs.py`'s `TARGETS["W"]` and `BINARIES["W"]` against the merged tree
      (M6b built opgen on Windows): a compiled target added or removed stops the hash until the
      list is right. Done: they hold (no target added or removed).
@@ -5804,6 +6056,11 @@ gave, the reason is in the item. Each item names what decides it.
   commit. Logged: the entries "The pre-freeze items on L (M7d), before the code freeze" and "The
   seeds of section 4.7 (M7d), before the code freeze". For the coordinator and Alex: "M7d", "For
   the coordinator and Alex".
+- M7e: no lab-journal line, since no window ran (the analysis tests, the suite and one Windows
+  compile check are untimed); then a bump to this section's commit. Logged: the entries
+  "ANALYSIS_COMMIT moved (M7e), before the code freeze" and "The job's warm-up and W's runners
+  (M7e), before the code freeze". For the coordinator: "M7e", its "What the freeze still needs"
+  and W's functional check (its section 6).
 
 ## What M1 starts from
 
