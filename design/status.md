@@ -6067,6 +6067,148 @@ estimate from M6b's measured parts); wf4 not measured on W (e2e3 on L: 328 runs 
 2. 7a4063c is a test fix found by W's suite (above); it moves CODE_FREEZE's earliest commit to
    7a4063c. L is green at it (chk10); W's Debug and ASan suites at it are the chain's first job.
 
+## M7 freeze night, 2026-10-05
+
+The night's coordinator (one session, unattended; Alex asleep) resumed the M7 freeze session: W's
+checks, then the code freeze, the A/A pilots and what the frozen text allows after them. This
+section is written as the night goes and says where it stands. Nothing here is a result: no
+window of the frozen code has run yet. Every L job runs under `lab_job.sh` at nice 0, launched
+from bash, from clones of the lab remote under `~/lab/p3/m7g/`; W's jobs run under `wjob.py`
+from clean clones of `origin` under `C:\Users\alext\lab\p3\m7f\`.
+
+### Commits (papers/one-port)
+
+| Commit | Message (first line, shortened) |
+|---|---|
+| 1fca359 | fix(bench): W's job-start quiet gate at 90% mean idle, 90% per CPU and 10% per process (Alex's decision), logged before any pilot data |
+| 20c01b9 | fix(tests): on IOCP the suite waits 250 ms after a server's start before its first client; coverage.json: no third-party library needs a Windows gap |
+
+### 1. W's quiet check, 00:20 to 00:46
+
+The chain of the M7 freeze session (`m7f\chain.py`, pid 8100, launched 2026-10-04 20:45, run 2)
+was still refused at 00:20 with the League client running (attempt 78). It had closed by 00:24.
+Attempts 79 to 83 (00:25 to 00:46) were refused without it: mean idle 93.4%, 95.4%, 98.1%, 95.2%
+and 83.9%; CPU 10 at 79.8%, 93.9%, 94.8%, 89.5% and 71.9% idle; above 5% of one CPU, `dwm` (15.3%,
+9.5%, 9.8%, 13.9%), `System` (6.7%, 6.2%, 9.1%, 21.7%), and in attempt 83 `MsMpEng` (13.3%) and
+`msedgewebview2` (17.3%). This session's own window (the Claude app, in the foreground and
+redrawing while the session worked) was on screen during attempts 79 and 80; it was minimized at
+00:33 (a window state, no setting), and `dwm` still read 9.8% and 13.9% in attempts 82 and 83. The
+display stays on: Alex's plan never turns it off on AC (`powercfg`, read only). At the new gate
+(part 3) attempt 81 would have passed and the other four would not.
+
+### 2. Alex's decision, part 1: the checks run as functional checks
+
+At 00:50 the coordinator relayed Alex's decision ("At this point, just lower the threshold") in two
+parts. Part 1: the chain's steps are tests, a dry run and functional checks, not measurements, so
+they run with `wjob.py run --allow-noisy` (a functional check, recorded as one). The chain (run 2)
+was stopped by its stop file at 00:50:31 while it slept between attempts (no job was running); its
+files are `chain-run2.log` (sha256 3a9c55639d2a54b780abdab3ec2475014056418ebc6407cef5cb4c3c504e60ec)
+and `chain-run2.done`. `chain.py` takes an optional `wjob_args` per step (sha256 now
+b77fea4f3b3c86905d7b4fe7642b012bae38f68bef89d41f13d44c7287ffe934; the old one kept as
+`chain-run2.py`), and every step of `steps.json` has `["--allow-noisy"]`. Run 3 (pid 17632,
+00:51:01) started `suite1` at once as a functional check: its preflight read a mean idle of 84.6%,
+`quiet` false, `functional_check` true. wjob sets the lab plan in a functional check too, so the
+plan was active from 00:51:13; that is not a passed quiet check. A correction from the coordinator,
+sent after the relaunch, read attempt 84 as having passed the quiet check; it had not
+(`suite1-run3.preflight.json`), and no job was stopped while it ran.
+
+### 3. Part 2: W's job-start gate at 90%, 90% and 10% (1fca359)
+
+`bench/run/wsys.py`: `QUIET_TOTAL_IDLE_MIN` 90 (was 95), `QUIET_CPU_IDLE_MIN` 90 (was 95),
+`QUIET_PROCESS_MAX` 10 (was 5); `run.test_wrunner`'s `quiet_rules` pins them and their bounds.
+Logged as Alex's decision, before any pilot data: hypotheses.md, revision log, "W's quiet gate
+lowered (Alex's decision), before the code freeze". The per-window validity rules and the
+per-window CPU sampler do not change; `--allow-noisy` is used for no pilot window and no
+measurement. `design/w-procedure.md` section 5 carries a dated note; its approved text is kept.
+
+### 4. W's suite at 7a4063c: one failure, a race in the suite (20c01b9)
+
+Run 3's `suite1` (Debug and ASan at 7a4063c, `check\7a4063c\`): Debug 165 of 165; ASan 164 of 165.
+The failure: `case.HC22.IOCP.inproc.replay`, "HC22.partial IOCP inproc replay: replicate 1: ... the
+server did not close the connection" (the collector saw no close report within 10 s). The chain
+stopped there (`chain-run3.done`: "stopped: required step suite1 exited 6", 00:54:31).
+
+Diagnosis (on W, no job running): at 7a4063c, `ctest -R "^case.HC22.IOCP.inproc.replay$" --repeat
+until-fail:30` in the ASan build failed at its 14th run, the same check, again replicate 1. In both
+failures it was the first connection to a freshly started one-port server. `Server::start()` on
+Windows (`bench/server/server_win.cpp`) returns once the worker threads are spawned, and each
+worker posts its listeners' AcceptEx requests itself (`bench/server/iocp.cpp`, `run_iocp`); the
+suite's first client connects within microseconds of `start()`. HC22's partial variant writes "GE"
+and resets 10 ms later, the only script that resets that early; a connection reset before a
+request is posted either never reaches one or completes one with an error, which `on_accept_entry`
+closes without a report (the likely mechanism; not established). The server meets HC22's frozen
+outcome either way (state freed, counters consistent); the test's expectation of a close report
+for every client is what races.
+
+The fix, test only (20c01b9): `tests/harness.hpp`'s `Running` waits 250 ms (`kIocpStartWait`) after
+`start()` on Windows before the test's first client. No measured binary's input changes (oneport,
+opgen, opcase, ophold); the suite target's does. The same commit settles `bench/coverage.json`'s
+Windows gap (checklist item 7): no third-party library is declared, since OpenSSL 3.5.9 and nghttp2
+1.70.0 are built with `/fsanitize=address` in their asan flavour and W's ASan build links them.
+Validation, a clean clone at 20c01b9 (`m7f\src-20c01b9`), its ASan build (0 warnings; 165 s with the
+runs): HC22 on IOCP in-process, 100 of 100 runs in replay and 100 of 100 in peek (`m7f\val22\`).
+
+For Alex: the frozen hard-case runner on W (`whardcase_run.py`) starts its servers as processes and
+its clients from other processes after the server's lines, so its first client comes tens of
+milliseconds after `start()`; the window above is far shorter in practice, but it exists. A wait in
+`Server::start()` until every worker has posted its requests would close it; that is a server
+change and was not made.
+
+### 5. L: the suite at 1fca359 and 20c01b9, the pins and the slab
+
+| Job | Commit | Debug | ASan+UBSan | TSan | MSan |
+|---|---|---|---|---|---|
+| chk11 (00:55:31 to 01:00:44) | 1fca359 | 0 warnings, 399 of 399, 0 report lines | the same | the same | the same |
+| chk12 (01:05:45 to 01:10:58) | 20c01b9 | 0 warnings, 399 of 399, 0 report lines | the same | the same | the same |
+
+As before, the logs show `run.test_runner`'s stand-in thread exception (test 395), which passed.
+chk11's logs (sha256), `~/lab/p3/m7g/check/1fca359/`: debug build
+d37464b2602115fdbe3fbbfc29da1c1424f07c918b4c18693d164d425f7697bf, ctest
+bfa3f79621d0e70503ad79983fd565d2a960ed4a2802276b10d58998e916e0bb; asan build
+0059c41803c6eda73bb6f10057be43a694729d8947dd19ac6250b84e85eeb69f, ctest
+5905c3c60276f6b7edc3518cd2c0ab004c38afa0e4bba5fe7d49a9996bdc224d; tsan build
+a17050a78fb8669801da7d0ebe52de169a2266928441aa675b93ddb2df1ef22c, ctest
+48513af0692b235f8abec8ebbd80738a3f3da9cc6204ff42dd0b4b1c78b25f54; msan build
+c04eaea83a3b10c7b05f0ab07a836e37d8cdf01b0df059fcfc28578b09f364c5, ctest
+33dde637c8f149683b77ce82c01b539f411b3dda403481b0404979ab673a935f. `checks_job.sh` is M7f's with its
+paths in `~/lab/p3/m7g/` (sha256 491f816240cc3614093806ee065317e7a9804e889b2a026628fb4f19da53c660)). chk12's logs (sha256), `check/20c01b9/`: debug build
+2a97b6778c9c6f30f3e066078168718c02099168b4e3fe00dbcac66bba03be97, ctest
+5299784441230db312cf2affd0e0572636eb1bd6e42387bda3ea8db6cd3b779e; asan build
+97d549343bc2aa279ebfb009582c0409e74d39d000f46cdb3917c552ad7cea72, ctest
+11c43e16ae7a46f5a0c4579e2e3baab66551e21e61a4f77b8369f15e0dae631e; tsan build
+2baa30ce9007f72f8d722b8ce4d56421bedd846bede5263693ea2ac7e3ac17b0, ctest
+6517ffe8c302c7f953adee58ba21cbeb926919fa81ffd674b5cb90cff38fc9ce; msan build
+0504775656fb0e44cb29e5e670a0c17efc3430e767d7258da1abc08a32fcbb23, ctest
+0ab21c84ec2429093e57cbc333880d6d9a5b8a1997a0d29425aae2eba2f551d0.
+
+The pins, read again on the freeze day (2026-10-05 00:54:18 and 00:54:28 +0300; M7d's
+`pins_read.sh` and `pins_read2.sh`, unchanged; logs sha256
+748a822d754aa95b870ba3f8cab75f681278e5da62b4db6fe1ba80545089d9cc and
+50a028440dd413d2dfd12e5eb24377aebf8b0a356ee7053968d8643a0d915469): Temurin 25's latest GA build is
+still jdk-25.0.4.1+1 (most_recent_lts 25, the archive's sha256 as pinned); OpenSSL 3.5.9 is still
+the latest 3.5 release; nghttp2 v1.70.0, Envoy v1.39.2, xcaddy v0.4.7, caddy-l4 v0.1.2 at 42db5690
+(also master's head), sslh v2.3.1, cmux v0.1.5, hyper-util 0.1.21, Netty 4.2.18.Final, Jetty
+12.1.13, nginx stable 1.30.5 and HAProxy 3.4.6 are each still the latest of the pinned line; Caddy
+v2.11.7 and Rust 1.99.0 are what M7d's two readings already cover; go1.27.1 on L. No pin changes.
+
+The skb caches, read again as root, read only (00:55:22; M7d's `slab_read.sh`, log sha256
+95917c5e2dcc1710aecbabb8a921c668a0364e1957edc82fa9df857ade45c5b5): kernel 7.2.6-arch2-1, its command
+line without `slab_nomerge`, `CONFIG_SLUB_DEBUG=y`, `CONFIG_SLAB_MERGE_DEFAULT=y`, no
+`CONFIG_SLUB_DEBUG_ON`; `/proc/slabinfo` exists; "skbuff_head_cache" and "skbuff_small_head" are
+directories of their own (`aliases` 0) listed under their own names; `skbuff_fclone_cache` links
+to `:0000512` (`aliases` 2; linked names pool_workqueue, sgpool-16, skbuff_fclone_cache), which
+`/proc/slabinfo` lists as pool_workqueue; page size 4096. Unchanged from WL7's reading.
+
+### 6. Where it stands
+
+W's chain, run 4 (pid 21168, 01:09:12): the same six steps at 20c01b9 (`m7f\src-20c01b9`, whose
+`wjob.py` has the 90/90/10 gate; `check\20c01b9`; `dryrun-20c01b9`), each with `--allow-noisy`.
+Its first preflight passed the new gate (mean idle 96.6%, `quiet` true). L: chk12 green at 20c01b9;
+the sanitizer records at 20c01b9 started at 01:12:00 (job rec1, `records_job.sh` from a fresh clone,
+`REPO_URL` the paper's repository), ahead of W's chain: a test-only change moves no measured
+binary's inputs hash, so if W's checks forced a later test-only commit, these records would still
+cover its measured binaries.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
