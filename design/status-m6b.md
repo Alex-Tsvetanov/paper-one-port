@@ -963,3 +963,190 @@ are the diagnostic copy and its build.
     4befb627f63af43008ec6d4f073271457a0f1158f74061a44c650b9403ddc459  diag7-h2c\summary.txt
     e88b50380f279ff31968a6d7a89abddc4025a53727cd2e6c6fd003ffe96ad47a  diag7-mqtt\server.out
     46952f8ad1d4de2a1742624f6a04f7fb938fd7201a9cc4a8a8d00d248a81261b  diag7-h2c\server.out
+
+## M6c, continued (the coordinator's follow-up, 2026-10-04 from 04:25 +0300)
+
+The churn h2c and MQTT decision went to Alex. The follow-up: (1) is the server's close at once on
+GOAWAY and DISCONNECT faithful to WL1, with the alternative tested; (2) the causes of keep-alive
+h2c's spread and of the open cells' CPU per exchange; (3) a re-run only with a committed fix that
+can start before 07:15. W only, dedicated mode only in anything timed, development data, never
+citable; W not checked quiet.
+
+### 1. The server's close on GOAWAY and DISCONNECT
+
+What the texts say:
+- Frozen: WL1's table has the client close first for h2c and MQTT; section 2.1's handlers are "h2
+  through nghttp2" and "MQTT (CONNECT and CONNACK, PINGREQ and PINGRESP, DISCONNECT)". Neither says
+  when the server closes after the client's last message. The proposal (not frozen), I26: MQTT
+  "Closes on DISCONNECT (s3.14)".
+- nghttp2 1.70.0, read in the pinned archive (`C:\Users\alext\opt\src\nghttp2-1.70.0.tar.xz`,
+  sha256 e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2),
+  `lib/nghttp2_session.c` line 7146: `nghttp2_session_want_read` returns 0 when no stream is active
+  and a GOAWAY was sent or received ("we are done with this session"). The handler closes when
+  `want_read` and `want_write` are both 0 (`h2.cpp`, `finished`; `handlers.cpp`, `app_step`).
+- MQTT 3.1.1 and 5.0, section 3.14.4, and RFC 9113 section 6.8, from memory, not read again in this
+  session (no outbound access): after DISCONNECT the client must close the network connection, and
+  the server, on receipt, should close it if the client has not already done so; a receiver of
+  GOAWAY must not open new streams, and no rule sets when a server closes after a client's GOAWAY
+  with no stream left. To be checked against the texts.
+
+Reading: the server's close at once follows nghttp2's contract and I26, and is what MQTT's 3.14.4
+recommends as recalled. WL1's column describes the generator, which closes right after its last
+write without reading further, as opgen does. The frozen text does not ask the server to wait for
+the client's FIN, so no committed change.
+
+The alternative, tested: a diagnostic switch in `m6c\src-diag` (`m6c\diag-server.patch`, lab only,
+`ONEPORT_DIAG_WAIT_EOF`): after DISCONNECT, or once nghttp2 is done, the server reads on until the
+client's end and then closes; a byte after DISCONNECT closes at once. waa2's opgen, one fresh
+server per run, the two variants alternated; open loop at waa2's rates (3 sessions), churn (2).
+"CPU" is the server's GetProcessTimes over the whole run per connection, a sample at this load
+(item 2 below).
+
+| Cell, close | Retransmits per connection | TIME-WAIT above one per connection | Server bytes in, receives, EOF reads per connection | CPU us per connection | TTFB median us, or rate |
+|---|---|---|---|---|---|
+| open h2c, at once | 0.761, 0.810, 0.849 | 0.702, 0.818, 0.855 | 76.0, 2.0, 0.0 | 85.8, 94.9, 93.0 | 320.2, 326.8, 323.5 |
+| open h2c, after EOF | 0, 0, 0 | 0.000 | 76.0, 3.0, 1.0 | 117.0, 125.6, 108.8 | 325.6, 328.4, 305.7 |
+| open MQTT, at once | 0.663, 0.756, 0.676 | 0.669, 0.746, 0.686 | 16.0, 2.0, 0.0 | 94.6, 67.5, 84.4 | 312.9, 312.3, 315.4 |
+| open MQTT, after EOF | 0, 0, 0 | -0.005 to 0.000 | 16.0, 3.0, 1.0 | 101.4, 87.3, 83.3 | 304.3, 301.0, 308.1 |
+| churn h2c, at once | 0.021, 0.012 | 0.022, 0.012 | 76.0, 2.0, 0.0 | 90.4, 83.6 | 5,509 and 4,006/s |
+| churn h2c, after EOF | 0, 0 | -0.001, 0.000 | 76.0, 3.0, 1.0 | 97.9, 96.0 | 4,502 and 5,621/s |
+| churn MQTT, at once | 0.038, 0.035 | 0.014, 0.036 | 16.0, 2.0, 0.0 | 72.6, 80.0 | 5,737 and 5,837/s |
+| churn MQTT, after EOF | 0, 0 | 0.000, -0.031 | 16.0, 3.0, 1.0 | 88.7, 78.8 | 3,882 and 4,027/s |
+
+So waiting for the client's end removes the retransmits and the second TIME-WAIT socket, which lie
+outside the exchange, and nothing the paper measures improves: it adds a receive per connection
+(WL5: 3 against 2), raises open h2c's CPU per connection (108.8 to 125.6 us against 85.8 to 94.9),
+and the CPU spread stays as wide. The churn rates are generator-bound in both variants (M6c above),
+so they show no direction. The server reads the client's last message in both variants (bytes in
+76.0 and 16.0).
+
+Linux, by reading the code: the same `apps.cpp` and `handlers.cpp` path (`commit`, `close_conn`)
+ends in `close()`, so the server closes at once there too; the difference is timing. On epoll,
+`read_into` reads on while `EPOLLRDHUP` is set, so a FIN that has arrived is read in the same pass,
+and in M5 the dedicated arm read an EOF on 0.9486 to 0.9842 of connections (design/status.md, the
+per-connection counters at ac84f2d): on L the client's FIN had arrived before the server's close on
+about 95% to 98% of connections. The IOCP path passes no such flag, reads once, and W's EOF reads
+are 0; the retransmits say the FIN had not arrived in 67% to 91% of open connections. L's share of
+simultaneous closes is bounded by its 2% to 5%, not measured.
+
+### 2. The open cells' CPU per exchange, and keep-alive h2c
+
+Open cells. All 288 values of `server_cpu_s` in waa2 are whole multiples of 1/64 s (15.625 ms);
+an open h2c window holds 54 to 88 of them, an open MQTT window 46 to 69. Runs `m6c\acct` (waa2's binaries, 3 fresh servers per cell,
+3 open runs per server, `m6c\diag2.py` reading `QueryProcessCycleTime` beside `GetProcessTimes`):
+- GetProcessTimes over cycles, both as seconds (cycles at 3.95e9 per second, from the busy runs
+  below): 0.841 to 1.168 in the 18 open runs (server about 20% busy), 0.993 to 1.007 in the 24
+  keep-alive runs (server busy). So GetProcessTimes charges whole ticks to the thread running at
+  each tick: at a low load its change over a window is a sample, not a sum.
+- Per exchange, GetProcessTimes against cycles: open h2c 75.45 to 96.75 us (max/min 1.282, CV 7.0%)
+  against 324.87 to 369.84 thousand cycles (1.138, CV 4.0%); open MQTT 67.50 to 89.98 us (1.333,
+  11.2%) against 284.88 to 343.00 thousand (1.204, 5.6%). The sampling holds most of the variance
+  of the reported value.
+- The rest is real and not per process: within one server, MQTT ran 343.00, 298.34 and 284.88
+  thousand cycles per exchange (s1), as wide as between servers. A cycle-based value would not sit
+  inside [0.98, 1.02] from this data either.
+
+Committed (485d7ae): the W window runner records the server's cycles beside GetProcessTimes
+(`wsys.process_cycles`; rows `server_cycles` and `cycles_per_exchange`), as L records schedstat
+beside utime + stime. `server_cpu_s` and `cpu_us_per_exchange` are unchanged; which value is W's
+WL4 is a reading of revision-log item 7 for the coordinator. No conversion in the runner; the
+counter ran at 3.94e9 to 3.95e9 per busy second (ka-s4: 15,751,306,375 cycles over 4.0 s of process
+time, 15,747,485,935 over 3.984375 s). test_wrunner: the row's two fields, and the counter growing
+across a 50 ms busy loop; 17 of 19 checks passed before the change and 19 of 19 after.
+
+Keep-alive h2c. Server-bound in all 24 waa2 windows (busy 1.000), so requests per second are one
+over the CPU per request. Operations per request are the same in every window (receives 1.00014 to
+1.00016, sends 1.0, 26.01 bytes in and 38.005 out). The first three windows of the whole job
+(session s02, positions 0 to 2, 00:25:19 to 00:25:31) took 14.19 to 14.64 us per request; the other
+21 took 12.95 to 13.61. In `m6c\ka` (4 fresh servers, 3 runs of each protocol per server, 3 s),
+h2c took 13.04 to 14.13 us per request (max/min 1.084, cycles CV 2.1%) and HTTP/1.1 11.08 to 11.90
+(1.074, CV 1.7%), within one server as much as between: on this W, h2c keep-alive is not noisier
+than HTTP/1.1. The first windows' cause is not established; they were the job's first windows.
+
+### The suite on W at 485d7ae (development checks, not records)
+
+From the exported copy `C:\Users\alext\lab\p3\m6b\check\src-485d7ae` (`git archive`), with M6b's
+`check.cmd` (MSVC 19.51.36246.0, Build Tools 18, Ninja, `ctest -V -j 4`, ASan with
+`ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1` in the vcvars64
+environment). Report lines: lines of the ctest log matching the shared report pattern
+(`bench/oneport_record.py`, `REPORT`).
+
+| Build | Build warnings | CTest | Test time | Report lines |
+|---|---|---|---|---|
+| Debug (release libraries) | 0 | 160 passed, 0 failed | 52.27 s | 0 |
+| ASan (`-DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address`) | 0 | 160 passed, 0 failed | 55.78 s | 0 |
+
+`run.test_wrunner` passed in both (19 of 19 checks). The ASan build is instrumented: its `opgen.exe`
+and `oneport_tests.exe` name `clang_rt.asan_dynamic-x86_64.dll`; the Debug `opgen.exe` does not.
+The C++ code is the same as at 2b6aed0; 485d7ae changes three Python files.
+
+### Re-run: prepared, not started
+
+The committed change records a field and does not change a reported metric, and the cycle spread
+above would not bring the open cells inside the margin, so there is no fix to re-run; nothing was
+started. Prepared at 485d7ae, so that the coordinator can have the A/A spread of the open cells in
+cycles if wanted:
+- Source: `C:\Users\alext\lab\p3\src-485d7ae`, a git clone of the work tree checked out at 485d7ae
+  (detached, clean), as for waa1.
+- Release build: `C:\Users\alext\lab\p3\build-485d7ae` (`m6b\release.cmd`, MSVC 19.51.36246.0), 0
+  warnings, its suite 160 of 160 (`m6c\release-485d7ae.build.log.ctest`). sha256: `oneport.exe`
+  e6563cda2e4e6b8a7bbb2487aae42029577a060c6af3fa0fe9c4969fabf3418f, `opgen.exe`
+  8252be36260b7ee7894f001b67341c63c7731950b2bd6887d648c7de34d4739b.
+- The command (72 windows, a quarter of waa2's 288, which ran from 00:25 to 02:31):
+
+    "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-485d7ae\bench\run\wjob.py run --dir C:\Users\alext\lab\p3\w-aa --name waa3 -- "C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe" C:\Users\alext\lab\p3\src-485d7ae\bench\run\waa.py --build C:\Users\alext\lab\p3\build-485d7ae --out C:\Users\alext\lab\p3\w-aa\waa3 --job waa3 --cells keepalive:h2c,open:h2c,open:mqtt --sessions 6 --seed 7901 --k-src 16 --rates C:\Users\alext\lab\p3\w-aa\waa2\rates.json
+
+The job's summary (`aa.py`, `secondary_ratio`) reads `cpu_us_per_exchange` only; the session ratios
+of `cycles_per_exchange` would be read from the rows. Seed 7901: not in {861, 20261003, 7701 to
+7714, 7801, 7802}, and found in neither this repo's design
+files nor the Papers repo's `lab/journal.jsonl`. Churn h2c and MQTT are left out until Alex decides
+them. To run it unattended, `wnight.py` would need the cells, seed and rates as options (they are
+constants) and a way to skip the frequency retest, which completed in waa2's night.
+
+### Readings for the revision log (follow-up; the coordinator's, none added to hypotheses.md)
+
+1. The server closes on DISCONNECT, and once nghttp2 is done after GOAWAY, without waiting for the
+   client's FIN, on both platforms and in both modes (shared handlers). WL1 and section 2.1 allow
+   it, and I26 says it for MQTT. On W the FIN had not arrived in 67% to 91% of open connections,
+   which leaves TIME-WAIT on both ends and one retransmitted FIN; outside the exchange.
+2. W's GetProcessTimes is a tick sample (15.625 ms ticks) at a low server load: in open cells most
+   of the spread of `cpu_us_per_exchange` is this sampling. W's rows now carry the server's cycles
+   beside it (485d7ae). The rest, CV 4% to 6% per run in cycles, is real.
+3. The A/A job's first windows may need a discarded warm-up window: waa2's first three were 6% to 9%
+   slower than the rest of keep-alive h2c, with the same operations per request.
+4. Seed 7901 is proposed for the next W development job; unused so far.
+
+### Where the follow-up stopped
+
+Committed: 485d7ae (the runner's cycles) and this section; pushed to `origin` only. Nothing was
+launched. All 126 process ids recorded in `m6c\*\pids.txt` (the diagnostic servers and opgen runs of
+both parts of M6c) have ended; every server of the follow-up's 31 runs stopped by its event with exit
+0. One recorded id (29748, a server of `m6c\ka\ka-s4`) now belongs to a Windows
+`SearchProtocolHost.exe`, a reuse of the number, not a process of this session. Alex's plan
+"ChrisTitus - Ultimate Power Plan" is active (`powercfg /getactivescheme`).
+
+### Records (C:\Users\alext\lab\p3\m6c\), follow-up
+
+    6f30554f8f940bd55dcc03fbdd1e417705068752845c56537066f9a50d8fdd0a  diag-server.patch
+    f48808c90c7afb512664884d9046fef7c4347ea394590c7de904d8025ed63a4b  diag2.py
+    5a34a223425fdd7c528a9ce4fa6d0e30610ce88fc10d74688bb35cba467c7494  batch.py
+    358b909c0cf085f58df3b8e7336cca0f0c83b1cb4422e0d2a7c702bbb073f010  eofsum.py
+    0ba5538920030ddccbd9a4431bf9cdb68ff498735c5acfa3f8059bc845b9f9bb  acctsum.py
+    455af2e72a97d3c3e434c38c41df36d5e9a59ce0bda2228516fb2437669aba8d  eof1-specs.json
+    5a05c5cc107daf617d87d2ca8f7a2a47fb9d1d7334ee29e287d23a6e27ad326a  acct-specs.json
+    f2c81407521fda221e053f2b0ab82b878cd43b29f1f58ffd8a2fb5e95e0fd87a  ka-specs.json
+    c53a93d279776850c335dce0d7a6b0ffb0162df3c06412f49c4b7f7629b65373  eof1\eofsum.json
+    cfe06ccae38f3831ab10e33a902468e0012d08a7a3efb97b86e11e0482c64360  eof1\eofsum.txt
+    fe0950bbc8cdaab9fc5d9ba84ed3285921f2b2bdde7a99a869d1ad5a90a24fe1  acct\acctsum.txt
+    fb04159fe16dc3ef7ac0b8244729931d8fdf4046e8d55d677a3e762589a7d451  ka\acctsum.txt
+    4fbc03140590f1a60b0b10eea4a697eda2bccd1c7c49b0d9d0b5e9c235102db8  build-diag\bench\server\oneport.exe
+    424cc7162547b307ad5325df16f23553d0fec46939caf2821542ba95a98dc890  release-485d7ae.build.log
+    9aa95b8c93f9eb9b478879be67de8652169bf8a4da5322985ad93ef5273b6a2c  release-485d7ae.build.log.ctest
+
+And in `C:\Users\alext\lab\p3\m6b\check\485d7ae\`:
+
+    86d043fd9d6c3e4ae3f84caabec30e5cad0eefbd6cc87eb67788ffb10599c172  debug-485d7ae.build.log
+    e13cae16a9ae93ae6f19736c064e773b0c79d7d8af4cb251f888b72fd66aeac2  debug-485d7ae.ctest.log
+    f210e0f001152804cacd44ed9d8f81d053e09420bbe445098f057c6b918abfec  asan-485d7ae.build.log
+    81684ea569df9e844ed679b3e4b74fd2eb54d2c2d65cabf5c866d80e45d0bc73  asan-485d7ae.ctest.log
+    5f82fc284253a86b92a39d55a190aeecbc262f0761feb28f268624522c41234c  summary.txt
