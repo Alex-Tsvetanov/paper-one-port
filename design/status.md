@@ -6821,8 +6821,15 @@ Nothing is pushed to the lab remote until bs1 has ended.
   `~/lab/p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256
   d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd. Its journal line is written
   after bs1, when a connection to L counts no more.
-- bk1 (lab job pid 789468, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src6`), started
-  18:15:53: `K_BASE`'s `ophold` windows, output `~/lab/p3/b3-L`.
+- bk1 (lab job pid 789468, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src6`), 18:15:48 to
+  18:25:49, exit 0: `K_BASE`'s `ophold` windows, output `~/lab/p3/b3-L`. 17 windows, 16 valid, so
+  `K_BASE` has its 16 (WL7; the M7d entry, item 4 (a)); window 1 is invalid by the TIME-WAIT rule
+  (0 at the baseline, 1 at both samples; no connection of this session to L opened or closed
+  during it). `K_BASE` itself is computed by the analysis, not here.
+- bs1 (lab job pid 791871, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src7`), started
+  18:26:25: B3's sessions, SEED_ORDER_B_L, output `~/lab/p3/b3-L`: 34 cells of 6.2 and section
+  10's 4 other-mode cells, R = 16, 2,432 windows without reruns; at bf1's pace (about 49 s per
+  window) about 33 h.
 
 ## M7 checklist
 
