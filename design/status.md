@@ -6654,6 +6654,27 @@ competitor counts. It computes no ratio between arms.
 
 Written as the session goes; each job's lines below.
 
+- pc1 (lab job pid 627200, `post_chain.sh` from the clone at 77cedae), ended 14:35:24, exit 0; the
+  clock floor, THP and NOTRACK set back. Step cost (cl1, 08:33:34 to 13:14:33, 16,859 s): 2,688
+  windows, every one valid, none a stub or a driver fault, every row `development: false`; each of
+  the 24 cost cells of L has 28 sessions, all valid, so no rerun. Step hard-server (hl1, 13:14:33 to
+  14:35:23, 4,850 s): 20,992 runs on 1,312 variant-entries, every one passed B1's and B2's checks
+  (`hardcases-table-hl1.json`: 0 variant-entries with a failing run); the 52 server checks at the
+  entries' ends all ok. `bench/check_rows.py` binds all 23,732 rows to `gate-L.json` (none refused).
+  No stray server or competitor listened on L afterwards (`ss -ltnp`). Files, sha256:
+  `~/lab/p3/cost-L/windows.jsonl` ee257a16c954e81d6e5d93debff47e5547d5086f5be405a1ddb7878617ab8dba;
+  `~/lab/p3/hard-L/hardcases.jsonl` 661f1cf94b46d42a837514ffbb78d887b03f273edd8638795b222e5ab75c92e8;
+  `~/lab/p3/hard-L/hardcases-table-hl1.json`
+  958468ca63e3bd63c4286213d33fb85cefdcbee919171c3db4ef52a11d93c58c; `pc1.log`
+  94f84de44758e6dc86c9eb321bbe1f85281744eb03e811bf8bddcc22e4969709. Archive of both run directories
+  and the job's files, `~/lab/p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz` on L (its `.sha256` beside it):
+  d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692. Lab journal: two lines (cl1,
+  hl1), frozen runs. The cost family is one family over L and W (5.1), so no analysis of it runs
+  before W's cost runs are in.
+- mr1 (lab job pid 733006, `l_run.sh ... m2rate mr1` from a fresh clone at 86c0283,
+  `~/lab/p3/m7g/post-src3`), started 14:41: M2's rate sessions, the frozen m2-rate part on the four
+  M2 cells, development seed 8231, output `~/lab/p3/m2rate-L`.
+
 
 ## M7 checklist
 
