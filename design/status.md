@@ -6349,12 +6349,59 @@ before the entry is committed.
 
 Lab journal: five development lines (wf1 to wf4 and wdev1), Papers bc3338a.
 
-### 10. Where it stands
+### 10. The A/A pilots, ended
 
-CODE_FREEZE = ff2679c. Running: L's A/A pilot (pl1, expected end about 04:30) and W's (wp1, about
-6 h, near 08:15 at the earliest; stopped between sessions from 09:27 if not done). Next: when both
-have ended, the simulation and `pilot.py` at ANALYSIS_COMMIT 9de26d6 on the pinned numpy, then the
-pilot entry; then section 8 step 7.
+L: lab job pl1, 01:56:43 to 04:50:57 (exit 0; the clock floor, THP and NOTRACK set back). 24 cost
+cells, 16 sessions each, 1,536 windows, all valid, mode dedicated, no rerun; the timer part 256
+runs (128 on epoll, 128 on io_uring), the split part 160 replicates (16 at each of 5, 10, 20, 50
+and 100 ms on each backend), all valid, every replicate with 2 receives that returned payload.
+Files (sha256), `~/lab/p3/pilot-L/`: `windows.jsonl`
+9219c1d284f4103df8970f84dca4da25c2dfef0b6c9b1c07f512fba4f08ebf8f, `parts.jsonl`
+dd4202124906c674641b72b021559bbd048e2da8bf61fc00d8c983c50dddad64; `~/lab/p3/m7g/pl1.log`
+6479201afde6fa7457f609eedfd095f220c69653a4974c12f2f7207179be8700.
+
+W: W lab job wp1, 02:06:40 to 07:56:18 (exit 0; Alex's plan restored, `powercfg /getactivescheme`
+read "ChrisTitus - Ultimate Power Plan" at 07:57). 12 cost cells, 16 sessions each, 768 windows,
+all valid, mode dedicated, no rerun, none a functional check; the timer part 128 runs and the split
+part 80 replicates on IOCP, all valid. The morning rule's watcher logged "job done before the rule's
+time" (07:56:43) and asked for no stop. Files (sha256), `C:\Users\alext\lab\p3\pilot-W\`:
+`windows.jsonl` 157c4a38d4eeb77063e13ac25e7cb868d5109db5c8aac0f084efaeb6e33b9f05, `parts.jsonl`
+83e5f66ed9d532cba0b69fe780851c996dc6901de88877b857aa553700d4e3d4; `m7g\wpilot\wp1.log`
+6702a685922873de5866434862afe733fe9a504202bd02aa56ddc815c1ff8cc9. W's directory was copied to L
+(`~/lab/p3/pilot-W`, with `gate-W.json`, sha256 329d372e...) for the simulation.
+
+### 11. The simulation and the pilot entry
+
+Lab job sim1 on L (`~/lab/p3/m7g/pilot_sim.sh`, sha256
+094ff9ff1abaad5433fef96ff57f7e0febbf2fffeb038f2fa58eca0f94415658), 07:57:52 to 08:01:25: a fresh
+clone at `ANALYSIS_COMMIT` 9de26d6 (`~/lab/p3/m7g/ana-src`); the archive of both pilots'
+directories, `~/lab/p3-raw-2026-10-05-pilot-ff2679cc8.tar.gz` (sha256
+019c7986f3eefbeb3eb5234f3666180e2a1ae5346761aad8b7060d830db431ab, beside it in `.sha256`); then
+`analysis/pilot.py` on numpy 2.5.0 and Python 3.14.7 in `~/opt/analysis-numpy-2.5.0/venv`, with
+both gates and both hosts' rows and parts, 12 workers, 210 s: "R_C = 28, m_C = 32, resolved 32 of
+36; complete". Its output `~/lab/p3/m7g/pilot-entry/pilot.json` has sha256
+bc48a736e97a33392b5545f2ba79e317daa19e37e3990c40a232e160f448771d (a copy on W,
+`C:\Users\alext\lab\p3\m7g\pilot.json`).
+
+The pilot entry (hypotheses.md, revision log, "The pilot entry") was generated from that output by
+a script (`gen_pilot_entry.py`, in the session's scratch directory, not committed) and reviewed
+before its commit by one adversarial reader (a sub-agent) against the frozen text, `pilot.json` and
+W's rows: every value matched; it found two sentences too broad (where the numbers come from, and
+this section, then not yet written), both fixed.
+
+The values, in short: `R_C` = 28; `m_C` = 32; not resolved: cells 34 and 36 (open h2c and open MQTT
+on W, Power_c(31) 0.000); outside the family: cells 10 and 12 (churn h2c and churn MQTT on W);
+`G_L` = 4 ms, `G_W` = 17 ms; `GAP_SPLIT` = 5 ms; the joint power below 0.80 for HTTP/1.1 on IOCP
+(0.7902) and 0.8484 for TLS on IOCP, 0.993 and above on L.
+
+### 12. Where it stands
+
+The pilot entry is committed (this commit). Next, by section 8 step 7, each before the runs that
+use it: rule E's detection sessions on L (`rule_e.py run`, both Linux backends, and the relay copy)
+and on W (`wrule_e.py`, IOCP), then `rule_e.py decide --evidence-w`, logged with its file's sha256;
+`m_run.py --part m2-rate`, logged; the B3 feasibility windows and `K_BASE`; then the confirmatory
+families. Every runner after the pilot entry reads rule E's file, so none of them starts before
+W's rule E sessions have run.
 
 ## M7 checklist
 
