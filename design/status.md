@@ -6545,6 +6545,51 @@ ended and its exits and validity are read:
 
 Written as the session goes; each job's lines below.
 
+**The cost family's launch, 12:59:24.** Through `wlaunch.ps1` (`m7g\wcost\launches.txt`): `cmd.exe /c
+run_chain.cmd`, pid 3848, whose `chain.py` is pid 10304 (`chain.pid`; `utf8.txt` reads
+`utf8_mode 1`), and the watcher `stopat.py`, pid 26640 (`wc1.stopat.jsonl`: armed for 23:27).
+
+**Refused twice by the job-start check; nothing measured.** Neither attempt passed W's quiet check
+(wjob exit 90), so no lab plan was set (`plan_restored` null in both done files), no window ran and
+`C:\Users\alext\lab\p3\cost-W` does not exist. From the preflight files:
+- attempt 1 (`wc1-refused1.preflight.json`, 12:59:36): mean idle 88.9%; CPU 6 87.8%, CPU 8 73.8%
+  and CPU 10 81.6% idle; `remoting_host` (pid 7968) at 24.4% and `dwm` at 19.5% of one CPU, then
+  `remoting_desktop` 8.3%, `System` 7.7%, `MsMpEng` 3.6%;
+- attempt 2 (`wc1-refused2.preflight.json`, 13:04:51): mean idle 92.3%; CPU 8 82.4% and CPU 10
+  89.9% idle; `remoting_host` at 23.1% and `dwm` at 13.1% of one CPU, then `CrossDeviceService`
+  6.4%, `remoting_desktop` 6.1%, `System` 3.1%.
+
+The cause, as far as W shows it: a Chrome Remote Desktop session. `remoting_desktop.exe` (pid
+20368, Windows session 1) started at 12:49:06 today; the two `remoting_host.exe` services run since
+2026-10-01. The checks that passed before W's frozen runs named no remoting process among their top
+processes: wp1 at 02:06:51 (mean idle 97.0%; `System` 3.1%, `CrossDeviceService` 3.0%, `MsMpEng`
+2.7%) and wre1 at 08:15:12 (mean idle 96.3%; `System` 8.0%, `MsMpEng` 5.0%). Whether the remote
+session's load comes from its viewer's own use of W or from streaming this session's window is not
+established; either way the gate refuses while it lasts, and the gate is not weakened. The remote
+session, the Claude window and every setting were left as they were.
+
+**What stays armed (13:07).** The chain tries again every 300 s and starts no attempt after 23:20;
+a job that passes the check runs the cost family from its first session (`cost-W` is new); the watcher
+stops a running job at the first session end after 23:27 and ends by itself when `chain.done`
+appears. Alex's plan "ChrisTitus - Ultimate Power Plan" is active (`powercfg /getactivescheme`,
+13:07). Of this session's recorded pids, 3848, 10304 and 26640 run, and the refused wjob launchers
+18088 and 3040 have ended. To stop everything at once: create the file
+`C:\Users\alext\lab\p3\m7g\wcost\chain.stop` (the chain asks a running job to stop with `wjob.py stop`
+and ends; the watcher ends when `chain.done` appears).
+
+**After `chain.done`** (the next session): read `chain.done`, `wc1.done` and `wc1.log`; check
+`cost-W\summary-wcost_run-wc1.json` for valid sessions and reruns per cell against R = 28 and the cap
+of 7, `not-run-wc1.json`, and the warm-up record, without comparing arms; a session the stop cut
+short is run again by the engine on resumption, and the rows are never edited. Then journal the job
+(`bench/run/journal.py --kind runner --job wc1`, its `run` worded "frozen" as in Papers 289ff73),
+archive `cost-W` on W with a `.sha256` beside it, commit, push and bump. To resume in a later quiet
+W window: a copy of `steps.json` with `--job wc2` and step name `wc2`, the same `--out`, a new
+cutoff in `run_chain.cmd` and a new `stopat.py --name wc2 --at ...` (both times with +03:00). Then
+`m7g\wm`, `m7g\ws` and `m7g\whard` in that order, each with its cutoff set at its launch and checked
+before the next. `stopat.py` reads only `windows.jsonl` and `parts.jsonl`, so it can bound `wm` and
+`ws` but not `whard`, whose rows go to `hardcases.jsonl`: the hard cases need a watcher of their own
+or a launch with time to finish before the cutoff.
+
 ## L after the cost family, 2026-10-05
 
 One coordinator session (unattended, from 08:40) runs P3's sequence on L after the cost family, as
