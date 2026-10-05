@@ -16,7 +16,7 @@ has run.
 | M4 | Competitors | M4a (the five proxies, the hand-off runner, step 0's host change and NOTRACK) done, 2026-10-03 (below); M4b-1 and M4b-2 (the cases configurations, the libraries' harnesses) done, 2026-10-03 (below) |
 | M5 | Iterate until it wins | done, 2026-10-03, two rounds (below): criteria 1, 3 and 5 met; 2 met against four proxies, not against sslh-ev (out of reach by construction); 4 met at the end |
 | M6 | Windows | M6a (the dependencies and the IOCP backend) done, 2026-10-03, merged into main in bbd13f7 (below); M6b (the Windows harness) merged into main at its 74dc539 in fa8be6d, 2026-10-04 (below, "M7c follow-up"; `design/status-m6b.md`); W's runners open |
-| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); M7d and M7e done, 2026-10-04; the freeze session stopped in W's checks, 2026-10-04 (below, "M7 freeze session": a test fix, 7a4063c; W in use); the code freeze declared, 2026-10-05: CODE_FREEZE = ff2679c (below, "M7 freeze night") |
+| M7 | Code freeze | preparation done, 2026-10-03 (below: the route without ALPN, M5's readings 1 and 5 logged, the records drivers and their dry run, the M7 checklist); the coordinator's five fixes done, 2026-10-03 (below, "M7 fixes"); the frozen runners done, 2026-10-03 (below, "M7c"); M7c's follow-up done, 2026-10-04 (below: the merge of `m6b-windows`, M7c's open items logged, `ANALYSIS_COMMIT`); M7d and M7e done, 2026-10-04; the freeze session stopped in W's checks, 2026-10-04 (below, "M7 freeze session": a test fix, 7a4063c; W in use); the code freeze declared, 2026-10-05: CODE_FREEZE = ff2679c; the A/A pilots, the pilot entry (R_C = 28) and rule E done; L's cost family started (below, "M7 freeze night") |
 
 ## Engineering constraints
 
@@ -6086,6 +6086,8 @@ from clean clones of `origin` under `C:\Users\alext\lab\p3\m7f\`.
 | ff2679c | fix(bench): records_job_w.ps1's gate step runs its Python steps inside cmd.exe (CODE_FREEZE) |
 | c5b1dd9 | docs: the code freeze's entry (revision log) and this section |
 | f185a8a | docs: the record of W's frozen runs in Python's UTF-8 mode (revision log) |
+| 7455e28 | docs: the pilot entry (revision log) |
+| 77cedae | docs: rule E's choices (revision log) |
 
 ### 1. W's quiet check, 00:20 to 00:46
 
@@ -6394,14 +6396,72 @@ on W, Power_c(31) 0.000); outside the family: cells 10 and 12 (churn h2c and chu
 `G_L` = 4 ms, `G_W` = 17 ms; `GAP_SPLIT` = 5 ms; the joint power below 0.80 for HTTP/1.1 on IOCP
 (0.7902) and 0.8484 for TLS on IOCP, 0.993 and above on L.
 
-### 12. Where it stands
+### 12. Rule E, and the confirmatory runs on L
 
-The pilot entry is committed (this commit). Next, by section 8 step 7, each before the runs that
-use it: rule E's detection sessions on L (`rule_e.py run`, both Linux backends, and the relay copy)
-and on W (`wrule_e.py`, IOCP), then `rule_e.py decide --evidence-w`, logged with its file's sha256;
-`m_run.py --part m2-rate`, logged; the B3 feasibility windows and `K_BASE`; then the confirmatory
-families. Every runner after the pilot entry reads rule E's file, so none of them starts before
-W's rule E sessions have run.
+Rule E (hypotheses.md, revision log, "Rule E's choices", 77cedae): lab job re1 on L (08:14:16 to
+08:25:38, `~/lab/p3/m7g/rule_e_l.sh`, sha256
+9a59c2c67679695c4562fdfa5bb08c3d695eb743dde67275dfae48408c7f78da; dev seed 8217; 96 windows, all
+valid) and W lab job wre1 (08:15:01 to 08:31:44, `m7g\wrule\run_chain.cmd`, UTF-8 mode, dev seed
+8222; 24 windows, all valid; the morning watcher asked for no stop; Alex's plan read back at 08:32).
+Every proposed default stays: replay on epoll, io_uring and IOCP; user-space relay buffers on epoll
+and io_uring; the zero-byte IOCP form. Rule E's file `~/lab/p3/m7g/rule_e.json` (a copy on W,
+`m7g\rule_e.json`), sha256 fb50302aa4e42fc453e7230ed6472e0010f7ac98f1fab96b3daf7ead5ca2dec5.
+
+L's chain (lab job pc1, lab_job pid 627200, started 08:33:33 from bash at nice 0 under the lab lock,
+`~/lab/p3/m7g/post_chain.sh` with a clone at 77cedae, `~/lab/p3/m7g/post-src2`; sha256
+27ba856a9abf1c888b1028317353f2a543b424e5bc2dd1984f49ed1753ddebe8): first the cost family
+(`cost_run.py`, job cl1, `--out ~/lab/p3/cost-L`: every cost cell of L at R_C = 28, one-port against
+dedicated, SEED_ORDER_C_L; the freeze guard passed with the pilot entry and rule E's file, and the
+first session's four windows, one-port and dedicated, were valid), then the hard cases' server part
+(`hardcase_run.py --part server`, job hl1, `--out ~/lab/p3/hard-L`). It stops at the first step that
+fails; its done file is `~/lab/p3/m7g/pc1.done`. Expected length: the cost family is 24 cells x 28
+sessions x 4 windows = 2,688 windows; at the pilot's pace on L (1,536 windows started from 01:58:09 to 04:37:36,
+6.2 s each) about 4 h 40 min without reruns, so near 13:15; the hard cases' server part at the
+frozen 3 s timers was never timed whole (M7c's e2e3 ran 328 short-timer runs in 91 s), so its end is
+not estimated here.
+
+Not started, each for the reason given:
+- `m_run.py --part m2-rate` and its `M2_RATE` entry, then `m_run.py` (M1 to M3), and `s_run.py`
+  (section 10, which takes M1's and M3's rates from M's rows): each needs a revision-log entry
+  between runs, so none can sit in an unattended chain; they follow the cost family.
+- The B3 feasibility windows (section 8 step 7: one window per system and case, development data;
+  no frozen runner exists for them, `b3.py` runs development windows), then `b3_run.py` (`K_BASE`
+  first, then B3's sessions).
+- `hardcase_run.py --part competitors` (section 10's descriptive table): it runs the proxies in front
+  of the server in dedicated mode; left for the coordinator to confirm against FC5 before it runs.
+- W's confirmatory runs (the brief: not started tonight). Prepared, not launched: W's cost family,
+  `m7g\wcost\run_chain.cmd` (set its cutoff first; UTF-8 mode; no `--allow-noisy`; output
+  `C:\Users\alext\lab\p3\cost-W`, resumed across jobs): 10 cells at R_C = 28 (W's churn h2c and MQTT
+  not run, by the M7e entry, item 2), 1,120 windows, about 8.3 h at the pilot's pace on W (768
+  windows started from 02:09:00 to 07:48:51, 26.6 s each), so several quiet W windows. A clone at 77cedae is in `m7g\post-src2`, rule E's
+  file in `m7g\rule_e.json`, the pilot entry's output in `m7g\pilot.json`. Then `wm_run.py` (M1 on
+  IOCP), `ws_run.py` (needs W's M rows) and `whardcase_run.py`, in the same way.
+
+W at the end of the night: no process of this session's running (the wpilot, wrule and stop
+watchers' chains ended; every pid recorded in their `launches.txt`), Alex's plan "ChrisTitus -
+Ultimate Power Plan" active (`powercfg /getactivescheme`), the Claude window minimized since 00:33.
+Lab journal: the pilots (pl1, wp1, frozen), rule E's jobs (re1, wre1, development).
+
+### 13. Where it stands, and what needs Alex
+
+Done tonight: the code freeze (CODE_FREEZE = ff2679c, records and gates on L and W), the A/A pilots
+on both hosts (every window, timer run and split replicate valid), the simulation and the pilot
+entry (R_C = 28, m_C = 32), and rule E (every proposed default kept). Running: L's cost family
+(pc1, near 13:15), then the hard cases' server part. W: idle, Alex's plan active.
+
+For Alex:
+1. `bench/run/freeze_guard.py` decodes `git show` with the locale's encoding, which fails on W's
+   cp1252; W's frozen runs go in Python's UTF-8 mode instead (the record in the revision log). A fix
+   (an explicit UTF-8 encoding) is a change of the frozen code, a later change under section 8.
+2. W's job-start quiet gate is at 90/90/10 by his decision; the A/A pilot on W had every window
+   valid under it.
+3. `Server::start()` on Windows returns before the AcceptEx requests are posted (section 4 above);
+   the suite now waits; a server-side wait would close the window. Not changed.
+4. The mixed cell's generator on W (CPUs 2 to 5) saturates (section 7 above); its W cell will be
+   invalid by the generator rule. A wider placement would be a new design choice.
+5. W's joint power for HTTP/1.1 on IOCP is 0.79 (reported, not targeted), and open h2c and open
+   MQTT on W are not resolved (Power_c(31) 0.000): they run at R_C and are reported as such.
+6. W's confirmatory runs need quiet W windows: about 8.3 h for the cost family alone.
 
 ## M7 checklist
 
