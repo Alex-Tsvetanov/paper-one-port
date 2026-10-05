@@ -6463,6 +6463,71 @@ For Alex:
    MQTT on W are not resolved (Power_c(31) 0.000): they run at R_C and are reported as such.
 6. W's confirmatory runs need quiet W windows: about 8.3 h for the cost family alone.
 
+## L after the cost family, 2026-10-05
+
+One coordinator session (unattended, from 08:40) runs P3's sequence on L after the cost family, as
+its brief orders it: M2's rate sessions and the `M2_RATE` entry; the mechanism family M1 to M3 on
+L; section 10's L cells; B3 (its feasibility windows, `K_BASE`, its sessions); then the
+competitors' hard-case table. W runs no job, build or server of this session (Alex uses it). Every
+L job runs from bash at nice 0 under `lab_job.sh` (the lab lock, the clock floor, THP at madvise,
+NOTRACK), with pid and done files in `~/lab/p3/m7g/`, from a fresh clone of the lab remote at the
+commit that holds the entries it needs. Nothing here is a result.
+
+### 1. While pc1 ran
+
+- The B3 feasibility windows (section 8 step 7) need no new runner: `b3.py`, frozen at CODE_FREEZE,
+  runs one development window per call. A runner under `bench` would have stopped every later frozen
+  run (`freeze_guard.py` refuses any change of `bench` since CODE_FREEZE). The reading and its design
+  choices (21 windows: the nine competitors and the server's relay and in-process arms, both cases,
+  hyper-util only silent; the server on epoll; rule E's settings) are in the revision log, entry "The
+  B3 feasibility windows and the competitors' hard-case table (two readings), after the pilot entry",
+  items 1, 2 and 4. The job script `~/lab/p3/m7g/b3feas.sh` (sha256
+  497afcd6ef28ef2d60c765352f9a995eba4e7fa14587e5b37a96607a01694ec3) checks that its clone's frozen
+  paths equal CODE_FREEZE's, then calls `b3.py` once per window into `~/lab/p3/b3feas-L`.
+- The competitors' hard-case table (section 10): the same entry, item 3. It sets the server in
+  dedicated mode against no competitor: the dedicated server is the fixed backend behind every proxy,
+  each run is one connection observed to its end, and the rows' two times (`first_byte_ms`,
+  `end_ms`) form no rate or statistic and are never set beside a server time. It runs whole, last.
+- Section 8 step 7's list read with 9.3's words, "before the runs that use them": the cost family,
+  which uses none of M2's rates, the feasibility windows or `K_BASE`, started first (pc1, "M7 freeze
+  night", item 12). The entry says so in item 2.
+- M2's rate sessions run in the frozen m2-rate part on all four M2 cells, the TLS cells included.
+  The brief asked for HTTP/1.1 only, but the frozen runner cannot: `--only` is refused in the
+  m2-rate part on the frozen binary, and a development run restricted to HTTP/1.1 writes an
+  `m2_rates.json` without the TLS cells, after which the cells part gives each TLS window no rate and
+  writes a fault row for it, with reruns. The m2-rate part's own output over the four cells is what
+  the cells part reads, and Alex's decision (revision log, "W before the code freeze", item 2) names
+  that path: a null rate, the cell listed as not run, no window started. The TLS cells' rate sessions
+  are development sessions, not M2 cell windows. If a TLS cell comes out with a rate, this session
+  stops before the `M2_RATE` entry and reports, since Alex's "not run" and 9.3's rule would then
+  disagree. Development seed 8231: in no line of `lab/journal.jsonl` (Papers e75f198) and in none of
+  `design/*.md` or `hypotheses.md` at one-port 8580042.
+
+### 2. The commands
+
+`~/lab/p3/m7g/l_run.sh SRC STEP JOB` runs one step (sha256
+ed761373730e7e04cbbdd08d9759d3c6f7112761ccda2e419954e2842771dce4), each in its own output
+directory: `m2rate` (`m_run.py --part m2-rate --dev-seed 8231`, `~/lab/p3/m2rate-L`), `m` (`m_run.py
+--part cells --m2-rates ~/lab/p3/m2rate-L/m2_rates.json`, SEED_ORDER_M_L, `~/lab/p3/m-L`), `s`
+(`s_run.py --m-rows ~/lab/p3/m-L/windows.jsonl`, SEED_ORDER_S_L, `~/lab/p3/s-L`), `b3feas`
+(`b3feas.sh`, `~/lab/p3/b3feas-L`), `kbase` (`b3_run.py --parts kbase`, `~/lab/p3/b3-L`), `b3`
+(`b3_run.py --parts sessions`, SEED_ORDER_B_L, `~/lab/p3/b3-L`), `comp` (`hardcase_run.py --part
+competitors`, `~/lab/p3/hardcomp-L`). The frozen arguments are post_chain.sh's: the records job's
+`build-release`, the clone's `design/seeds.json`, CODE_FREEZE ff2679c, `gate-L.json`, the pilot
+entry's output and rule E's file. Launch, from bash on L:
+
+    bash -c '(setsid nohup bash SRC/bench/run/lab_job.sh ~/lab/p3/m7g NAME bash ~/lab/p3/m7g/l_run.sh SRC STEP JOB > /dev/null 2>&1 &)'
+
+After each job, `~/lab/p3/m7g/l_check.py DIR JOB` (sha256
+fe59ee3e12678c5a1914cd74f4c8353b7b5b21f2ffe6d5fbca5f6f43ad3f47a7) prints the validity of each cell
+and window, the invalid reasons, the stubs, faults and development flags, and the hard-case and
+competitor counts. It computes no ratio between arms.
+
+### 3. Progress
+
+Written as the session goes; each job's lines below.
+
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
