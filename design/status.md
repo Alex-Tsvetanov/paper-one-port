@@ -6808,8 +6808,21 @@ every 10 min until the done file appears). The local client ends a watch at most
 new one is opened at once, so a connection is closed from W's side, never L's, while a window runs.
 Nothing is pushed to the lab remote until bs1 has ended.
 
-- bf1 (lab job pid 785303, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src5`), started
-  17:58:13: the 21 B3 feasibility windows, output `~/lab/p3/b3feas-L`.
+- bf1 (lab job pid 785303, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src5`), 17:58:08 to
+  18:15:09, exit 0: the 21 B3 feasibility windows, output `~/lab/p3/b3feas-L`; development data.
+  Every `b3.py` call exited 0. 20 of the 21 windows are valid by section 7; envoy's silent window is
+  invalid by the TIME-WAIT rule (1 TIME-WAIT socket at the baseline, 2 at both samples; no
+  connection to L was opened or closed during it, and its cause is not established). Each system
+  held all 10,000 connections established at both samples. A window took 33 s to 75 s from start
+  to start (17 min for 21), including the wait for the host's TIME-WAIT sockets to expire (up to
+  41 s, after a window whose probe left one). `bench/check_rows.py` binds all 21 rows. Files,
+  sha256: `windows.jsonl` 31c27bc7a74479e98da128294daff89b38d8a54b61f5d64fb55f874516a1caaa,
+  `bf1.log` bd5ece98c0b6aff8559e274c33b2c399763fec9d43e8c5dd190dcc1e9e28f6f3; archive
+  `~/lab/p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256
+  d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd. Its journal line is written
+  after bs1, when a connection to L counts no more.
+- bk1 (lab job pid 789468, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src6`), started
+  18:15:53: `K_BASE`'s `ophold` windows, output `~/lab/p3/b3-L`.
 
 ## M7 checklist
 
