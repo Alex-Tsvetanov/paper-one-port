@@ -6714,6 +6714,79 @@ through one ssh connection opened before each job starts, and pushes only to `or
   come from ml1's rows; the two sslh-ev cells of M3 have none, so their m-ttfb cells write a fault
   row for each window (the frozen behaviour: no open-loop rate, no window), and they end with no
   valid session.
+  Stopped at 17:53:12 by SIGTERM to its process group (exit 143; the clock floor, THP and NOTRACK
+  set back; no server, generator or competitor left running), after 384 windows, 331 valid, by
+  the stopping rule of this session's brief: the finding of section 4 item 1 needs Alex. The
+  window cut short is a driver fault row (S.m-ttfb.M3.L.epoll.http1.nginx.s01, position 3), so its
+  session runs again on resumption. Files, sha256: `~/lab/p3/s-L/windows.jsonl`
+  2f2914b612fecdcb0f88877e104df93b6022b15094c973e4855e4ac3afb1af40; `sl1.log`
+  6856ce5886faa4abf16c7ea716637937c667a761b8ea1533274c72b07aebd6ae. Archive of the partial output
+  and the job's files, `~/lab/p3-raw-2026-10-05-sl1-partial-ff2679cc8.tar.gz`, sha256
+  89b8a036e1266818eb23842c58717ef2e8c815f499c1cab44bd8ccf98138149d. `bench/check_rows.py` binds
+  all 384 rows. Lab journal: one line, frozen run, stopped. L is idle.
+
+### 4. Stopped: what needs Alex
+
+1. **The mixed cell's count of misclassified connections is wrong, and the frozen analysis would
+   read it as B1 failures.** `bench/run/cellwin.py` (lines 374 to 387 at CODE_FREEZE) gives the
+   one-port arm of the mixed cell an expected count per class from
+   `gen_report["measure"]["connects"]` and from each background report's
+   `["measure"]["connects"]`. opgen writes no such key: its report holds `measure` with
+   `completed` and `errors`, and the run's connects as `connects_run` (`bench/gen/options.cpp`,
+   `to_json`). So the expected counts are 1 (HTTP/1.1, the probe only), 0 (TLS) and 0 (MQTT), and
+   every connection of the window is counted as classified other than as its script's protocol.
+   The server's own counters show none was. Two windows by session id:
+   - S.mixed.C1.L.epoll.s02, position 1 (one-port): opgen `connects_run` 105,736; the server's
+     classified HTTP/1.1 105,737 (the churn and the probe), TLS 64 and MQTT 64 (the background's 64
+     connections each); `misclassified` 105,864 = 105,736 + 64 + 64.
+   - S.mixed.C1.L.io_uring.s02, position 0 (one-port): `connects_run` 752; classified HTTP/1.1 753,
+     TLS 64, MQTT 64; `misclassified` 880 = 752 + 64 + 64.
+   In all 14 one-port windows of the cell in sl1 (8 on epoll, 6 on io_uring), classified HTTP/1.1
+   equals `connects_run` + 1, TLS and MQTT equal 64, every other class is 0, and `misclassified`
+   equals `connects_run` + 128, each checked from the row's fields. What follows from the code as frozen:
+   (a) section 7's misclassification rule invalidates every one-port window of the mixed cell, so
+   the cell (secondary, deciding nothing) can never hold a valid session on L; W's runner has the
+   same lines (`bench/run/wcellwin.py`, 339 to 350), so W's mixed cell will do the same;
+   (b) `analysis/analyse.py`'s `b1_failures` lists every row with `misclassified` above 0,
+   whether or not the row is valid, so the analysis at ANALYSIS_COMMIT would report B1 failures in
+   measured windows (5.2), and by section 12 the robustness claim would not be made. That changes
+   what the paper claims, so this session stopped and leaves the decision to Alex. No revision-log
+   entry decides it. The options, none chosen here: a revision-log reading that these counts are
+   the runner's arithmetic and no B1 failure, with a stated treatment of the analysis's
+   `b1_failures` list for these rows; a later change of the runner and the analysis under section
+   8, with what that rule then archives; or leaving the code and the count as they are, with the
+   robustness claim not made.
+2. **The mixed cell on io_uring starves its churn, in both modes.** In every io_uring window of
+   the cell (one-port and dedicated alike) the probe timed out and the churn ran at about 34 to 964
+   connections per second with 2.6% to 65.6% errors, while each keep-alive background completed
+   603,537 to 615,995 requests (on epoll the churn ran at about 17,500 per second, as in M7c's job e2e2).
+   The server was 100% busy; its counters show 128 ring buffers (`ring_buffers`) against 128 busy
+   keep-alive connections and the churn. A behaviour of the frozen server's io_uring backend under
+   this load, not of the runner. The cell is secondary and decides nothing, but it bears on what the
+   paper says of io_uring and on rule D2. No window of this cell ran on io_uring before the code
+   freeze (M7c ran it on epoll only).
+3. **Section 10's SSH C2 cells cannot run.** `opgen --load keepalive` refuses `--proto ssh`
+   ("--load keepalive serves http1, h2c, tls and mqtt (WL3)"; exit 2), and the SSH handler closes
+   after one line, so WL3 has no SSH form. `s_run.py` schedules the three SSH C2 cells anyway, so
+   each of their windows is invalid ("opgen wrote no report"), and on L the two cells will end with
+   no valid session after their reruns, rather than listed as not run. Secondary, deciding nothing.
+4. Expected and already logged: sslh-ev's two M3 cells have no valid session (ml1), and section 10's
+   two m-ttfb cells and two relay-on-io_uring cells of sslh-ev will end the same way.
+
+### 5. What is still to run on L, in order
+
+1. The rest of section 10's L cells: resume sl1's order from `~/lab/p3/s-L` with a new job name
+   (`l_run.sh SRC s sl2`), once Alex has decided item 1 of section 4 (the resumption runs the mixed
+   cell's remaining sessions too).
+2. The B3 feasibility windows: `l_run.sh SRC b3feas bf1` (revision log, entry of 1c4193a).
+3. `K_BASE`: `l_run.sh SRC kbase bk1`.
+4. B3's sessions: `l_run.sh SRC b3 bs1` (34 cells and section 10's 4 other-mode cells, R = 16).
+5. The competitors' hard-case table: `l_run.sh SRC comp hc1`.
+Each from a fresh clone of the lab remote at the newest commit, launched from bash at nice 0 under
+`SRC/bench/run/lab_job.sh ~/lab/p3/m7g NAME bash ~/lab/p3/m7g/l_run.sh SRC STEP JOB`. Items 2 to 4
+keep the rule of section 3: no connection to L that L would close first while they run; watch them
+through one ssh connection opened before the launch. B3's sessions are long (2,432 windows of
+about 30 s, plus waits; the feasibility windows measure the length).
 
 
 ## M7 checklist
