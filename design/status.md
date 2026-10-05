@@ -6463,6 +6463,88 @@ For Alex:
    MQTT on W are not resolved (Power_c(31) 0.000): they run at R_C and are reported as such.
 6. W's confirmatory runs need quiet W windows: about 8.3 h for the cost family alone.
 
+## W's confirmatory runs, 2026-10-05
+
+One coordinator session on W, from 12:53 (Alex freed W in the morning and said to carry on), runs
+W's confirmatory families in the frozen order: the cost family, then M1's IOCP cells, section 10's
+W cells, and the hard cases on IOCP (B1, B2). It does not use L, which the other session holds,
+except git over ssh to 192.168.1.62. Every W job runs under `wjob.py` (W's lab lock, the job-start
+check at 90/90/10, the lab plan set and Alex's plan set back), through `chain.py` started by M6b's
+`wlaunch.ps1` (WMI, sha256 9264a15c41688469e29b51e5aed3020367e396fa9b4fb373c8a85dbd966ef6eb), in
+Python's UTF-8 mode, without `--allow-noisy`, from the clean clone at 77cedae (`m7g\post-src2`) on
+W's frozen Release build (`m7g\records-ff2679c-W\build-release`, gate `gate-W.json` sha256
+329d372ee7d4dc15ef6b7bac76fb9d8de35d5d048f9eea5108ae08caefc9e1fc), with the pilot entry's output
+(`m7g\pilot.json`) and rule E's file (`m7g\rule_e.json`). Nothing here is a result, and no arms of
+a family are compared before all of that family's confirmatory data, L's and W's, is in.
+
+### 1. The cost family's chain, checked before its launch
+
+The chain the freeze night prepared (`m7g\wcost`) was read against the frozen text and the pilot
+entry, as the runner builds it (`wcost_run.cost_cells` with `pilot.json` and rule E's file, read
+only, before the launch):
+- 10 cells at R_C = 28 (4.6 step 7; the pilot entry, item 7), all on IOCP, in-process, replay in
+  both arms (rule E): C1 HTTP/1.1 and TLS; C2 HTTP/1.1, h2c, TLS and MQTT; C3 HTTP/1.1, h2c, TLS
+  and MQTT. 280 base sessions, 1,120 windows, at most 7 reruns per cell (4.1).
+- Not run: churn h2c and churn MQTT (c = 10 and 12), listed in `not-run-wc1.json` with the reason
+  (the M7e entry, item 2). Open h2c and open MQTT (c = 34 and 36), not resolved, run at R_C (4.6
+  step 7; the pilot entry, item 7).
+- λ per C3 cell as the pilot entry's item 10 gives it, the output's exact values passed unchanged:
+  HTTP/1.1 8,544.537, h2c 2,496.680, TLS 1,473.851 and MQTT 2,609.799 exchanges per second.
+- The order seed `SEED_ORDER_C_W` from `design/seeds.json` (sha256
+  3a2dd43623aa96190b5b3fac737d96af5a8fabed9853a82233c3a3c9f4c35b3e).
+- The freeze guard, called with the run's files before the launch, gave its clearance at HEAD
+  77cedae: CODE_FREEZE ff2679c; the seeds file; the pilot output (sha256
+  bc48a736e97a33392b5545f2ba79e317daa19e37e3990c40a232e160f448771d, logged in 7455e28); rule E's
+  file (fb50302aa4e42fc453e7230ed6472e0010f7ac98f1fab96b3daf7ead5ca2dec5, logged in 77cedae);
+  `gate-W.json`; the binaries oneport 749d0209c112fb8fa2689b632f635f32364d46827de243c28398ab647adf328c,
+  opgen b1e608dd6203abc34faef7dc94aa25fbee85a25a42ebf7ba555d74be281e6678 and opcase
+  40ca5aad0c965b769f21355c5362d15aca71ba98f6ba7e825deda752dd0e2a83; the entries "W before the code
+  freeze" and "The job's warm-up and W's runners (M7e), before the code freeze".
+
+### 2. The cutoff: no new W session after 23:30
+
+Two mechanisms, as the pilot's morning rule had them. `chain.py --cutoff
+2026-10-05T23:20:00+03:00` starts no job attempt after 23:20, so no job's 80 s warm-up runs into
+23:30. The freeze night's watcher `m7g\stopat.py` (sha256
+da14a2bfc157ff8da44ac7ce50f5baa50bb25a7ad9bdf3616004cd4d07febfd8), `--at
+2026-10-05T23:27:00+03:00`, reads the rows from 23:27 and asks the job to stop (`wjob.py stop`) at
+the first session end after it; the stop lands while the engine reads the next session's
+fingerprint, before any of that session's windows. The job then resumes in the next quiet W window
+from the rows already in its `--out` (a new job name, the same `--out`).
+
+Files: `m7g\wcost\run_chain.cmd` (sha256
+0ce350b8a9df7e8e782cd344d887c4e907baec55dc5bd98f98e5e6413bd47c9e), `steps.json` (job wc1, `--out
+C:\Users\alext\lab\p3\cost-W`; sha256 7da8734a6946915b625b236f127d2fe23ba7e45e07bc6c70cee7bb22f0f9657c),
+`chain.py` (the freeze night's, sha256
+b77fea4f3b3c86905d7b4fe7642b012bae38f68bef89d41f13d44c7287ffe934). Expected length about 8.3 h
+without refusals or reruns (the pilot's pace on W, 26.6 s per window), so near 21:20 if W stays
+quiet.
+
+### 3. The next chains, prepared before the cost family's launch
+
+Each in its own directory under `m7g\`, with the freeze night's `chain.py`, a `steps.json` and a
+`run_chain.cmd` whose cutoff is set at its launch; each is launched only after the job before it has
+ended and its exits and validity are read:
+- `wm` (job wm1): `wm_run.py`, M1's two IOCP cells at R_M = 16, `SEED_ORDER_M_W`, `--out
+  C:\Users\alext\lab\p3\m-W` (`steps.json` sha256
+  3b35d37790899ad20ee9fb325c4407ac455871d11aa142b10f32f302f6e9b481). It needs no `M2_RATE` entry
+  (M2 runs on L only): the guard asks W's M runner for the pilot entry, rule E's file and W's two
+  entries, all in 77cedae.
+- `ws` (job ws1): `ws_run.py`, section 10's W cells at R = 16, `SEED_ORDER_S_W`, `--m-rows
+  C:\Users\alext\lab\p3\m-W\windows.jsonl` for M1's TTFB rates, `--out C:\Users\alext\lab\p3\s-W`
+  (`steps.json` sha256 9a3db998d6dd66205a4889dc5d154caef0fd231c58b9054bfee10596ddc66b46). The
+  two-core IOCP cell and TLS resumption are listed as not run, as logged; the mixed cell runs as
+  frozen, and its windows are expected to be invalid by the generator rule (the freeze night's
+  item 7).
+- `whard` (job wh1): `whardcase_run.py`, B1 and B2 on IOCP in replay and peek, in-process, 16
+  replicates, G_W = 17 ms and GAP_SPLIT = 5 ms from the pilot entry, `--out
+  C:\Users\alext\lab\p3\hard-W` (`steps.json` sha256
+  5342e5705ab46b6b8f50eea449796932815c43d0420933054f4d0ed3a28f0dea).
+
+### 4. Progress
+
+Written as the session goes; each job's lines below.
+
 ## L after the cost family, 2026-10-05
 
 One coordinator session (unattended, from 08:40) runs P3's sequence on L after the cost family, as
