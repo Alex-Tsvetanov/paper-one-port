@@ -6654,6 +6654,12 @@ competitor counts. It computes no ratio between arms.
 
 Written as the session goes; each job's lines below.
 
+For every session that touches L: from the start of the B3 feasibility job (bf1) to the end of B3's
+sessions (bs1), no new TCP connection to L may close on L's side (no ssh, scp or `git push lab`):
+section 7 makes a B3 or `ophold` window invalid when the host's TIME-WAIT count at a sample differs
+from the baseline's, and `b3.py` says so of an ssh session to L. This session watches those jobs
+through one ssh connection opened before each job starts, and pushes only to `origin` meanwhile.
+
 - pc1 (lab job pid 627200, `post_chain.sh` from the clone at 77cedae), ended 14:35:24, exit 0; the
   clock floor, THP and NOTRACK set back. Step cost (cl1, 08:33:34 to 13:14:33, 16,859 s): 2,688
   windows, every one valid, none a stub or a driver fault, every row `development: false`; each of
