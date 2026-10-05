@@ -6796,6 +6796,21 @@ through one ssh connection opened before the launch. B3's sessions are long (2,4
 about 30 s, plus waits; the feasibility windows measure the length).
 
 
+### 6. The coordinator's decision, and the B3 jobs
+
+The coordinator decided at 17:55: run steps 2 to 5 of section 5 now, in order, each from a fresh
+clone at the newest commit with `l_run.sh`, keeping the no-connection rule during steps 2 to 4;
+hold step 1 (sl2) until Alex decides item 1 of section 4; do not touch W.
+
+Each B3 job is launched and watched through one ssh connection opened before it starts
+(`l_watch.sh`, sent on standard input: it clones, launches the lab job, then reads only L's files
+every 10 min until the done file appears). The local client ends a watch at most every 115 min and a
+new one is opened at once, so a connection is closed from W's side, never L's, while a window runs.
+Nothing is pushed to the lab remote until bs1 has ended.
+
+- bf1 (lab job pid 785303, from a fresh clone at d29968b, `~/lab/p3/m7g/post-src5`), started
+  17:58:13: the 21 B3 feasibility windows, output `~/lab/p3/b3feas-L`.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
