@@ -6688,6 +6688,26 @@ Written as the session goes; each job's lines below.
   M2.L.io_uring.tls as not run (no M2_RATE). 16 cells at R_M = 16, 1,024 windows without reruns;
   sslh-ev's M3 cells are expected to fail section 7's error rule (the revision log's entry
   "sslh-ev's stalled exchanges, before the code freeze").
+  Ended 16:59:43, exit 0; the clock floor, THP and NOTRACK set back. 1,056 windows, 976 valid, none
+  a stub or a driver fault, every row `development: false`. 14 cells have 16 valid sessions each and
+  no rerun. M3.L.epoll.tls-stub.sslh-ev and M3.L.epoll.http1.sslh-ev have 20 sessions each (16 and
+  the 4 reruns of the cap), none valid: every one of their 80 invalid windows is sslh-ev's arm, with
+  errors 0.578% to 0.681% against the 0.1% rule and in 13 of them also failed connects (1 to 10).
+  That is the defect the revision log's entry "sslh-ev's stalled exchanges, before the code freeze"
+  records; each cell enters Holm with p = 1 (4.1). `bench/check_rows.py` binds all 1,056 rows.
+  Files, sha256: `~/lab/p3/m-L/windows.jsonl`
+  26b971a6dfc82db206764021034923a25c3323ae1be21c1e485de42780d697d9; `not-run-ml1.json`
+  75fe6dc118f08a2ea81139c88fcbbef3a58d3ced9ae9b3136c8896fe38ef42b9; `ml1.log`
+  1a35e5a709c9334435895d0c7e495759809399069d439e5b1191d16d323b8bfe. Archive
+  `~/lab/p3-raw-2026-10-05-ml1-ff2679cc8.tar.gz`, sha256
+  33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652. Lab journal: one line, frozen
+  run. The mechanism family also holds M1's IOCP cells, which run on W, so no analysis of it runs
+  before they are in.
+- sl1 (lab job pid 772210, `l_run.sh ... s sl1` from the same clone at 7a63a08), started 17:09:31:
+  section 10's L cells, SEED_ORDER_S_L, output `~/lab/p3/s-L`, 608 base sessions. Its m-ttfb rates
+  come from ml1's rows; the two sslh-ev cells of M3 have none, so their m-ttfb cells write a fault
+  row for each window (the frozen behaviour: no open-loop rate, no window), and they end with no
+  valid session.
 
 
 ## M7 checklist
