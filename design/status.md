@@ -6672,8 +6672,22 @@ Written as the session goes; each job's lines below.
   hl1), frozen runs. The cost family is one family over L and W (5.1), so no analysis of it runs
   before W's cost runs are in.
 - mr1 (lab job pid 733006, `l_run.sh ... m2rate mr1` from a fresh clone at 86c0283,
-  `~/lab/p3/m7g/post-src3`), started 14:41: M2's rate sessions, the frozen m2-rate part on the four
-  M2 cells, development seed 8231, output `~/lab/p3/m2rate-L`.
+  `~/lab/p3/m7g/post-src3`), 14:37:35 to 14:50:38, exit 0: M2's rate sessions, the frozen m2-rate
+  part on the four M2 cells, development seed 8231, output `~/lab/p3/m2rate-L`. 112 windows, 80
+  valid; the 32 invalid are the TLS cells' relay windows (backend rule). HTTP/1.1 rates 6,887.012
+  (epoll) and 7,408.660 (io_uring); the TLS cells no rate, so not run, as Alex's decision names.
+  Logged before any M window: the revision log's entry "M2's rates (M2_RATE), after the pilot
+  entry" (7a63a08), reviewed first by one adversarial reader (it found a false clause on where the
+  seed had been named, two ambiguous citations and two wordings; all fixed). Archive
+  `~/lab/p3-raw-2026-10-05-mr1-ff2679cc8.tar.gz`, sha256
+  6b6413dd05a7a93b66861fb10abb3ac794ac58f0a28669dda5c96eacf9471512. Lab journal: one line,
+  development.
+- ml1 (lab job pid 737426, `l_run.sh ... m ml1` from a fresh clone at 7a63a08,
+  `~/lab/p3/m7g/post-src4`), started 15:05:40: the mechanism family's cells part on L,
+  SEED_ORDER_M_L, output `~/lab/p3/m-L`. Its `not-run-ml1.json` lists M2.L.epoll.tls and
+  M2.L.io_uring.tls as not run (no M2_RATE). 16 cells at R_M = 16, 1,024 windows without reruns;
+  sslh-ev's M3 cells are expected to fail section 7's error rule (the revision log's entry
+  "sslh-ev's stalled exchanges, before the code freeze").
 
 
 ## M7 checklist
