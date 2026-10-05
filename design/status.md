@@ -6772,6 +6772,13 @@ through one ssh connection opened before each job starts, and pushes only to `or
    no valid session after their reruns, rather than listed as not run. Secondary, deciding nothing.
 4. Expected and already logged: sslh-ev's two M3 cells have no valid session (ml1), and section 10's
    two m-ttfb cells and two relay-on-io_uring cells of sslh-ev will end the same way.
+5. A counter reading, no verdict: in the mixed cell's one-port windows the 64 silent connections
+   are closed at T_dec (1(f): a listener without a fallback) and the holder opens each again at
+   once, as `bench/cases/hold.hpp` says it does in one-port mode; in S.mixed.C1.L.epoll.s02 the
+   holder reported 256 connects, 192 closed by the peer and reopened, and the server 192 "silent"
+   and 64 "reset" outcomes, while in the dedicated windows the 64 were held the whole window (64
+   connects, none closed). So the background's make-up is the same in both modes, as section 10
+   asks, and its connections' lives are not.
 
 ### 5. What is still to run on L, in order
 
