@@ -110,7 +110,7 @@ W counts are row-file line counts, validity not read.
 | A/A pilot | L, W | pl1, wp1 | `pilot-L`, `pilot-W` | done, every window valid; archived; journaled |
 | Rule E (development) | L, W | re1, wre1 | `m7g/rule_e.json` | done; journaled |
 | Cost (C) | L | cl1 (job pc1) | `cost-L` | done: 24 cells x 28, 2,688 windows, all valid; archived; journaled |
-| Cost (C) | W | wc1, wc2 | `cost-W` | wc1 14:12:55 to 20:06:04, exit 130, stopped at Alex's request, 857 rows; wc2 23:11:22 to 01:10:03, exit 0, 272 rows; follow-up not done |
+| Cost (C) | W | wc1, wc2 | `cost-W` | wc1 14:12:55 to 20:06:04, exit 130, stopped at Alex's request (coord.), 857 rows; wc2 23:11:22 to 01:10:03, exit 0, 272 rows; 1,120 windows planned before reruns (status.md, "W's confirmatory runs", 1); follow-up not done |
 | Hard cases B1, B2 | L | hl1 (job pc1) | `hard-L` | done: 20,992 runs, all passed; archived; journaled |
 | Hard cases B1, B2 | W | wh1 | `hard-W` | 02:28:41 to 02:53:16, exit 0; follow-up not done |
 | M2 rates (development) | L | mr1 | `m2rate-L` | done; archived; journaled |
@@ -143,7 +143,8 @@ rule, status.md "M7 freeze night" item 7).
    archives the old build's confirmatory windows and starts the runs again, which re-deriving from
    sl1's rows departs from, so the entry names the deviation; (b) a change under `bench` makes the
    guard refuse every later frozen run (section 2), so the entry must say how sl2, ws1 and hc1 pass
-   it; (c) changing `analysis/` moves ANALYSIS_COMMIT. Code: `cellwin.py` lines 374 to 387,
+   it; (c) ANALYSIS_COMMIT is set by a revision-log line, so the entry names a new one if
+   `analysis/` changes. Code: `cellwin.py` lines 374 to 387,
    `wcellwin.py` 339 to 350, `analysis/analyse.py`'s `b1_failures`.
 3. bs1's end (agent, no connection to L before it). Then: journal bf1, bk1, bs1; archive `b3-L`;
    push the queued commits to the `lab` remote (nothing goes there while bs1 runs, so L's clones
