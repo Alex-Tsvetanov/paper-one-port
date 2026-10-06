@@ -11,6 +11,17 @@ looks for in them is fixed here and stated in design/status.md:
   40-character hash. The commit must be an ancestor of HEAD, and `git diff CODE_FREEZE HEAD --
   bench tests CMakeLists.txt` must show nothing, nor may the working tree change those paths (the
   M7 checklist's item 8: the gate does not see the Python half of the suite).
+- A later change of the runners' Python (section 8, the rule for a later change; the revision
+  log's entry "The B1 count of the mixed cell (a later change under section 8)"): a line of the
+  revision log that holds the word CHANGE_COMMIT and one full hash, the change's commit. Each such
+  commit must descend from CODE_FREEZE (and from the change's commit a line before it names; a
+  line that names the last one again is allowed), the line must be added by a commit that
+  descends from it, and between CODE_FREEZE and it only Python files directly under bench/run may
+  differ, so the compiled inputs, the suite's other files and the scripts stay CODE_FREEZE's and
+  the records and gates of CODE_FREEZE still describe the binaries. When the log names one, the
+  paths above are checked against the last one named instead of CODE_FREEZE, and the clearance's
+  record names it; the pilot entry is still checked against CODE_FREEZE. When the log names none,
+  the check is CODE_FREEZE's, as before.
 - The seeds entry: the sha256 of the seeds file (the 14 seeds of 4.7, as analysis/ reads them) on
   a revision-log line that holds the word "seed".
 - The pilot entry: the sha256 of pilot.py's output on a revision-log line that holds the word
@@ -65,6 +76,10 @@ W_ITEMS = "W before the code freeze"
 M7E_ITEMS = "The job's warm-up and W's runners (M7e), before the code freeze"
 FROZEN_PATHS = ("bench", "tests", "CMakeLists.txt")
 HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
+# The word of a revision-log line that names a later change's commit (section 8; see the docstring),
+# and the only paths such a change may touch: Python files directly under bench/run.
+CHANGE_COMMIT = re.compile(r"\bCHANGE_COMMIT\b")
+CHANGE_PATHS = re.compile(r"bench/run/[^/]+\.py")
 
 
 class FreezeRefused(Exception):
@@ -116,6 +131,34 @@ def adding_commit(repo: Path, token: str) -> str:
     return out[-1]
 
 
+def change_commit(repo: Path, log: str, code_freeze: str) -> str | None:
+    """The last later change's commit the revision log names (see the docstring), or None."""
+    found = None
+    for ln in log.splitlines():
+        if not CHANGE_COMMIT.search(ln):
+            continue
+        hashes = HEX40.findall(ln)
+        if not hashes:
+            continue
+        if len(hashes) > 1:
+            raise FreezeRefused(f"a CHANGE_COMMIT line names {len(hashes)} commits, not one: {ln.strip()[:120]}")
+        c, before = hashes[0], found or code_freeze
+        if c == found:
+            continue  # the last one, named again
+        if c == before or not is_ancestor(repo, before, c):
+            raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} does not descend from {before[:12]} (section 8, the rule for a later change)")
+        logged = adding_commit(repo, c)
+        if logged == c or not is_ancestor(repo, c, logged):
+            raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} was logged in {logged[:12]}, which does not come after it")
+        changed = git(repo, "diff", "--name-only", "--no-renames", code_freeze, c, "--", *FROZEN_PATHS).split()
+        other = [p for p in changed if not CHANGE_PATHS.fullmatch(p)]
+        if other:
+            raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} changes {len(other)} frozen files other than the Python of bench/run: {other[:5]} "
+                                "(a compiled change needs new records and gates, which this guard does not read)")
+        found = c
+    return found
+
+
 def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
     if not HEX40.fullmatch(code_freeze or ""):
         raise FreezeRefused(f"CODE_FREEZE {code_freeze!r} is not a full 40-character commit hash")
@@ -124,13 +167,18 @@ def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
     head = git(repo, "rev-parse", "HEAD").strip()
     if not is_ancestor(repo, code_freeze, head):
         raise FreezeRefused(f"CODE_FREEZE {code_freeze[:12]} is not an ancestor of HEAD {head[:12]}")
-    diff = git(repo, "diff", "--name-only", code_freeze, head, "--", *FROZEN_PATHS).split()
+    change = change_commit(repo, log, code_freeze)
+    ref, name = (change, "CHANGE_COMMIT") if change else (code_freeze, "CODE_FREEZE")
+    diff = git(repo, "diff", "--name-only", "--no-renames", ref, head, "--", *FROZEN_PATHS).split()
     if diff:
-        raise FreezeRefused(f"{len(diff)} files under bench, tests or CMakeLists.txt changed since CODE_FREEZE: {diff[:5]}")
+        raise FreezeRefused(f"{len(diff)} files under bench, tests or CMakeLists.txt changed since {name}: {diff[:5]}")
     dirty = git(repo, "status", "--porcelain", "--", *FROZEN_PATHS).splitlines()
     if dirty:
         raise FreezeRefused(f"the working tree changes frozen paths: {dirty[:5]}")
-    return {"code_freeze": code_freeze, "head": head}
+    rec = {"code_freeze": code_freeze, "head": head}
+    if change:
+        rec["change_commit"] = change
+    return rec
 
 
 def check_file_entry(repo: Path, log: str, path: Path, word: str, after: str, what: str) -> dict:

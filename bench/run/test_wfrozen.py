@@ -55,7 +55,7 @@ import wrule_e  # noqa: E402
 import wrunlib  # noqa: E402
 import ws_run  # noqa: E402
 import wwindow  # noqa: E402
-from test_frozen import K, RULE_E, SEEDS, Clear, fake_window, prov, report, transcript, variant  # noqa: E402
+from test_frozen import K, RULE_E, SEEDS, SL1_WINDOWS, Clear, classified, fake_window, opgen_json, prov, report, transcript, variant  # noqa: E402
 
 OUTSIDE = sorted(C.COST_OUTSIDE_FAMILY)
 TICKS = {"A": 15.625, "B": 31.25}          # GetProcessTimes on W: whole ticks, a sample at a low load
@@ -302,6 +302,43 @@ class WHardCases(unittest.TestCase):
         self.assertEqual(whardcase_run.ENTRIES_W, ("IOCP.replay.inproc", "IOCP.peek.inproc"))
         self.assertIs(whardcase_run.W_CASES.server, whardcase_run.WServer)
         self.assertIs(HR.LINUX_CASES.server, HR.Server)
+
+
+class WMixedB1Count(unittest.TestCase):
+    """W's mixed cell takes B1's bounds as L's does (cellwin.expected_classes), from the background
+    reports as W's Background.finish keeps them."""
+
+    def finished(self, tls: dict, mqtt: dict) -> dict:
+        done = mock.Mock(returncode=0)
+        done.poll.return_value = 0
+        done.wait.return_value = 0
+        holder_lines = mock.Mock()
+        holder_lines.rest.return_value = ['HOLD 64', '{"ok": true, "reopened": 0}']
+        gen_lines = mock.Mock()
+        gen_lines.rest.return_value = []
+        with tempfile.TemporaryDirectory() as d:
+            bg = object.__new__(wcellwin.Background)
+            bg.raw, bg.tag = Path(d), "t"
+            bg.procs = {"tls": done, "mqtt": done, "silent": done}
+            bg.lines = {"tls": gen_lines, "mqtt": gen_lines, "silent": holder_lines}
+            for k, rep in (("tls", tls), ("mqtt", mqtt)):
+                (Path(d) / f"t.bg-{k}.json").write_text(json.dumps(rep))
+            return bg.finish()
+
+    def test_counts_none_when_the_server_classified_each_by_its_script(self):
+        for session, run, counts in SL1_WINDOWS:
+            with self.subTest(session):
+                bg = self.finished(opgen_json(64), opgen_json(64))
+                expected, unread = wcellwin.cellwin.expected_classes("http1", opgen_json(run), bg)
+                self.assertEqual((expected, unread), ({"HTTP/1.1": run + 1, "TLS": 64, "MQTT": 64}, []))
+                row = {"valid": True, "invalid_reasons": []}
+                wcellwin.cellwin.b1_count(row, classified(**counts), "http1", opgen_json(run), bg)
+                self.assertEqual((row["valid"], row["misclassified"], row["misclassified_unbounded"]), (True, 0, []))
+
+    def test_the_runner_takes_the_rule_from_it(self):
+        text = Path(wcellwin.__file__).read_text(encoding="utf-8")
+        self.assertIn("cellwin.b1_count(row, counters, gproto, gen_report", text.split("def run(", 1)[1])
+        self.assertNotIn('get("connects"', text)
 
 
 class WWindowPieces(unittest.TestCase):

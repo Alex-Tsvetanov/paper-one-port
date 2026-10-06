@@ -25,7 +25,10 @@ server only in dedicated mode (the pilot's and M3's A/A runs keep it):
   must still run when the cell's window ends; its generators' connect failures count as the
   window's, and their error share is held to section 7's 0.1%;
 - `misclassified` on every one-port row: the connections the server's counters classify as a
-  protocol other than the scripts' (section 7, B1), the probe and the background included.
+  protocol other than the scripts' (section 7, B1), the probe and the background included. In the
+  mixed cell each script's class is bounded by the connects its generator reports, opgen's
+  `connects_run` (expected_classes; the revision log's entry "The B1 count of the mixed cell (a
+  later change under section 8)").
 
 Placement of the mixed cell (a design choice of M7c, logged in the same entry, item 7: section 4.1
 places the cell's opgen on CPUs 2 to 13 and names no background): the cell's opgen on CPUs 2 to 9,
@@ -113,6 +116,53 @@ def target_port(mode: str, proto: str, ports: dict[str, int]) -> int:
     return ports[name]
 
 
+def run_connects(report: dict | None, what: str, unread: list[str]) -> int | None:
+    """The connects of a whole opgen run, warm-up included: its report's `connects_run`
+    (bench/gen/options.cpp, to_json; `measure` holds only `completed` and `errors`). None when the
+    generator wrote no report, which the window's other rules already name; a report without the
+    key is named in `unread`. Never 0 for a count not read."""
+    if not report:
+        return None
+    if not isinstance(report.get("connects_run"), int):
+        unread.append(f"the {what} report has no connects_run, so B1's bound for its class is not read")
+        return None
+    return report["connects_run"]
+
+
+def expected_classes(gproto: str, gen_report: dict | None, bg_out: dict | None) -> tuple[dict[str, int | None], list[str]]:
+    """The classes the server may give a one-port window's connections and, where a count is known,
+    how many (misclassified() counts the rest), with the counts that could not be read. Outside the
+    mixed cell (`bg_out` None): the script's class, any count. In the mixed cell (section 10): the
+    churn's class at most the cell's opgen connects plus the probe's one, and TLS and MQTT each at
+    most its background generator's connects (Background.finish keeps `connects_run`). A count not
+    read is None, no bound."""
+    if bg_out is None:
+        return {CLASS[gproto]: None}, []
+    unread: list[str] = []
+    churn = run_connects(gen_report, "cell's opgen", unread)
+    expected: dict[str, int | None] = {CLASS[gproto]: None if churn is None else churn + 1}  # + the probe's connection
+    for kind in ("tls", "mqtt"):
+        expected[CLASS[kind]] = run_connects((bg_out.get(kind) or {}).get("report"), f"{kind} background's", unread)
+    return expected, unread
+
+
+def b1_count(row: dict, counters: dict, gproto: str, gen_report: dict | None, bg_out: dict | None) -> None:
+    """Section 7's misclassification rule on a one-port row, after window.finish: `misclassified`
+    (a count above 0 makes the window invalid and is a failure of B1), and in the mixed cell
+    (`bg_out` not None) the classes whose bound was not read, which a window cannot check
+    (`misclassified_unbounded`; a report without `connects_run` also makes it invalid)."""
+    expected, unread = expected_classes(gproto, gen_report, bg_out)
+    row["misclassified"] = misclassified(counters, expected)
+    if bg_out is not None:
+        row["misclassified_unbounded"] = sorted(c for c, n in expected.items() if n is None)
+    if unread:
+        row["invalid_reasons"] += unread
+        row["valid"] = False
+    if row["misclassified"]:
+        row["invalid_reasons"].append(f"{row['misclassified']} connections classified other than as their scripts' protocol (B1)")
+        row["valid"] = False
+
+
 def misclassified(counters: dict, expected: dict[str, int | None]) -> int:
     """Connections classified other than as their scripts' protocols: every class outside
     `expected`, and, where `expected` gives a count, the classified beyond it."""
@@ -184,8 +234,9 @@ class Background:
             f = self.raw / f"{self.tag}.bg-{kind}.json"
             rep = json.loads(f.read_text()) if f.exists() else None
             out[kind] = {"exit": self.procs[kind].returncode, "ok": bool(rep and rep.get("ok")),
-                         "report": {k: rep[k] for k in ("measure", "warmup", "error_share", "connect_failures", "all_completed",
-                                                         "measure_start_ns", "measure_end_ns", "wall_s", "cpus", "cpu") if k in rep}
+                         "report": {k: rep[k] for k in ("measure", "warmup", "error_share", "connect_failures", "connects_run",
+                                                         "all_completed", "measure_start_ns", "measure_end_ns", "wall_s", "cpus", "cpu")
+                                    if k in rep}
                          if rep else None}
         lines, code = [], None
         if self.procs["silent"].poll() is None:
@@ -374,15 +425,5 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
             reasons.append(f"{n} connects of the background failed")
     window.finish(row, gen_report, snaps, mhz, session, reasons, placement=pl)
     if mode == "one-port":
-        expected: dict[str, int | None] = {CLASS[gproto]: None}
-        if bg is not None and gen_report:
-            churn = int(gen_report.get("measure", {}).get("connects", 0)) + 1  # the probe's connection
-            expected = {CLASS[gproto]: churn}
-            for kind in ("tls", "mqtt"):
-                rep = (bg_out.get(kind) or {}).get("report") or {}
-                expected[CLASS[kind]] = int((rep.get("measure") or {}).get("connects", 0))
-        row["misclassified"] = misclassified(counters, expected)
-        if row["misclassified"]:
-            row["invalid_reasons"].append(f"{row['misclassified']} connections classified other than as their scripts' protocol (B1)")
-            row["valid"] = False
+        b1_count(row, counters, gproto, gen_report, bg_out if bg is not None else None)
     return row

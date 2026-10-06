@@ -25,7 +25,7 @@ only in dedicated mode (the A/A runs and the pilot keep it):
   background CPUs 6 and 7 (core 3), the MQTT background and the holder CPUs 8 and 9 (core 4), as
   L's split gives the cell's generator the larger share and each background a core of its own;
   section 7's generator rule reads the cell's generator's CPUs (gen_cpus);
-- `misclassified` on every one-port row (cellwin.misclassified, the same count).
+- `misclassified` on every one-port row (cellwin.b1_count, the same count and bounds).
 """
 from __future__ import annotations
 
@@ -153,8 +153,9 @@ class Background:
             f = self.raw / f"{self.tag}.bg-{kind}.json"
             rep = json.loads(f.read_text()) if f.exists() else None
             out[kind] = {"exit": self.procs[kind].returncode, "ok": bool(rep and rep.get("ok")),
-                         "report": {k: rep[k] for k in ("measure", "warmup", "error_share", "connect_failures", "all_completed",
-                                                         "measure_start_ns", "measure_end_ns", "wall_s", "cpus", "cpu") if k in rep}
+                         "report": {k: rep[k] for k in ("measure", "warmup", "error_share", "connect_failures", "connects_run",
+                                                         "all_completed", "measure_start_ns", "measure_end_ns", "wall_s", "cpus", "cpu")
+                                    if k in rep}
                          if rep else None}
         holder = self.procs["silent"]
         how = "event"
@@ -337,15 +338,5 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
             reasons.append(f"{n} connects of the background failed")
     wwindow.finish(row, gen_report, snaps, ws, reasons, gen_cpus=gen_cpus)
     if mode == "one-port":
-        expected: dict[str, int | None] = {cellwin.CLASS[gproto]: None}
-        if bg is not None and gen_report:
-            churn = int(gen_report.get("measure", {}).get("connects", 0)) + 1  # the probe's connection
-            expected = {cellwin.CLASS[gproto]: churn}
-            for kind in ("tls", "mqtt"):
-                rep = (bg_out.get(kind) or {}).get("report") or {}
-                expected[cellwin.CLASS[kind]] = int((rep.get("measure") or {}).get("connects", 0))
-        row["misclassified"] = cellwin.misclassified(counters, expected)
-        if row["misclassified"]:
-            row["invalid_reasons"].append(f"{row['misclassified']} connections classified other than as their scripts' protocol (B1)")
-            row["valid"] = False
+        cellwin.b1_count(row, counters, gproto, gen_report, bg_out if bg is not None else None)
     return row

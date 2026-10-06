@@ -630,6 +630,117 @@ class MixedBackground(unittest.TestCase):
         self.assertEqual(out["silent"]["report"], {"ok": True, "reopened": 0})
 
 
+def opgen_json(connects_run: int, completed: int = 5) -> dict:
+    """A report with the keys opgen writes (bench/gen/options.cpp, to_json): `measure` and `warmup`
+    hold only `completed` and `errors`; the run's connects, warm-up included, are `connects_run`."""
+    errs = {"connect": 0, "timeout": 0, "reset": 0, "eof": 0, "protocol": 0, "tls": 0, "total": 0}
+    return {"tool": "opgen", "ok": True, "error": "", "load": "keepalive", "mode": "closed", "cpus": [10, 11], "measure_start_ns": 1,
+            "measure_end_ns": 2, "wall_s": 5.0, "warmup": {"completed": 1, "errors": errs}, "measure": {"completed": completed, "errors": errs},
+            "connects_run": connects_run, "all_completed": completed + 1, "error_share": 0.0, "connect_failures": 0, "cpu": {"pct": 25.0}}
+
+
+def finished_background(tls: dict | None, mqtt: dict | None) -> dict:
+    """cellwin.Background.finish on the given report files (None: the generator wrote none)."""
+    done = mock.Mock(returncode=0)
+    done.poll.return_value = 0
+    done.wait.return_value = 0
+    silent_lines = mock.Mock()
+    silent_lines.rest.return_value = ['HOLD 64', '{"ok": true, "reopened": 0}']
+    gen_lines = mock.Mock()
+    gen_lines.rest.return_value = []
+    with tempfile.TemporaryDirectory() as d:
+        bg = object.__new__(cellwin.Background)
+        bg.raw, bg.tag = Path(d), "t"
+        bg.procs = {"tls": done, "mqtt": done, "silent": done}
+        bg.lines = {"tls": gen_lines, "mqtt": gen_lines, "silent": silent_lines}
+        for k, rep in (("tls", tls), ("mqtt", mqtt)):
+            if rep is not None:
+                (Path(d) / f"t.bg-{k}.json").write_text(json.dumps(rep))
+        return bg.finish()
+
+
+# Two one-port windows of the mixed cell in lab job sl1 (design/status.md, "L after the cost family",
+# section 4 item 1): the cell's opgen `connects_run`, and the server's classified counts, which hold
+# the churn and the probe as HTTP/1.1 and the background's 64 TLS and 64 MQTT connections.
+SL1_WINDOWS = (("S.mixed.C1.L.epoll.s02", 105_736, {"HTTP/1.1": 105_737, "TLS": 64, "MQTT": 64}),
+               ("S.mixed.C1.L.io_uring.s02", 752, {"HTTP/1.1": 753, "TLS": 64, "MQTT": 64}))
+
+
+def classified(**over: int) -> dict:
+    cl = {"TLS": 0, "h2c": 0, "HTTP/1.1": 0, "SSH": 0, "MQTT": 0, "SMTP": 0}
+    cl.update(over)
+    return {"classified": cl}
+
+
+class MixedB1Count(unittest.TestCase):
+    """B1's count in the mixed cell (section 7, section 10): each class's bound comes from the
+    connects opgen reports, `connects_run`, in the cell's report and in each background report as
+    Background.finish keeps it."""
+
+    def test_sl1_windows_count_none(self):
+        for session, run, counts in SL1_WINDOWS:
+            with self.subTest(session):
+                bg = finished_background(opgen_json(64), opgen_json(64))
+                expected, unread = cellwin.expected_classes("http1", opgen_json(run), bg)
+                self.assertEqual(unread, [])
+                self.assertEqual(expected, {"HTTP/1.1": run + 1, "TLS": 64, "MQTT": 64})
+                self.assertEqual(cellwin.misclassified(classified(**counts), expected), 0)
+
+    def test_a_misclassified_connection_still_counts(self):
+        bg = finished_background(opgen_json(64), opgen_json(64))
+        expected, _ = cellwin.expected_classes("http1", opgen_json(752), bg)
+        self.assertEqual(cellwin.misclassified(classified(**{"HTTP/1.1": 754}, TLS=64, MQTT=64), expected), 1)
+        self.assertEqual(cellwin.misclassified(classified(**{"HTTP/1.1": 753}, TLS=63, MQTT=65), expected), 1)
+        self.assertEqual(cellwin.misclassified(classified(**{"HTTP/1.1": 753}, TLS=64, MQTT=64, h2c=2), expected), 2)
+
+    def test_outside_the_mixed_cell_any_count_of_the_scripts_class(self):
+        for proto, name in cellwin.CLASS.items():
+            with self.subTest(proto):
+                self.assertEqual(cellwin.expected_classes(proto, opgen_json(9), None), ({name: None}, []))
+
+    def test_a_count_not_read_is_no_bound_and_never_zero(self):
+        no_key = {k: v for k, v in opgen_json(64).items() if k != "connects_run"}
+        bg = finished_background(no_key, None)
+        expected, unread = cellwin.expected_classes("http1", opgen_json(752), bg)
+        self.assertEqual(expected, {"HTTP/1.1": 753, "TLS": None, "MQTT": None})
+        self.assertEqual(len(unread), 1)
+        self.assertIn("connects_run", unread[0])
+        self.assertIn("tls", unread[0])
+        # The cell's generator wrote no report: the background's bounds still hold.
+        expected, unread = cellwin.expected_classes("http1", None, finished_background(opgen_json(64), opgen_json(64)))
+        self.assertEqual((expected, unread), ({"HTTP/1.1": None, "TLS": 64, "MQTT": 64}, []))
+        self.assertEqual(cellwin.misclassified(classified(**{"HTTP/1.1": 900}, TLS=64, MQTT=64), expected), 0)
+
+    def test_the_row_of_a_mixed_window(self):
+        for session, run, counts in SL1_WINDOWS:
+            with self.subTest(session):
+                row = {"valid": True, "invalid_reasons": []}
+                cellwin.b1_count(row, classified(**counts), "http1", opgen_json(run), finished_background(opgen_json(64), opgen_json(64)))
+                self.assertEqual(row, {"valid": True, "invalid_reasons": [], "misclassified": 0, "misclassified_unbounded": []})
+        no_key = {k: v for k, v in opgen_json(64).items() if k != "connects_run"}
+        row = {"valid": True, "invalid_reasons": []}
+        cellwin.b1_count(row, classified(**{"HTTP/1.1": 753}, TLS=64, MQTT=64), "http1", opgen_json(752), finished_background(no_key, None))
+        self.assertFalse(row["valid"])
+        self.assertEqual(row["misclassified"], 0)
+        self.assertEqual(row["misclassified_unbounded"], ["MQTT", "TLS"])
+        self.assertEqual(len(row["invalid_reasons"]), 1)
+        self.assertIn("connects_run", row["invalid_reasons"][0])
+
+    def test_the_row_outside_the_mixed_cell_is_as_frozen(self):
+        row = {"valid": True, "invalid_reasons": []}
+        cellwin.b1_count(row, classified(**{"HTTP/1.1": 100_001}), "http1", opgen_json(100_000), None)
+        self.assertEqual(row, {"valid": True, "invalid_reasons": [], "misclassified": 0})
+        row = {"valid": True, "invalid_reasons": []}
+        cellwin.b1_count(row, classified(**{"HTTP/1.1": 100_001}, h2c=1), "http1", opgen_json(100_000), None)
+        self.assertEqual(row, {"valid": False, "misclassified": 1,
+                               "invalid_reasons": ["1 connections classified other than as their scripts' protocol (B1)"]})
+
+    def test_the_runner_takes_the_rule_from_it(self):
+        text = Path(cellwin.__file__).read_text(encoding="utf-8")
+        self.assertIn("b1_count(row, counters, gproto, gen_report", text.split("def run(", 1)[1])
+        self.assertNotIn('get("connects"', text)
+
+
 class AlpnH2Window(unittest.TestCase):
     """Section 10's TLS variant with ALPN h2 through cellwin.run: the row says proto tls, the probe
     and opgen run tls-h2, against the dedicated TLS port, or the one-port listener with a clearance."""
@@ -787,6 +898,79 @@ class FreezeGuard(unittest.TestCase):
         self.log(f"- `CODE_FREEZE` = {cf2}\n")
         with self.assertRaises(freeze_guard.FreezeRefused):
             self.check(code_freeze=cf2, pilot=p, rule_e=None)
+
+    def later_change(self, path: str = "bench/run/x.py", text: str = "x = 2\n") -> str:
+        f = self.repo / path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "a later change")
+        return git(self.repo, "rev-parse", "HEAD")
+
+    def refused(self, why: str) -> None:
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, why):
+            self.check()
+
+    def test_a_later_change_runs_on_the_commit_the_log_names(self):
+        """Section 8, the rule for a later change: the revision log names the change's commit by
+        CHANGE_COMMIT; the runs are checked against it; the pilot entry, logged before it, counts."""
+        self.assertNotIn("change_commit", self.check().record["freeze"])
+        change = self.later_change()
+        self.refused("changed since CODE_FREEZE")  # not logged yet
+        self.log(f"- The change's commit:\n   CHANGE_COMMIT = {change}\n")
+        c = self.check()
+        self.assertEqual(c.record["freeze"], {"code_freeze": self.cf, "head": git(self.repo, "rev-parse", "HEAD"), "change_commit": change})
+        self.assertTrue(c.pilot_entry)
+        (self.repo / "bench" / "run" / "x.py").write_text("x = 3\n")
+        self.refused("the working tree changes frozen paths")
+        git(self.repo, "commit", "-q", "-am", "a change the log does not name")
+        self.refused("changed since CHANGE_COMMIT")
+        second = git(self.repo, "rev-parse", "HEAD")
+        self.log(f"   CHANGE_COMMIT = {second}\n")
+        self.assertEqual(self.check().record["freeze"]["change_commit"], second)  # the last one named
+        self.log(f"- named again: CHANGE_COMMIT = {second}\n")
+        self.assertEqual(self.check().record["freeze"]["change_commit"], second)
+
+    def test_code_freeze_named_as_a_change_is_refused(self):
+        self.log(f"   CHANGE_COMMIT = {self.cf}\n")
+        self.refused("does not descend from")
+
+    def test_a_change_off_heads_history_is_refused(self):
+        git(self.repo, "checkout", "-q", "-b", "side")
+        side = self.later_change()
+        git(self.repo, "checkout", "-q", "-")
+        self.log("- a line on HEAD's branch, so the copy below is a commit of its own\n")
+        git(self.repo, "cherry-pick", side)  # the same tree on HEAD's branch, so only the order can refuse
+        self.assertNotEqual(git(self.repo, "rev-parse", "HEAD"), side)
+        self.log(f"   CHANGE_COMMIT = {side}\n")
+        self.refused("was logged in")
+
+    def test_a_change_line_with_two_commits_is_refused(self):
+        change = self.later_change()
+        self.log(f"   CHANGE_COMMIT = {change} after {self.cf}\n")
+        self.refused("names 2 commits")
+
+    def test_a_change_beyond_the_runners_python_is_refused(self):
+        for path in ("bench/x.py", "bench/run/x.sh", "bench/run/sub/x.py", "tests/x.cpp", "CMakeLists.txt"):
+            with self.subTest(path):
+                self.tearDown()
+                self.setUp()
+                change = self.later_change(path)
+                self.log(f"   CHANGE_COMMIT = {change}\n")
+                self.refused("other than the Python of bench/run")
+        with self.subTest("a frozen file moved into bench/run"):
+            self.tearDown()
+            self.setUp()
+            (self.repo / "bench" / "run").mkdir()
+            git(self.repo, "mv", "bench/x.py", "bench/run/x.py")
+            git(self.repo, "commit", "-q", "-m", "a move")
+            change = git(self.repo, "rev-parse", "HEAD")
+            self.log(f"   CHANGE_COMMIT = {change}\n")
+            self.refused("other than the Python of bench/run")
+
+    def test_the_word_without_a_commit_names_no_change(self):
+        self.log("- the freeze guard reads CHANGE_COMMIT from this log\n")
+        self.assertNotIn("change_commit", self.check().record["freeze"])
 
     def test_rule_e_before_the_pilot_entry_is_refused(self):
         r2 = Path(self.tmp.name) / "rule_e2.json"
