@@ -6998,6 +6998,164 @@ Lab journal (Papers `lab/journal.jsonl`, lines 153 to 156, `journal.py --kind ru
 HEAD): wc1 (857 rows, 855 valid), wc2 (272, 271), wm1 (128, 128) and wh1 (5,260 rows, 5,248
 passed), each with its archive name and sha256 in `note`.
 
+## The B1 change, 2026-10-06
+
+Alex's decision of 2026-10-06 on section 4 item 1 of "L after the cost family": follow section 8's
+rule for a later change. The runners count the mixed cell's B1 bounds from opgen's `connects_run`;
+sl1 is archived and kept only as evidence; section 10 runs again from its start on L and W; hc1
+runs with the changed runners. One agent session on W, which made no connection to L (B3's
+sessions, bs1, may still run). Nothing here is a result.
+
+### 1. What was done
+
+- The change, commit 9cae2de (one-port): `bench/run/cellwin.py` (`expected_classes`, `b1_count`,
+  `Background.finish` keeps `connects_run`), `bench/run/wcellwin.py` (the same through
+  `cellwin.b1_count`), `bench/run/freeze_guard.py` (the change's commit read from the revision
+  log), and tests in `bench/run/test_frozen.py` and `bench/run/test_wfrozen.py`. Python only. A
+  second defect found on the way, beside the one section 4 names: each `Background.finish` kept a
+  list of report keys without `connects_run`, so reading the right key alone would not have fixed
+  the background's bounds.
+- The entry, commit 9830457: hypotheses.md, revision log, "The B1 count of the mixed cell (a later
+  change under section 8)", CHANGE_COMMIT 9cae2deff2b01896bfab25c5af4c610381dc3c1d. It reads
+  section 8 part by part (its item 4): the pilot entry stands; a build is the compiled build, which the change leaves as at CODE_FREEZE, so
+  the records and gates of CODE_FREEZE still cover it and no record is made again; under that
+  reading the archive clause finds no window of an old build and does not name sl1's secondary
+  windows, so the scope (sl1 archived, section 10 again) is recorded as Alex's decision, not as
+  what section 8 compels; the other reading of "build" (all of the frozen code) would archive
+  every confirmatory window and start every run again, and is named there. `ANALYSIS_COMMIT` is
+  unchanged (no file under `analysis/` changes).
+- RED before GREEN: with `expected_classes` given the frozen lines' arithmetic and
+  `Background.finish` its frozen key list, the mixed cell's tests give 105,864 and 880, section 4's
+  values, and fail; on the change they pass. Each refusal of the guard has a test that fails when
+  that one check is removed (six: the five checks and `--no-renames`, each removed in turn).
+- The guard (`freeze_guard.py`). A frozen run passes with `--code-freeze` unchanged (CODE_FREEZE
+  ff2679c): the guard finds the revision-log line holding CHANGE_COMMIT and one full hash, checks
+  that the commit descends from CODE_FREEZE, that the line was added after it, and that between
+  CODE_FREEZE and it only Python files directly under `bench/run` differ, then checks the clone's
+  `bench`, `tests` and `CMakeLists.txt` against that commit instead of CODE_FREEZE. The pilot
+  entry, rule E's file and `M2_RATE` are checked as before. With no such line the guard is as it
+  was. A compiled change is refused (it needs new records and gates). So sl3 (L), ws1 (W) and hc1
+  (L) pass from a clone at 9830457 or later; `l_run.sh` on L and W's `steps.json` need no new
+  argument. A clone before 9cae2de keeps the frozen guard and count, and that guard cannot refuse
+  it: no frozen run starts from one, and every row of the new jobs is checked for the commit (section 3).
+- Checks, on W only, in Python's UTF-8 mode, from a clean clone at 9cae2de, each log naming that
+  commit: `test_frozen` 61 checks (2 skipped), `test_wfrozen` 26 tests, `test_runner` 63 checks (13 skipped), `test_wrunner` 22 of 22,
+  `test_gates` and `test_record_writers` all checks, `test_competitors` 38 checks (2 skipped); a
+  Release build of that clone (MSVC 19.51.36246), CTest's `run` and `gate` labels 7 of 7;
+  `bench/build_inputs.py` on that build, with the `inputs_hash.py` the measured build used: all 10
+  targets with the inputs hash of W's measured build at CODE_FREEZE
+  (`m7g\records-ff2679c-W\release.inputs.json`). Logs in `C:\Users\alext\lab\p3\m7g\b1fix\`,
+  manifest `SHA256SUMS` sha256 32418367ea727376f6566a8502f3450183f796e10649429548f0954dc832789e.
+- The adversarial review (one foreground agent, before the commits), two rounds. Round 1: two
+  HIGH (two guard tests passed through the fallback diff, not their own checks; one log line could
+  unlock any later commit, C++ included, while the runs keep CODE_FREEZE's binaries), five MEDIUM
+  (two senses of "build" in the entry; item 2 claimed more than per-class totals show; old clones
+  pass the old guard; nothing run on L; what sl1 showed beyond the defect not named), and LOWs.
+  All fixed: tests assert each refusal's message, the guard accepts only Python under `bench/run`,
+  the entry says "the change's commit", the B1 rule is one tested function (`b1_count`), and the
+  L check and the provenance check below are part of the plan. Round 2: one MEDIUM (a frozen file
+  moved into `bench/run` passed the guard's path check, since `git diff --name-only` names only the new path of a rename; fixed with `--no-renames` in both of the guard's
+  diffs and a test of the move) and three LOW (item 8's logs did not name the tree they ran on, so
+  every check ran again from a clean clone at 9cae2de, each log naming the commit; item 6's tense on
+  these commands; `m7g\ws\steps.json` could still be started by hand, now renamed too). Nothing else
+  blocked the commits.
+- The guard on the real log: at 9830457 the repository clears `freeze_guard.check` with ws1's own
+  arguments (W's gate and binaries, the pilot entry's output, rule E's file, the entries W's
+  runners and `ws_run.py` apply), recording `change_commit` 9cae2de; in a scratch clone with the
+  change but not the entry, the same check is refused (5 files changed since CODE_FREEZE).
+- W, prepared and not launched: `C:\Users\alext\lab\p3\m7g\wsfix\` (`chain.py` copied from
+  `m7g\ws`, `steps.json` sha256 336bfc46dc9fffc341143b00d25b5e814c1fc8bec6c3ec8dce40aed06e8066ef,
+  `run_chain.cmd` with `CUTOFF_ISO_TIME` to set at launch). The stale chain `m7g\ws` (ws1 from
+  `post-src2`, 77cedae, the count as frozen) can no longer be started by mistake: its
+  `run_chain.cmd` and `steps.json` are renamed `*.superseded-b1fix`, with `SUPERSEDED.txt` beside
+  them.
+
+### 2. Prepared commands, not launched
+
+L, only after bs1 has ended and STATE.md's item on bs1's end is done (its journal lines, `b3-L`
+archived, the queued commits pushed to the `lab` remote, so L's clones can see 9830457). One ssh
+session to 192.168.1.62, L idle, no other job.
+
+1. sl1's archive, checked, and its directory moved out of the runs' path:
+
+       cd ~/lab/p3
+       sha256sum -c p3-raw-2026-10-05-sl1-partial-ff2679cc8.tar.gz.sha256
+       # expect 89b8a036e1266818eb23842c58717ef2e8c815f499c1cab44bd8ccf98138149d
+       tar -tzf p3-raw-2026-10-05-sl1-partial-ff2679cc8.tar.gz | grep 's-L/windows.jsonl$'
+       tar -xzOf p3-raw-2026-10-05-sl1-partial-ff2679cc8.tar.gz PATH_PRINTED_ABOVE | sha256sum
+       sha256sum s-L/windows.jsonl
+       # both expect 2f2914b612fecdcb0f88877e104df93b6022b15094c973e4855e4ac3afb1af40
+       mkdir -p ~/lab/p3/evidence && mv ~/lab/p3/s-L ~/lab/p3/evidence/s-L-sl1-b1count
+       test ! -e ~/lab/p3/s-L && echo moved
+
+   If any hash differs, stop and report. Then one lab journal line (Papers `lab/journal.jsonl`,
+   written on W): `run` reads: frozen, L after the pilot entry: sl1 archived under the later change
+   of 2026-10-06 (hypotheses.md, the entry "The B1 count of the mixed cell (a later change under
+   section 8)"), evidence only, never a result and given to no analysis; `code_commit` 7a63a08,
+   `note` with the archive's name and sha256 and the new path `~/lab/p3/evidence/s-L-sl1-b1count`.
+
+2. The fresh clone for sl3, and the L check of the change before any L job:
+
+       git clone -q ~/lab/p3/one-port.git ~/lab/p3/m7g/post-src8
+       git -C ~/lab/p3/m7g/post-src8 merge-base --is-ancestor 9830457 HEAD && echo has-entry
+       PY=$(grep '^Python3_EXECUTABLE' ~/lab/p3/m7g/records-ff2679c/build-release/CMakeCache.txt | cut -d= -f2)
+       cd ~/lab/p3/m7g/post-src8
+       $PY bench/run/test_frozen.py > ~/lab/p3/m7g/b1fix-L-test_frozen.log 2>&1; echo $?
+       $PY bench/run/test_runner.py > ~/lab/p3/m7g/b1fix-L-test_runner.log 2>&1; echo $?
+       sha256sum ~/lab/p3/m7g/b1fix-L-test_*.log
+
+   Both must exit 0; write the counts and sha256 here before step 3.
+
+3. Section 10 on L from its start, job sl3 (sl2, the planned resumption of sl1, is not run), into
+   `~/lab/p3/s-L`, which step 1 emptied:
+
+       bash -c '(setsid nohup bash ~/lab/p3/m7g/post-src8/bench/run/lab_job.sh ~/lab/p3/m7g sl3 bash ~/lab/p3/m7g/l_run.sh ~/lab/p3/m7g/post-src8 s sl3 > /dev/null 2>&1 &)'
+
+   Watch `~/lab/p3/m7g/sl3.pid` and `sl3.done` (never `pgrep -f`). After it: `~/lab/p3/m7g/l_check.py
+   ~/lab/p3/s-L sl3`, `bench/check_rows.py` against `gate-L.json`, the provenance check of section 3, the
+   archive `~/lab/p3-raw-DATE-sl3-ff2679cc8.tar.gz` with its `.sha256`, and the journal line.
+
+4. The competitors' hard-case table, job hc1, last on L (the entry of 1c4193a, item 3), after sl3
+   has ended, from its own fresh clone:
+
+       git clone -q ~/lab/p3/one-port.git ~/lab/p3/m7g/post-src9
+       git -C ~/lab/p3/m7g/post-src9 merge-base --is-ancestor 9830457 HEAD && echo has-entry
+       bash -c '(setsid nohup bash ~/lab/p3/m7g/post-src9/bench/run/lab_job.sh ~/lab/p3/m7g hc1 bash ~/lab/p3/m7g/l_run.sh ~/lab/p3/m7g/post-src9 comp hc1 > /dev/null 2>&1 &)'
+
+   Output `~/lab/p3/hardcomp-L`; then `l_check.py`, `check_rows.py`, the provenance check, the
+   archive and the journal line, as for sl3.
+
+W, ws1, in a quiet W window (W measures nothing else; Alex's plan restored after, which wjob
+does). Independent of L.
+
+1. The clone, at 9830457 or later (the guard needs the entry in the clone's own hypotheses.md):
+
+       git clone -q https://github.com/Alex-Tsvetanov/paper-one-port.git C:\Users\alext\lab\p3\m7g\ws-src1
+       git -C C:\Users\alext\lab\p3\m7g\ws-src1 merge-base --is-ancestor 9830457 HEAD && echo has-entry
+
+2. Set the cutoff: replace `CUTOFF_ISO_TIME` in `m7g\wsfix\run_chain.cmd` with the time after which
+   no attempt starts (ISO, +03:00), chosen at launch for the quiet window Alex gives.
+
+3. Launch through WMI:
+
+       powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\alext\lab\p3\m6b\wlaunch.ps1 -Dir C:\Users\alext\lab\p3\m7g\wsfix -CommandLine "cmd.exe /c C:\Users\alext\lab\p3\m7g\wsfix\run_chain.cmd"
+
+   Output `C:\Users\alext\lab\p3\s-W` (new). Stop with `m7g\wsfix\chain.stop`. After
+   `chain.done`: `plan_restored` in the done file, the rows read as in "W's confirmatory jobs,
+   2026-10-05/06", `check_rows.py` against `gate-W.json`, the provenance check, the archive and the
+   journal line.
+
+### 3. Before any analysis of the new jobs
+
+Every row of sl3, ws1 and hc1 must name the change's commit at
+`provenance.freeze.freeze.change_commit` (the freeze guard's record in each row). A row without it
+ran from a clone before the change and is not used. For each job's rows file:
+
+    python3 -c "import json,sys; F='9cae2deff2b01896bfab25c5af4c610381dc3c1d'; n=[i for i,l in enumerate(open(sys.argv[1])) if ((json.loads(l).get('provenance') or {}).get('freeze') or {}).get('freeze',{}).get('change_commit')!=F]; print(len(n),'rows without the change commit', n[:5])" FILE
+
+The analysis of section 10 is given the rows of sl3 and ws1 only, never sl1's
+(`~/lab/p3/evidence/s-L-sl1-b1count`).
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
