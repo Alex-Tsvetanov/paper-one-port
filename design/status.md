@@ -6831,6 +6831,173 @@ Nothing is pushed to the lab remote until bs1 has ended.
   10's 4 other-mode cells, R = 16, 2,432 windows without reruns; at bf1's pace (about 49 s per
   window) about 33 h.
 
+## W's confirmatory jobs, 2026-10-05/06
+
+The follow-up of W's chains (the section "W's confirmatory runs, 2026-10-05", item "After
+`chain.done`"), read from the rows, the done files, the logs and the preflight files, with no arm
+compared and no ratio, interval or test computed. The one use of `analysis/rows.py` is its
+grouping (`refuse_flags` and `assemble`), to see how the analysis will read the sessions. W was
+idle; no job was started and no setting changed (`powercfg /getactivescheme` read "ChrisTitus -
+Ultimate Power Plan" afterwards, and every done file has `plan_restored` true). Every row of every
+job has `development` false, `provenance.commit` ff2679c, not dirty, and the binaries oneport
+749d0209c112 and opgen b1e608dd6203 (opcase 40ca5aad0c96 for the hard cases), as the freeze guard
+cleared them (section 1 of "W's confirmatory runs"). No job was a functional check
+(`functional_check` false in every done file, and `functional_job` false in the fingerprint of
+every window row; the hard-case rows carry no fingerprint). The jobs ran under lab plan
+`277bfd76...` and in Python's UTF-8 mode (`utf8.txt` reads `utf8_mode 1` in both chains'
+directories). `bench/check_rows.py` against `gate-W.json` binds all 1,129, all 128 and all 5,260
+rows, none refused.
+
+### 1. The jobs
+
+| Job | Out directory | Start to end | Exit | Refusals before it | Rows |
+|---|---|---|---|---|---|
+| wc1 | `cost-W` | 2026-10-05 14:12:55 to 20:06:04 | 130, stopped at Alex's request (`chain.stop` 20:05:59; `wc1.done` signal "stop") | 14 | 857 |
+| wc2 | `cost-W` | 23:11:22 to 2026-10-06 01:10:03 | 0 | 2 | 272 |
+| wm1 | `m-W` | 01:10:03 to 02:28:41 | 0 | 0 | 128 |
+| wh1 | `hard-W` | 02:28:41 to 02:53:16 | 0 | 0 | 5,260 (5,248 runs, 12 server rows) |
+
+`chain.done` of `wnight2` reads status "done", exits 0, 0 and 0 for wc2, wm1 and wh1 and refusals
+2, 0 and 0 (its cutoff was 06:30). The `stopat.py` watcher armed for wc1 (23:27) never acted: its
+log holds only its start line, and its process (pid 26640) is gone.
+
+The refusals nothing ran in (wjob exit 90 "W is not quiet", no lab plan set, no window; the
+preflight files name the causes). **wc1 had 14, not the 2 that section 4 of "W's confirmatory
+runs" recorded**: attempts every 300 s from 12:59:25 to 14:07:40, the 15th passing at 14:12:55
+(mean idle 95.7%). In attempts 1 to 13 `remoting_host` (pid 7968, 17.2% to 32.0% of one CPU) and
+`dwm` (12.0% to 19.5%) were above the 10% rule, and one to three of CPUs 6, 8, 9 and 10 below 90%
+idle; in attempt 14 only `dwm` (10.3%) and CPUs 8 and 10 (85.3% and 88.6% idle) failed, with no
+remoting process among the top five. wc2's two: 23:00:52 (CPUs 8 and 9 at 87.4% and 87.8% idle;
+`System` 10.3% and `dwm` 10.5% of one CPU) and 23:06:07 (mean idle 89.5%; CPUs 8, 9 and 10 at
+81.9%, 64.4% and 74.9% idle; `MsMpEng` 73.6% of one CPU); the third passed at 23:11:22 (mean idle
+98.4%). wm1 and wh1 passed at their first attempt (mean idle 98.2% and 97.8%).
+
+Warm-up phases (discarded, never rows; `warmup-*.json`): wc1 in C1.W.IOCP.http1, 4 windows,
+115.4 s; wc2 in C3.W.IOCP.h2c, 4 windows, 115.7 s; wm1 in M1.W.IOCP.http1, 3 windows, 82.6 s; no
+driver fault, each ended by length. wh1 has none (the hard cases run outside the engine).
+
+### 2. The cost family: 1,129 rows against 1,120 planned
+
+`cost-W` holds 857 rows of wc1 and 272 of wc2. The plan is one group of 280 base sessions (10
+cells, R_C = 28, four windows each = 1,120 windows; rerun cap ceil(28/4) = 7 per cell). The rows
+add up as follows:
+- wc1 ran 215 sessions of the order: 214 complete (856 rows) and the 215th, C3.W.IOCP.mqtt.s22
+  (order index 214), with one row. The stop reached the job inside that session's first window
+  (position 0, arm A): the engine wrote the window's fault row (reason "the job was stopped by a
+  signal during this window", no `started`) and ended the job. wc1 left no
+  `summary-wcost_run-wc1.json` (the signal ends the job before `summary()`);
+  `summary-wcost_run-wc2.json` is computed from all the rows in the directory, so it covers both
+  jobs.
+- wc2 ran 68 sessions (272 rows): the 65 base sessions from order index 215 to 279, then 3 reruns.
+- How `bench/run/sessions.py` treated s22 on resumption: `Engine.run` skips a base session id that
+  has any row, so s22 was not run again under its id; `states()` counts a session with fewer than
+  four positions as not complete, so s22 is invalid; `reruns()`, at the end of the group, gives
+  each invalid session of a cell one rerun session while the cell has slots, in the order the
+  invalid sessions ran. The three invalid sessions are C3.W.IOCP.h2c.s04 (order index 130, wc1),
+  C3.W.IOCP.mqtt.s22 (214, wc1) and C3.W.IOCP.http1.s06 (228, wc2), so wc2 ran
+  C3.W.IOCP.h2c.r1, C3.W.IOCP.mqtt.r1 and C3.W.IOCP.http1.r1 (order indices 100000 to 100002,
+  01:02:52 to 01:09:22), all four windows of each valid.
+- So 1,129 rows are the 1,120 planned, less the 3 windows s22 never wrote, plus the 12 rows of the
+  three reruns.
+- The raw files of s22's cut-short window (`raw/C3.W.IOCP.mqtt.s22-p0-A.*`) are in the archive;
+  nothing reads them.
+
+How the analysis reads the sessions: every session id has rows under exactly one job and no
+(session, position) pair occurs twice. `assemble` groups by (job, session) and gives 283 sessions,
+280 valid; the three not valid are the three above (s22 as "1 of 4 windows, 1 invalid windows"),
+and it refuses nothing. `run_family` keeps the valid sessions only and refuses a cell only with
+more than R of them. Each cell has exactly 28 valid sessions, so each session is read once and
+every cell reached R_C = 28 with no more.
+
+| Cell | Rows (wc1 + wc2) | Valid windows | Invalid windows | Sessions | Reruns | Valid sessions |
+|---|---|---|---|---|---|---|
+| C1.W.IOCP.http1 | 72 + 40 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C1.W.IOCP.tls | 96 + 16 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C2.W.IOCP.http1 | 92 + 20 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C2.W.IOCP.h2c | 68 + 44 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C2.W.IOCP.tls | 104 + 8 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C2.W.IOCP.mqtt | 84 + 28 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C3.W.IOCP.http1 | 92 + 24 = 116 | 115 | 1 | 29 | 1 | 28 |
+| C3.W.IOCP.h2c | 84 + 32 = 116 | 115 | 1 | 29 | 1 | 28 |
+| C3.W.IOCP.tls | 80 + 32 = 112 | 112 | 0 | 28 | 0 | 28 |
+| C3.W.IOCP.mqtt | 85 + 28 = 113 | 112 | 1 | 29 | 1 | 28 |
+| All | 857 + 272 = 1,129 | 1,126 | 3 | 283 | 3 | 280 |
+
+The three invalid windows, with their reasons as the rows give them:
+- C3.W.IOCP.h2c.s04, position 0, arm B (wc1, 17:57:28): "errors 8.827% > 0.1%", "1056 connects
+  failed", "open loop: 91.17% of the exchanges due completed, below 99%".
+- C3.W.IOCP.mqtt.s22, position 0, arm A (wc1): "the job was stopped by a signal during this
+  window".
+- C3.W.IOCP.http1.s06, position 0, arm A (wc2, 23:33:46): "5 connects failed".
+
+No cell is short of R_C and none used more than 1 of its 7 rerun slots. Not run, as logged:
+C1.W.IOCP.h2c and C1.W.IOCP.mqtt (`not-run-wc1.json`, `not-run-wc2.json`, the same text). Cells 34
+and 36 (C3.W.IOCP.h2c and C3.W.IOCP.mqtt) ran at R_C as the pilot entry says; their rows are as
+above.
+
+### 3. M1's IOCP cells (wm1)
+
+R_M = 16 (hypotheses.md 4.1, R_B = R_M = 16; rerun cap 4). 128 rows, all valid: M1.W.IOCP.http1 and
+M1.W.IOCP.h2c each 16 sessions, 64 windows, 16 valid sessions, no rerun, so both cells reached R_M.
+`summary-wm_run-wm1.json` agrees. No invalid window.
+
+### 4. Hard cases on IOCP (wh1)
+
+328 variant-entries (164 variants on each of IOCP.replay.inproc and IOCP.peek.inproc), 16 runs
+each, 5,248 runs: 5,248 passed and 0 failed, in each entry 2,624 of 2,624. The judge's table
+(`hardcases-table-wh1.json`: `passed` and `runs` per variant and entry) has `passed` equal to
+`runs` for all 328, and its counts equal the rows'. The runner's last line reads "hard cases on W:
+328 variant-entries, 0 with a failing run". No `hardcase-skipped` row (HC7 ran on both entries).
+The 12 `hardcase-servers` rows (6 servers on each entry: one-port plain, one-port SMTP fallback,
+one-port PROXY, one-port PROXY with SMTP fallback, dedicated, dedicated PROXY) all have exit 0,
+`ok` true and no problems. Per case, the same on both entries (variants, runs, passed):
+
+| Case | Variants | Runs | Passed | Failed |
+|---|---|---|---|---|
+| HC01 | 6 | 96 | 96 | 0 |
+| HC02 | 62 | 992 | 992 | 0 |
+| HC03 | 6 | 96 | 96 | 0 |
+| HC04 | 6 | 96 | 96 | 0 |
+| HC05, HC06, HC08, HC09, HC11, HC12, HC13, HC15, HC18, HC20, HC25 | 1 each | 16 each | 16 each | 0 |
+| HC07, HC17, HC19, HC22, HC23 | 2 each | 32 each | 32 each | 0 |
+| HC10 | 27 | 432 | 432 | 0 |
+| HC14 | 3 | 48 | 48 | 0 |
+| HC16 | 24 | 384 | 384 | 0 |
+| HC21 | 4 | 64 | 64 | 0 |
+| HC24 | 5 | 80 | 80 | 0 |
+
+### 5. Files, archives, journal
+
+sha256, under `C:\Users\alext\lab\p3\`: `cost-W\windows.jsonl`
+9707e942b52afa9daac6bb1d2237630618fdba1078c3fea7b591379ff58ce5da; `m-W\windows.jsonl`
+f296229af2fba99b5abaca1e03a29ff1842e44c97c68a56b34ca10a10a609650; `hard-W\hardcases.jsonl`
+e67b3ab92a7f716d513037a396d63b0a3970816f9066bd8e4014bf9fd1f1d981;
+`hard-W\hardcases-table-wh1.json` cae9d62a366858f4c0d1a1d285ae58f0afda3159defb7def4cf52a2e23ec8588;
+`cost-W\summary-wcost_run-wc2.json` 464d19d94ce1a76d952084ccdb4d31c6bbf39296a9f6c2bed20f73dac2f9faba;
+`m-W\summary-wm_run-wm1.json` bc4a920c8c86ba05d1f46cfdcf2edc00ed7ce94b8c5a584655ed23dd8522ab99; logs
+under `m7g\`: `wcost\wc1.log` 5aa7e0a25540992fa46e9927ec9e4fd5806646083ce4c09a47a61dd7b6beae92,
+`wcost\wc2.log` c14c081ac52703c69fb43f6270abbb49cf1f018dcc7fdde4957e8b8969f1e35d, `wm\wm1.log`
+e8d2c2510328540750c37120f9fb93fc08ffbfb803988a2411c14a20786880ab, `whard\wh1.log`
+00c59e1ab17201fdcff64f3adb367c35041339e0b84b00c7e8bb7d97619f6034, `wcost\chain.log`
+0a5c0ba4f303a1fe21ad71860ca3a365e01175c2136d8bdd15edb7774e3b9564, `wcost\chain.done`
+defcfbc05bc5858dd5339294ea9693346ea98caef0c5c280461676a4c9303840, `wnight2\chain.log`
+bc3ac8b5fed5ba664fc0465d38ddb068c1983571c38f7b4a661164c712beebbe, `wnight2\chain.done`
+32fe83faed6a3fa0fc31a42490bf6ee5af794b536a80b93b40f8d8f3f933d32e.
+
+Archives on W, `C:\Users\alext\lab\` (each the out directory and the jobs' control files under
+`m7g\`, with a `.sha256` beside it in `sha256sum` form; checked with `sha256sum -c`; never in git):
+- `p3-raw-2026-10-05-wc1-wc2-ff2679cc8.tar.gz` (`cost-W`, `m7g\wcost`, `m7g\wnight2`; 3,516 files),
+  sha256 c1c8804d76fbe71b56bbbacb551a5481a17af34c71e84186a113322f7d6a16e9;
+- `p3-raw-2026-10-06-wm1-ff2679cc8.tar.gz` (`m-W`, `m7g\wm`, `m7g\wnight2`; 416 files), sha256
+  acb1590cb0adc18ce6dc2191ec65ca7d88dfe25912b9f63a8ca7431fa84b0b9a;
+- `p3-raw-2026-10-06-wh1-ff2679cc8.tar.gz` (`hard-W`, `m7g\whard`, `m7g\wnight2`; 41 files), sha256
+  46df3e6edbaff644e53da4398ec2aba413a50e06baa99414a30d292dd14d1aa3.
+
+Lab journal (Papers `lab/journal.jsonl`, lines 153 to 156, `journal.py --kind runner --job`, the
+`run` field worded "frozen" and the host ALEX-PC, as for wp1; `code_commit` 77cedae, the clone's
+HEAD): wc1 (857 rows, 855 valid), wc2 (272, 271), wm1 (128, 128) and wh1 (5,260 rows, 5,248
+passed), each with its archive name and sha256 in `note`.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator

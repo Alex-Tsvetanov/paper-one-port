@@ -3,15 +3,19 @@
 A digest for orientation, refreshed at each milestone. It is not a record: it holds no result and
 compares no arms. `design/status.md` and the revision log at the end of `hypotheses.md` stay
 authoritative; open them only at the section named here, by grep or line range. As of 2026-10-06,
-one-port 9effc02, plus facts from the coordinator not yet in the repo, marked "(coord.)".
+one-port d2e32e6 plus W's follow-up (status.md, "W's confirmatory jobs, 2026-10-05/06"), plus
+facts from the coordinator not yet in the repo, marked "(coord.)".
 
 ## 1. Where P3 stands
 
 Code frozen at ff2679c; A/A pilots done on L and W; pilot entry, rule E and M2_RATE logged; the
 confirmatory runs are under way. L: cost family, hard cases' server part and mechanism family done;
 section 10 stopped after 384 windows (sl1) on the B1 counting defect; B3's sessions (bs1) running.
-W: cost family (wc1 then wc2), M1's IOCP cells (wm1) and hard cases on IOCP (wh1) ended 2026-10-06
-02:53:16, all exit 0; their follow-up is not done. Freeze order (hypotheses.md section 8): steps 1
+W: cost family (wc1, stopped at Alex's request, then wc2), M1's IOCP cells (wm1) and hard cases on
+IOCP (wh1) ended 2026-10-06 02:53:16 (wc2, wm1 and wh1 exit 0); the follow-up is done: every W
+cell reached its R, the three invalid windows are in status.md, the hard cases all passed, each
+out directory archived and journaled; W has no job left except section 10's ws1 (waits for the B1
+fix). Freeze order (hypotheses.md section 8): steps 1
 to 6 done (hypotheses freeze 64a23f7, engineering, CODE_FREEZE, A/A pilots, simulation, pilot
 entry). Step 7: rule E, M2's rates, B3 feasibility windows and K_BASE's windows done; confirmatory,
 secondary and hard-case runs in progress. Then the analysis of each family once both hosts' data
@@ -102,20 +106,20 @@ Coordinator's decision, 2026-10-05 17:55: run bf1, bk1, bs1, then hc1 on L; hold
 
 ## 4. Run status
 
-L outputs under `~/lab/p3/`, W outputs under `C:\Users\alext\lab\p3\`. L counts from status.md;
-W counts are row-file line counts, validity not read.
+L outputs under `~/lab/p3/`, W outputs under `C:\Users\alext\lab\p3\`. Counts from status.md; W's
+from its section "W's confirmatory jobs, 2026-10-05/06" (validity read, no arm compared).
 
 | Family | Host | Job(s) | Out | State |
 |---|---|---|---|---|
 | A/A pilot | L, W | pl1, wp1 | `pilot-L`, `pilot-W` | done, every window valid; archived; journaled |
 | Rule E (development) | L, W | re1, wre1 | `m7g/rule_e.json` | done; journaled |
 | Cost (C) | L | cl1 (job pc1) | `cost-L` | done: 24 cells x 28, 2,688 windows, all valid; archived; journaled |
-| Cost (C) | W | wc1, wc2 | `cost-W` | wc1 14:12:55 to 20:06:04, exit 130, stopped at Alex's request (coord.), 857 rows; wc2 23:11:22 to 01:10:03, exit 0, 272 rows; 1,120 windows planned before reruns (status.md, "W's confirmatory runs", 1); follow-up not done |
+| Cost (C) | W | wc1, wc2 | `cost-W` | done: 10 cells x 28 valid sessions (R_C reached, no more). wc1 14:12:55 to 20:06:04, exit 130, stopped at Alex's request (coord.), 857 rows, 14 refusals before it; wc2 23:11:22 to 01:10:03, exit 0, 272 rows, 2 refusals. 1,129 rows = 1,120 planned, less 3 windows of the session the stop cut short (C3.W.IOCP.mqtt.s22), plus 3 reruns (C3 HTTP/1.1, h2c, MQTT; 12 rows). 3 invalid windows (status.md). Archived (`C:\Users\alext\lab\p3-raw-2026-10-05-wc1-wc2-ff2679cc8.tar.gz`, sha256 c1c8804d76fbe71b56bbbacb551a5481a17af34c71e84186a113322f7d6a16e9); journaled (2 lines) |
 | Hard cases B1, B2 | L | hl1 (job pc1) | `hard-L` | done: 20,992 runs, all passed; archived; journaled |
-| Hard cases B1, B2 | W | wh1 | `hard-W` | 02:28:41 to 02:53:16, exit 0; follow-up not done |
+| Hard cases B1, B2 | W | wh1 | `hard-W` | done: 02:28:41 to 02:53:16, exit 0; 5,248 runs on 2 IOCP entries, all passed; archived (`C:\Users\alext\lab\p3-raw-2026-10-06-wh1-ff2679cc8.tar.gz`, sha256 46df3e6edbaff644e53da4398ec2aba413a50e06baa99414a30d292dd14d1aa3); journaled |
 | M2 rates (development) | L | mr1 | `m2rate-L` | done; archived; journaled |
 | Mechanism (M) | L | ml1 | `m-L` | done: 14 cells 16 valid each; sslh-ev's two M3 cells none (logged defect); M2 TLS not run; archived; journaled |
-| Mechanism (M) | W | wm1 | `m-W` | M1's two IOCP cells, 01:10:03 to 02:28:41, exit 0, 128 rows; follow-up not done |
+| Mechanism (M) | W | wm1 | `m-W` | done: M1's two IOCP cells, 01:10:03 to 02:28:41, exit 0, 128 rows, 16 valid sessions each, no invalid window; archived (`C:\Users\alext\lab\p3-raw-2026-10-06-wm1-ff2679cc8.tar.gz`, sha256 acb1590cb0adc18ce6dc2191ec65ca7d88dfe25912b9f63a8ca7431fa84b0b9a); journaled |
 | Section 10 | L | sl1, then sl2 | `s-L` | sl1 stopped 17:53:12 (exit 143), 384 windows, 331 valid; archived (partial); journaled. sl2 not launched |
 | Section 10 | W | ws1 | `s-W` | not run: waits for the B1 fix |
 | B3 feasibility (development) | L | bf1 | `b3feas-L` | done: 21 windows, 20 valid; archived; journal line after bs1 |
@@ -133,11 +137,9 @@ rule, status.md "M7 freeze night" item 7).
 
 ## 5. Open items, in order
 
-1. W follow-up for wc1/wc2, wm1, wh1 (agent). Read `chain.done`, each job's done file and log, the
-   `summary-*`, `not-run-*` and `warmup-*` files; validity per cell, no arm compared; journal
-   (`bench/run/journal.py --kind runner`, "frozen"); archive each out directory on W with a
-   `.sha256`; a status.md section; commit, push origin, bump. wc1 had 14 refusals (its
-   `chain.done`), not the 2 status.md records. Blocks only the analysis.
+1. Done: W follow-up for wc1/wc2, wm1, wh1 (status.md, "W's confirmatory jobs, 2026-10-05/06").
+   wc1 had 14 refusals (its `chain.done`), not the 2 the earlier W section records; that section
+   is not edited, the new one corrects it.
 2. B1 fix, option (a) (agent, Opus; the entry before any code). Blocks sl2, ws1 and the analysis.
    Facts it must settle: (a) section 8's later-change rule (hypotheses.md lines 802 to 809)
    archives the old build's confirmatory windows and starts the runs again, which re-deriving from
