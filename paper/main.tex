@@ -3,7 +3,9 @@
 % Every number in the text comes from a macro: the design constants from ../results/design-macros.tex
 % (paper/design_macros.py, read from hypotheses.md and bench/cmake/pins.cmake), the results from
 % ../results/macros.tex (analysis/macros.py, from the frozen analysis). Before the results exist,
-% paper/result-placeholders.tex stands in for the second file in a draft build only.
+% paper/result-placeholders.tex stands in for the second file in a draft build only. B1's and B2's
+% counts and decisions come from ../results/hardcase-macros.tex (paper/hardcase_macros.py, from the
+% hard-case runners' outputs).
 \documentclass[futureinternet,article,submit,oneauthor]{Definitions/mdpi}
 
 % MDPI internal commands, as template.tex sets them for a submission.
@@ -38,6 +40,7 @@
 % The design constants, always; the results, once analysis/macros.py has written them. A draft
 % build without them takes the placeholders; a submission build without them stops.
 \input{../results/design-macros}
+\input{../results/hardcase-macros}
 \IfFileExists{../results/macros.tex}{\input{../results/macros}}{%
   \ifsubmission\PackageError{main}{../results/macros.tex is missing}{}\else\input{result-placeholders}\fi}
 

@@ -1,0 +1,1052 @@
+{
+ "what": "P3 (one-port): every cell that results/summary.json has short of its R, in a family or in section 10, with the reason its not-run file or its logged entries give; descriptive, it decides nothing",
+ "made_by": "paper/not_run.py",
+ "inputs": [
+  {
+   "file": "summary.json",
+   "role": "summary",
+   "sha256": "a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8"
+  },
+  {
+   "file": "not-run-ml1.json",
+   "role": "not-run",
+   "sha256": "75fe6dc118f08a2ea81139c88fcbbef3a58d3ced9ae9b3136c8896fe38ef42b9"
+  },
+  {
+   "file": "not-run-wc1.json",
+   "role": "not-run",
+   "sha256": "96d1b726f767edfa8e484aefaeb78a2c950b0b6fada069456f5b4a7b7d758c88"
+  },
+  {
+   "file": "not-run-wc2.json",
+   "role": "not-run",
+   "sha256": "96d1b726f767edfa8e484aefaeb78a2c950b0b6fada069456f5b4a7b7d758c88"
+  },
+  {
+   "file": "not-run-sl3.json",
+   "role": "not-run",
+   "sha256": "947e77392a69b411ca370517980a7623759afeae91350714a18cfb68b8cb5c90"
+  },
+  {
+   "file": "not-run-ws1.json",
+   "role": "not-run",
+   "sha256": "18440ea069f74c1d1012af71a9c1e1f7cd81c22344eb15ab1534501ef5fec1de"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "ee257a16c954e81d6e5d93debff47e5547d5086f5be405a1ddb7878617ab8dba"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "9707e942b52afa9daac6bb1d2237630618fdba1078c3fea7b591379ff58ce5da"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "26b971a6dfc82db206764021034923a25c3323ae1be21c1e485de42780d697d9"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "f296229af2fba99b5abaca1e03a29ff1842e44c97c68a56b34ca10a10a609650"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "0fcba90dd1422beeea49089bff0052ae002c1ab5451e97c88cab2c797a51feb0"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "77955a0c8ffa108c40ced0d5f744414ff19c50c55430df310042826dbbf672cf"
+  },
+  {
+   "file": "windows.jsonl",
+   "role": "rows",
+   "sha256": "6f7a1b2f12c808aae375ee393e0a9aced60f931227a0ee47187315e976bb74b8"
+  }
+ ],
+ "logged_entries_read_at": {
+  "commit": "4ca64bb93042426461ae8216ea6cf6f3235501da",
+  "files": [
+   "design/status.md",
+   "hypotheses.md"
+  ],
+  "changed_in_working_tree": false
+ },
+ "cells": [
+  {
+   "cell": "B3.partial-hello.cmux.epoll",
+   "R": 16,
+   "valid_sessions": 15,
+   "listed_in": [
+    "family B3",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "descriptive",
+    "15 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "bs1"
+    ],
+    "windows": 80,
+    "valid_windows": 75,
+    "sessions": 20,
+    "by_arm": {
+     "B": {
+      "windows": 40,
+      "valid_windows": 39
+     },
+     "A": {
+      "windows": 40,
+      "valid_windows": 36
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "TIME-WAIT count N at sample N, N at the baseline": 10
+    },
+    "workloads": {
+     "workload None, no rate, metric None": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "design/status.md",
+     "section": "L after bs1, 2026-10-07",
+     "subsection": "1. bs1 and bk1: counts",
+     "where": ""
+    }
+   ],
+   "quotes": [
+    {
+     "source": "design/status.md",
+     "text": "**B3.partial-hello.cmux.epoll did not**: 20 sessions (16 base and the 4 reruns of its cap, 4.1's ceil(R/4) at R = 16), 15 valid, 5 invalid (each by the TIME-WAIT rule at both samples). No treatment is proposed here."
+    }
+   ]
+  },
+  {
+   "cell": "C1.W.IOCP.h2c",
+   "R": 28,
+   "valid_sessions": 0,
+   "listed_in": [
+    "family C",
+    "section 10, wl4, cpu",
+    "section 10, wl4, rss",
+    "section 10, wl4, rss_peak",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "outside the confirmatory cost family: generator-bound on W (Alex's decision of 2026-10-04; revision log, entry W before the code freeze, item 1)",
+    "0 valid sessions, fewer than R = 28: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run in the confirmatory cost runs: outside the confirmatory cost family: generator-bound on W (Alex's decision of 2026-10-04; revision log, entry W before the code freeze, item 1); it runs in the A/A pilot only, so that WL2 has its median for the open-loop rate (the coordinator's decision, revision log, \"The job's warm-up and W's runners (M7e), before the code freeze\")",
+     "files": [
+      "not-run-wc1.json",
+      "not-run-wc2.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: W before the code freeze",
+     "where": "item 1"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: The job's warm-up and W's runners (M7e), before the code freeze",
+     "where": "item 2"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "C1.W.IOCP.mqtt",
+   "R": 28,
+   "valid_sessions": 0,
+   "listed_in": [
+    "family C",
+    "section 10, wl4, cpu",
+    "section 10, wl4, rss",
+    "section 10, wl4, rss_peak",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "outside the confirmatory cost family: generator-bound on W (Alex's decision of 2026-10-04; revision log, entry W before the code freeze, item 1)",
+    "0 valid sessions, fewer than R = 28: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run in the confirmatory cost runs: outside the confirmatory cost family: generator-bound on W (Alex's decision of 2026-10-04; revision log, entry W before the code freeze, item 1); it runs in the A/A pilot only, so that WL2 has its median for the open-loop rate (the coordinator's decision, revision log, \"The job's warm-up and W's runners (M7e), before the code freeze\")",
+     "files": [
+      "not-run-wc1.json",
+      "not-run-wc2.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: W before the code freeze",
+     "where": "item 1"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: The job's warm-up and W's runners (M7e), before the code freeze",
+     "where": "item 2"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "M2.L.epoll.tls",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "family M",
+    "section 10, m-ttfb-cpu, cpu",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "a difference was not shown; untested: 0 valid sessions, fewer than R = 16 (4.1)",
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run: no M2_RATE (an arm of the m2-rate part had no valid session; section 9 allows no rate by another rule), so the cell has no valid session and enters Holm with p = 1 (4.1, 4.2); revision log, \"M7c's open items, before the code freeze\", item 6",
+     "files": [
+      "not-run-ml1.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: W before the code freeze",
+     "where": "item 2"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: M7c's open items, before the code freeze",
+     "where": "item 6"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-05: M2's rates (M2_RATE), after the pilot entry",
+     "where": "item 2"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "M2.L.io_uring.tls",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "family M",
+    "section 10, m-ttfb-cpu, cpu",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "a difference was not shown; untested: 0 valid sessions, fewer than R = 16 (4.1)",
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run: no M2_RATE (an arm of the m2-rate part had no valid session; section 9 allows no rate by another rule), so the cell has no valid session and enters Holm with p = 1 (4.1, 4.2); revision log, \"M7c's open items, before the code freeze\", item 6",
+     "files": [
+      "not-run-ml1.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: W before the code freeze",
+     "where": "item 2"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: M7c's open items, before the code freeze",
+     "where": "item 6"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-05: M2's rates (M2_RATE), after the pilot entry",
+     "where": "item 2"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "M3.L.epoll.http1.sslh-ev",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "family M",
+    "section 10, m-ttfb-cpu, cpu",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "not shown; untested: 0 valid sessions, fewer than R = 16 (4.1)",
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "ml1"
+    ],
+    "windows": 80,
+    "valid_windows": 40,
+    "sessions": 20,
+    "by_arm": {
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     },
+     "A": {
+      "windows": 40,
+      "valid_windows": 40
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "N connects failed": 9,
+     "errors N% > N%": 40
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-03: sslh-ev's stalled exchanges, before the code freeze",
+     "where": "the note before item 1, and items 1 to 3"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "hypotheses.md",
+     "text": "In M4a's development windows 0.60% to 0.67% of sslh-ev's exchanges timed out at opgen's 1 s, with no connect failure, no reset and no listen overflow, so every sslh-ev window of M3 fails section 7's 0.1% error rule."
+    }
+   ]
+  },
+  {
+   "cell": "M3.L.epoll.tls-stub.sslh-ev",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "family M",
+    "section 10, m-ttfb-cpu, cpu",
+    "section 10, by-job, value"
+   ],
+   "summary_says": [
+    "not shown; untested: 0 valid sessions, fewer than R = 16 (4.1)",
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "ml1"
+    ],
+    "windows": 80,
+    "valid_windows": 40,
+    "sessions": 20,
+    "by_arm": {
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     },
+     "A": {
+      "windows": 40,
+      "valid_windows": 40
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "N connects failed": 6,
+     "errors N% > N%": 40
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-03: sslh-ev's stalled exchanges, before the code freeze",
+     "where": "the note before item 1, and items 1 to 3"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "hypotheses.md",
+     "text": "In M4a's development windows 0.60% to 0.67% of sslh-ev's exchanges timed out at opgen's 1 s, with no connect failure, no reset and no listen overflow, so every sslh-ev window of M3 fails section 7's 0.1% error rule."
+    }
+   ]
+  },
+  {
+   "cell": "S.m-ttfb.M3.L.epoll.http1.sslh-ev",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, m-ttfb-cpu, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 40,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 40
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "N connects failed": 6,
+     "errors N% > N%": 40
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-03: sslh-ev's stalled exchanges, before the code freeze",
+     "where": "the note before item 1, and items 1 to 3"
+    },
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    },
+    {
+     "source": "design/status.md",
+     "section": "The confirmatory analysis on W, 2026-10-07",
+     "subsection": "5. The review",
+     "where": "item 6"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "hypotheses.md",
+     "text": "In M4a's development windows 0.60% to 0.67% of sslh-ev's exchanges timed out at opgen's 1 s, with no connect failure, no reset and no listen overflow, so every sslh-ev window of M3 fails section 7's 0.1% error rule."
+    }
+   ]
+  },
+  {
+   "cell": "S.m-ttfb.M3.L.epoll.tls-stub.sslh-ev",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, m-ttfb-cpu, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 40,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 40
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "N connects failed": 6,
+     "errors N% > N%": 40
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-03: sslh-ev's stalled exchanges, before the code freeze",
+     "where": "the note before item 1, and items 1 to 3"
+    },
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    },
+    {
+     "source": "design/status.md",
+     "section": "The confirmatory analysis on W, 2026-10-07",
+     "subsection": "5. The review",
+     "where": "item 6"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "hypotheses.md",
+     "text": "In M4a's development windows 0.60% to 0.67% of sslh-ev's exchanges timed out at opgen's 1 s, with no connect failure, no reset and no listen overflow, so every sslh-ev window of M3 fails section 7's 0.1% error rule."
+    }
+   ]
+  },
+  {
+   "cell": "S.mixed.C1.L.io_uring",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, mixed, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 0,
+    "sessions": 20,
+    "by_arm": {
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     },
+     "A": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "errors N% > N%": 80,
+     "probe failed: http1: failed (timeout)": 76
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "design/status.md",
+     "section": "L after the cost family, 2026-10-05",
+     "subsection": "4. Stopped: what needs Alex",
+     "where": "item 2"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-06: The B1 count of the mixed cell (a later change under section 8)",
+     "where": "item 5"
+    },
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    }
+   ],
+   "quotes": [
+    {
+     "source": "design/status.md",
+     "text": "**The mixed cell on io_uring starves its churn, in both modes.**"
+    },
+    {
+     "source": "hypotheses.md",
+     "text": "the mixed cell on io_uring starving its churn in both modes"
+    }
+   ]
+  },
+  {
+   "cell": "S.relay-io_uring.L.io_uring.http1.sslh-ev",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, relay-io_uring, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 40,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 40
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "N connects failed": 7,
+     "errors N% > N%": 40
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-03: sslh-ev's stalled exchanges, before the code freeze",
+     "where": "the note before item 1, and items 1 to 3"
+    },
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    }
+   ],
+   "quotes": [
+    {
+     "source": "hypotheses.md",
+     "text": "In M4a's development windows 0.60% to 0.67% of sslh-ev's exchanges timed out at opgen's 1 s, with no connect failure, no reset and no listen overflow, so every sslh-ev window of M3 fails section 7's 0.1% error rule."
+    }
+   ]
+  },
+  {
+   "cell": "S.relay-io_uring.L.io_uring.tls-stub.sslh-ev",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, relay-io_uring, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 40,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 40
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "N connects failed": 3,
+     "errors N% > N%": 40
+    },
+    "workloads": {
+     "workload churn, no rate, metric conn_per_s": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-03: sslh-ev's stalled exchanges, before the code freeze",
+     "where": "the note before item 1, and items 1 to 3"
+    },
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    }
+   ],
+   "quotes": [
+    {
+     "source": "hypotheses.md",
+     "text": "In M4a's development windows 0.60% to 0.67% of sslh-ev's exchanges timed out at opgen's 1 s, with no connect failure, no reset and no listen overflow, so every sslh-ev window of M3 fails section 7's 0.1% error rule."
+    }
+   ]
+  },
+  {
+   "cell": "S.ssh.C2.L.epoll",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, ssh, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 0,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 0
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "opgen failed: no report": 80,
+     "opgen wrote no report (exit N)": 80
+    },
+    "workloads": {
+     "workload keepalive, no rate, metric None": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    },
+    {
+     "source": "design/status.md",
+     "section": "L after the cost family, 2026-10-05",
+     "subsection": "4. Stopped: what needs Alex",
+     "where": "item 3"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-06: The B1 count of the mixed cell (a later change under section 8)",
+     "where": "item 5"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "design/status.md",
+     "text": "`opgen --load keepalive` refuses `--proto ssh` (\"--load keepalive serves http1, h2c, tls and mqtt (WL3)\"; exit 2), and the SSH handler closes after one line, so WL3 has no SSH form."
+    },
+    {
+     "source": "hypotheses.md",
+     "text": "section 10's SSH C2 cells unable to run"
+    }
+   ]
+  },
+  {
+   "cell": "S.ssh.C2.L.io_uring",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, ssh, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "sl3"
+    ],
+    "windows": 80,
+    "valid_windows": 0,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 0
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "opgen failed: no report": 80,
+     "opgen wrote no report (exit N)": 80
+    },
+    "workloads": {
+     "workload keepalive, no rate, metric None": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "design/status.md",
+     "section": "L's section 10 job sl3, 2026-10-07",
+     "subsection": "3. The seven cells short of R",
+     "where": ""
+    },
+    {
+     "source": "design/status.md",
+     "section": "L after the cost family, 2026-10-05",
+     "subsection": "4. Stopped: what needs Alex",
+     "where": "item 3"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-06: The B1 count of the mixed cell (a later change under section 8)",
+     "where": "item 5"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "design/status.md",
+     "text": "`opgen --load keepalive` refuses `--proto ssh` (\"--load keepalive serves http1, h2c, tls and mqtt (WL3)\"; exit 2), and the SSH handler closes after one line, so WL3 has no SSH form."
+    },
+    {
+     "source": "hypotheses.md",
+     "text": "section 10's SSH C2 cells unable to run"
+    }
+   ]
+  },
+  {
+   "cell": "S.ssh.C2.W.IOCP",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, ssh, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "ran, short of R",
+   "rows": {
+    "jobs": [
+     "ws1"
+    ],
+    "windows": 80,
+    "valid_windows": 0,
+    "sessions": 20,
+    "by_arm": {
+     "A": {
+      "windows": 40,
+      "valid_windows": 0
+     },
+     "B": {
+      "windows": 40,
+      "valid_windows": 0
+     }
+    },
+    "invalid_reasons_numbers_as_N": {
+     "opgen failed: no report": 80,
+     "opgen wrote no report (exit N): s block in N.N/N (K_SRC addresses)\n  --probe            one exchange of the protocol, then a report (exit N if it completed)\n  --out              the JSON report (else standard output); MEASURE_START and MEASURE_END\n                     go to standard output at the window's two clock readings\n": 80
+    },
+    "workloads": {
+     "workload keepalive, no rate, metric None": 80
+    }
+   },
+   "logged_in": [
+    {
+     "source": "design/status.md",
+     "section": "W's section 10 job ws1, 2026-10-07",
+     "subsection": "2. Per cell: 600 rows against 576 planned",
+     "where": ""
+    },
+    {
+     "source": "design/status.md",
+     "section": "L after the cost family, 2026-10-05",
+     "subsection": "4. Stopped: what needs Alex",
+     "where": "item 3"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-06: The B1 count of the mixed cell (a later change under section 8)",
+     "where": "item 5"
+    }
+   ],
+   "quotes": [
+    {
+     "source": "design/status.md",
+     "text": "`opgen --load keepalive` refuses `--proto ssh` (\"--load keepalive serves http1, h2c, tls and mqtt (WL3)\"; exit 2), and the SSH handler closes after one line, so WL3 has no SSH form."
+    },
+    {
+     "source": "hypotheses.md",
+     "text": "section 10's SSH C2 cells unable to run"
+    }
+   ]
+  },
+  {
+   "cell": "S.tls-variants.C1.L.epoll.resumption",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, tls-variants, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run: section 2.1 fixes no session tickets and no session cache in the server, the backend and the generator, and TLS 1.3 resumes a session only from a ticket, so the variant cannot run without contradicting the frozen settings (revision log, \"M7c's open items, before the code freeze\", item 5)",
+     "files": [
+      "not-run-sl3.json",
+      "not-run-ws1.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: M7c's open items, before the code freeze",
+     "where": "item 5"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "S.tls-variants.C1.L.io_uring.resumption",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, tls-variants, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run: section 2.1 fixes no session tickets and no session cache in the server, the backend and the generator, and TLS 1.3 resumes a session only from a ticket, so the variant cannot run without contradicting the frozen settings (revision log, \"M7c's open items, before the code freeze\", item 5)",
+     "files": [
+      "not-run-sl3.json",
+      "not-run-ws1.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: M7c's open items, before the code freeze",
+     "where": "item 5"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "S.tls-variants.C1.W.IOCP.resumption",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, tls-variants, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run: section 2.1 fixes no session tickets and no session cache in the server, the backend and the generator, and TLS 1.3 resumes a session only from a ticket, so the variant cannot run without contradicting the frozen settings (revision log, \"M7c's open items, before the code freeze\", item 5)",
+     "files": [
+      "not-run-sl3.json",
+      "not-run-ws1.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: M7c's open items, before the code freeze",
+     "where": "item 5"
+    }
+   ],
+   "quotes": []
+  },
+  {
+   "cell": "S.two-cores.C1.W.IOCP.two-cores",
+   "R": 16,
+   "valid_sessions": 0,
+   "listed_in": [
+    "section 10, two-cores, value"
+   ],
+   "summary_says": [
+    "0 valid sessions, fewer than R = 16: no draw (4.7)"
+   ],
+   "status": "not run",
+   "not_run_reason": [
+    {
+     "text": "not run in P3: the server serves one IOCP worker (--workers above 1 exits 3), more than one worker on IOCP is a new threading model days before the code freeze, and it belongs to the portable I/O core paper; the cell is secondary and decides nothing (the coordinator's decision, revision log, \"The job's warm-up and W's runners (M7e), before the code freeze\")",
+     "files": [
+      "not-run-sl3.json",
+      "not-run-ws1.json"
+     ]
+    }
+   ],
+   "logged_in": [
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: W before the code freeze",
+     "where": "item 7"
+    },
+    {
+     "source": "hypotheses.md",
+     "entry": "2026-10-04: The job's warm-up and W's runners (M7e), before the code freeze",
+     "where": "item 3"
+    }
+   ],
+   "quotes": []
+  }
+ ],
+ "m_ttfb_cells_that_ran_without_a_rate": [
+  {
+   "cell": "S.m-ttfb.M3.L.epoll.http1.sslh-ev",
+   "windows": 80,
+   "sessions": 20,
+   "valid_sessions": 0,
+   "its_workloads": {
+    "workload churn, no rate, metric conn_per_s": 80
+   },
+   "other_cells": {
+    "prefix": "S.m-ttfb.M3.L.epoll.",
+    "workloads": {
+     "workload open, a rate, metric ttfb_median_us": 512
+    }
+   }
+  },
+  {
+   "cell": "S.m-ttfb.M3.L.epoll.tls-stub.sslh-ev",
+   "windows": 80,
+   "sessions": 20,
+   "valid_sessions": 0,
+   "its_workloads": {
+    "workload churn, no rate, metric conn_per_s": 80
+   },
+   "other_cells": {
+    "prefix": "S.m-ttfb.M3.L.epoll.",
+    "workloads": {
+     "workload open, a rate, metric ttfb_median_us": 512
+    }
+   }
+  }
+ ]
+}
