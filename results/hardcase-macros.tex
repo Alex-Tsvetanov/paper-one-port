@@ -5,6 +5,40 @@
 % input: W wh1 hardcases.jsonl sha256 e67b3ab92a7f716d513037a396d63b0a3970816f9066bd8e4014bf9fd1f1d981
 % input: W wh1 hardcases-table-wh1.json sha256 cae9d62a366858f4c0d1a1d285ae58f0afda3159defb7def4cf52a2e23ec8588
 % input: summary.json (b1_failures) sha256 a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8
+% input: L hc1 competitor_cases.jsonl sha256 c13b5fd21e0d1d34a69c3927b4a1a2e25cecfb52cde17859c164db6aeeb02f92
+% The CompCase macros count section 10's competitors' table. It is descriptive: it decides nothing and holds no time.
+% As expected: the row's reply_as_the_server_table_expects is true, the reply equals what the server's frozen table expects.
+% Differs: it is false. That also holds a row whose reference run on the dedicated port failed, which the row does not record.
+% Not observed: opcase gave no outcome (it did not end, or printed no run), so no reply was judged; such a row is neither.
+% A variant is one id at one timer setting with its replicates. A case is one of Appendix A's 25, holding one or more variants.
+% Cases listed under DifferAll: every variant of the case differs. DifferSome: some do, not all. NotCovered: no variant run.
+% A row with no decision within T_OBS is also counted as expected or as differing, by its reply.
+% A variant whose replicates are not alike is counted in UnitsMixed, in none of AsExpected, Differ or NotObserved, and named in a deviation line.
+% not observed: sslh-ev matched HC04.SSH: opcase did not end
+% not observed: sslh-ev matched HC06: opcase did not end
+% not observed: sslh-ev default HC04.HTTP: opcase did not end
+% not observed: sslh-ev default HC04.SSH: opcase did not end
+% not observed: sslh-ev default HC04.TLS: opcase did not end
+% not observed: sslh-ev default HC06: opcase did not end
+% not observed: netty default HC04.HTTP: opcase did not end
+% not observed: netty default HC04.SSH: opcase did not end
+% not observed: netty default HC04.h2c: opcase did not end
+% not observed: netty default HC06: opcase did not end
+% not observed: netty default HC12: opcase did not end
+% not observed: cmux matched HC04.TLS: opcase did not end
+% not observed: cmux default HC04.HTTP: opcase did not end
+% not observed: cmux default HC04.SSH: opcase did not end
+% not observed: cmux default HC04.TLS: opcase did not end
+% not observed: cmux default HC04.h2c: opcase did not end
+% not observed: cmux default HC06: opcase did not end
+% not observed: hyper-util matched HC04.HTTP: opcase did not end
+% not observed: hyper-util matched HC04.SSH: opcase did not end
+% not observed: hyper-util matched HC04.h2c: opcase did not end
+% not observed: hyper-util matched HC06: opcase did not end
+% not observed: hyper-util default HC04.HTTP: opcase did not end
+% not observed: hyper-util default HC04.SSH: opcase did not end
+% not observed: hyper-util default HC04.h2c: opcase did not end
+% not observed: hyper-util default HC06: opcase did not end
 \newcommand{\HardcaseLEntries}{8}  % hl1: backend, detection mode and dispatch
 \newcommand{\HardcaseLVariantEntries}{1{,}312}  % the host's variants of Appendix A's cases times the runner's entries
 \newcommand{\HardcaseLRuns}{20{,}992}  % rows of kind hardcase
@@ -31,3 +65,212 @@
 \newcommand{\HardcaseBTwoFailures}{0}  % all hosts
 \newcommand{\BOneVerdict}{holds}  % hard cases and summary.json's b1_failures (5.2)
 \newcommand{\BTwoVerdict}{holds}  % hard cases (5.2)
+\newcommand{\CompCaseNginxRows}{948}  % nginx: rows of kind competitor-case
+\newcommand{\CompCaseNginxRowsObserved}{948}  % nginx: rows with an outcome
+\newcommand{\CompCaseNginxRowsNotObserved}{0}  % nginx: rows where opcase did not end
+\newcommand{\CompCaseNginxRowsAsExpected}{390}  % nginx: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseNginxRowsDiffer}{558}  % nginx: observed rows whose reply does not
+\newcommand{\CompCaseNginxRowsNoDecision}{0}  % nginx: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseNginxVariants}{158}  % nginx: variants run, those its listener setup covers
+\newcommand{\CompCaseNginxCasesNotCovered}{HC5, HC7, HC15}  % nginx: cases in which it ran no variant
+\newcommand{\CompCaseNginxMatchedVariants}{158}  % nginx at matched timers: variants
+\newcommand{\CompCaseNginxMatchedVariantsAsExpected}{65}  % nginx at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseNginxMatchedVariantsDiffer}{93}  % nginx at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseNginxMatchedVariantsNotObserved}{0}  % nginx at matched timers: variants with no replicate observed
+\newcommand{\CompCaseNginxMatchedCasesDifferAll}{HC10, HC13, HC18, HC19}  % nginx at matched timers: cases in which every variant differs
+\newcommand{\CompCaseNginxMatchedCasesDifferSome}{HC1, HC2, HC3, HC14, HC24}  % nginx at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseNginxMatchedCasesNotObserved}{none}  % nginx at matched timers: cases with a variant not observed
+\newcommand{\CompCaseNginxDefaultVariants}{158}  % nginx at default timers: variants
+\newcommand{\CompCaseNginxDefaultVariantsAsExpected}{65}  % nginx at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseNginxDefaultVariantsDiffer}{93}  % nginx at default timers: variants whose replicates all differ
+\newcommand{\CompCaseNginxDefaultVariantsNotObserved}{0}  % nginx at default timers: variants with no replicate observed
+\newcommand{\CompCaseNginxDefaultCasesDifferAll}{HC10, HC13, HC18, HC19}  % nginx at default timers: cases in which every variant differs
+\newcommand{\CompCaseNginxDefaultCasesDifferSome}{HC1, HC2, HC3, HC14, HC24}  % nginx at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseNginxDefaultCasesNotObserved}{none}  % nginx at default timers: cases with a variant not observed
+\newcommand{\CompCaseHaproxyRows}{984}  % haproxy: rows of kind competitor-case
+\newcommand{\CompCaseHaproxyRowsObserved}{984}  % haproxy: rows with an outcome
+\newcommand{\CompCaseHaproxyRowsNotObserved}{0}  % haproxy: rows where opcase did not end
+\newcommand{\CompCaseHaproxyRowsAsExpected}{549}  % haproxy: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseHaproxyRowsDiffer}{435}  % haproxy: observed rows whose reply does not
+\newcommand{\CompCaseHaproxyRowsNoDecision}{3}  % haproxy: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseHaproxyVariants}{164}  % haproxy: variants run, those its listener setup covers
+\newcommand{\CompCaseHaproxyCasesNotCovered}{none}  % haproxy: cases in which it ran no variant
+\newcommand{\CompCaseHaproxyMatchedVariants}{164}  % haproxy at matched timers: variants
+\newcommand{\CompCaseHaproxyMatchedVariantsAsExpected}{123}  % haproxy at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseHaproxyMatchedVariantsDiffer}{41}  % haproxy at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseHaproxyMatchedVariantsNotObserved}{0}  % haproxy at matched timers: variants with no replicate observed
+\newcommand{\CompCaseHaproxyMatchedCasesDifferAll}{HC10, HC20, HC25}  % haproxy at matched timers: cases in which every variant differs
+\newcommand{\CompCaseHaproxyMatchedCasesDifferSome}{HC2, HC3, HC14, HC21, HC24}  % haproxy at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseHaproxyMatchedCasesNotObserved}{none}  % haproxy at matched timers: cases with a variant not observed
+\newcommand{\CompCaseHaproxyDefaultVariants}{164}  % haproxy at default timers: variants
+\newcommand{\CompCaseHaproxyDefaultVariantsAsExpected}{60}  % haproxy at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseHaproxyDefaultVariantsDiffer}{104}  % haproxy at default timers: variants whose replicates all differ
+\newcommand{\CompCaseHaproxyDefaultVariantsNotObserved}{0}  % haproxy at default timers: variants with no replicate observed
+\newcommand{\CompCaseHaproxyDefaultCasesDifferAll}{HC2, HC3, HC10, HC20, HC25}  % haproxy at default timers: cases in which every variant differs
+\newcommand{\CompCaseHaproxyDefaultCasesDifferSome}{HC1, HC7, HC14, HC21, HC24}  % haproxy at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseHaproxyDefaultCasesNotObserved}{none}  % haproxy at default timers: cases with a variant not observed
+\newcommand{\CompCaseEnvoyRows}{984}  % envoy: rows of kind competitor-case
+\newcommand{\CompCaseEnvoyRowsObserved}{984}  % envoy: rows with an outcome
+\newcommand{\CompCaseEnvoyRowsNotObserved}{0}  % envoy: rows where opcase did not end
+\newcommand{\CompCaseEnvoyRowsAsExpected}{693}  % envoy: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseEnvoyRowsDiffer}{291}  % envoy: observed rows whose reply does not
+\newcommand{\CompCaseEnvoyRowsNoDecision}{0}  % envoy: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseEnvoyVariants}{164}  % envoy: variants run, those its listener setup covers
+\newcommand{\CompCaseEnvoyCasesNotCovered}{none}  % envoy: cases in which it ran no variant
+\newcommand{\CompCaseEnvoyMatchedVariants}{164}  % envoy at matched timers: variants
+\newcommand{\CompCaseEnvoyMatchedVariantsAsExpected}{116}  % envoy at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseEnvoyMatchedVariantsDiffer}{48}  % envoy at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseEnvoyMatchedVariantsNotObserved}{0}  % envoy at matched timers: variants with no replicate observed
+\newcommand{\CompCaseEnvoyMatchedCasesDifferAll}{HC13, HC18, HC19, HC25}  % envoy at matched timers: cases in which every variant differs
+\newcommand{\CompCaseEnvoyMatchedCasesDifferSome}{HC1, HC2, HC3, HC14, HC17, HC24}  % envoy at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseEnvoyMatchedCasesNotObserved}{none}  % envoy at matched timers: cases with a variant not observed
+\newcommand{\CompCaseEnvoyDefaultVariants}{164}  % envoy at default timers: variants
+\newcommand{\CompCaseEnvoyDefaultVariantsAsExpected}{115}  % envoy at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseEnvoyDefaultVariantsDiffer}{49}  % envoy at default timers: variants whose replicates all differ
+\newcommand{\CompCaseEnvoyDefaultVariantsNotObserved}{0}  % envoy at default timers: variants with no replicate observed
+\newcommand{\CompCaseEnvoyDefaultCasesDifferAll}{HC13, HC18, HC19, HC25}  % envoy at default timers: cases in which every variant differs
+\newcommand{\CompCaseEnvoyDefaultCasesDifferSome}{HC1, HC2, HC3, HC7, HC14, HC17, HC24}  % envoy at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseEnvoyDefaultCasesNotObserved}{none}  % envoy at default timers: cases with a variant not observed
+\newcommand{\CompCaseCaddyLFourRows}{948}  % caddy-l4: rows of kind competitor-case
+\newcommand{\CompCaseCaddyLFourRowsObserved}{948}  % caddy-l4: rows with an outcome
+\newcommand{\CompCaseCaddyLFourRowsNotObserved}{0}  % caddy-l4: rows where opcase did not end
+\newcommand{\CompCaseCaddyLFourRowsAsExpected}{714}  % caddy-l4: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseCaddyLFourRowsDiffer}{234}  % caddy-l4: observed rows whose reply does not
+\newcommand{\CompCaseCaddyLFourRowsNoDecision}{174}  % caddy-l4: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseCaddyLFourVariants}{158}  % caddy-l4: variants run, those its listener setup covers
+\newcommand{\CompCaseCaddyLFourCasesNotCovered}{HC5, HC7, HC15}  % caddy-l4: cases in which it ran no variant
+\newcommand{\CompCaseCaddyLFourMatchedVariants}{158}  % caddy-l4 at matched timers: variants
+\newcommand{\CompCaseCaddyLFourMatchedVariantsAsExpected}{119}  % caddy-l4 at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseCaddyLFourMatchedVariantsDiffer}{39}  % caddy-l4 at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseCaddyLFourMatchedVariantsNotObserved}{0}  % caddy-l4 at matched timers: variants with no replicate observed
+\newcommand{\CompCaseCaddyLFourMatchedCasesDifferAll}{HC9, HC10, HC25}  % caddy-l4 at matched timers: cases in which every variant differs
+\newcommand{\CompCaseCaddyLFourMatchedCasesDifferSome}{HC2, HC3, HC14, HC16, HC17}  % caddy-l4 at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseCaddyLFourMatchedCasesNotObserved}{none}  % caddy-l4 at matched timers: cases with a variant not observed
+\newcommand{\CompCaseCaddyLFourDefaultVariants}{158}  % caddy-l4 at default timers: variants
+\newcommand{\CompCaseCaddyLFourDefaultVariantsAsExpected}{119}  % caddy-l4 at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseCaddyLFourDefaultVariantsDiffer}{39}  % caddy-l4 at default timers: variants whose replicates all differ
+\newcommand{\CompCaseCaddyLFourDefaultVariantsNotObserved}{0}  % caddy-l4 at default timers: variants with no replicate observed
+\newcommand{\CompCaseCaddyLFourDefaultCasesDifferAll}{HC9, HC10, HC25}  % caddy-l4 at default timers: cases in which every variant differs
+\newcommand{\CompCaseCaddyLFourDefaultCasesDifferSome}{HC2, HC3, HC14, HC16, HC17}  % caddy-l4 at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseCaddyLFourDefaultCasesNotObserved}{none}  % caddy-l4 at default timers: cases with a variant not observed
+\newcommand{\CompCaseSslhEvRows}{774}  % sslh-ev: rows of kind competitor-case
+\newcommand{\CompCaseSslhEvRowsObserved}{756}  % sslh-ev: rows with an outcome
+\newcommand{\CompCaseSslhEvRowsNotObserved}{18}  % sslh-ev: rows where opcase did not end
+\newcommand{\CompCaseSslhEvRowsAsExpected}{492}  % sslh-ev: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseSslhEvRowsDiffer}{264}  % sslh-ev: observed rows whose reply does not
+\newcommand{\CompCaseSslhEvRowsNoDecision}{6}  % sslh-ev: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseSslhEvVariants}{129}  % sslh-ev: variants run, those its listener setup covers
+\newcommand{\CompCaseSslhEvCasesNotCovered}{HC9, HC10, HC11, HC12, HC13, HC14, HC15}  % sslh-ev: cases in which it ran no variant
+\newcommand{\CompCaseSslhEvMatchedVariants}{129}  % sslh-ev at matched timers: variants
+\newcommand{\CompCaseSslhEvMatchedVariantsAsExpected}{81}  % sslh-ev at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseSslhEvMatchedVariantsDiffer}{46}  % sslh-ev at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseSslhEvMatchedVariantsNotObserved}{2}  % sslh-ev at matched timers: variants with no replicate observed
+\newcommand{\CompCaseSslhEvMatchedCasesDifferAll}{HC5, HC18, HC19, HC20}  % sslh-ev at matched timers: cases in which every variant differs
+\newcommand{\CompCaseSslhEvMatchedCasesDifferSome}{HC1, HC2, HC3, HC4, HC7, HC21, HC24}  % sslh-ev at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseSslhEvMatchedCasesNotObserved}{HC4, HC6}  % sslh-ev at matched timers: cases with a variant not observed
+\newcommand{\CompCaseSslhEvDefaultVariants}{129}  % sslh-ev at default timers: variants
+\newcommand{\CompCaseSslhEvDefaultVariantsAsExpected}{83}  % sslh-ev at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseSslhEvDefaultVariantsDiffer}{42}  % sslh-ev at default timers: variants whose replicates all differ
+\newcommand{\CompCaseSslhEvDefaultVariantsNotObserved}{4}  % sslh-ev at default timers: variants with no replicate observed
+\newcommand{\CompCaseSslhEvDefaultCasesDifferAll}{HC5, HC18, HC19, HC20}  % sslh-ev at default timers: cases in which every variant differs
+\newcommand{\CompCaseSslhEvDefaultCasesDifferSome}{HC1, HC2, HC3, HC7, HC21, HC24}  % sslh-ev at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseSslhEvDefaultCasesNotObserved}{HC4, HC6}  % sslh-ev at default timers: cases with a variant not observed
+\newcommand{\CompCaseNettyRows}{948}  % netty: rows of kind competitor-case
+\newcommand{\CompCaseNettyRowsObserved}{933}  % netty: rows with an outcome
+\newcommand{\CompCaseNettyRowsNotObserved}{15}  % netty: rows where opcase did not end
+\newcommand{\CompCaseNettyRowsAsExpected}{126}  % netty: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseNettyRowsDiffer}{807}  % netty: observed rows whose reply does not
+\newcommand{\CompCaseNettyRowsNoDecision}{9}  % netty: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseNettyVariants}{158}  % netty: variants run, those its listener setup covers
+\newcommand{\CompCaseNettyCasesNotCovered}{HC5, HC7, HC15}  % netty: cases in which it ran no variant
+\newcommand{\CompCaseNettyMatchedVariants}{158}  % netty at matched timers: variants
+\newcommand{\CompCaseNettyMatchedVariantsAsExpected}{24}  % netty at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseNettyMatchedVariantsDiffer}{134}  % netty at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseNettyMatchedVariantsNotObserved}{0}  % netty at matched timers: variants with no replicate observed
+\newcommand{\CompCaseNettyMatchedCasesDifferAll}{HC1, HC2, HC3, HC9, HC10, HC18, HC20, HC25}  % netty at matched timers: cases in which every variant differs
+\newcommand{\CompCaseNettyMatchedCasesDifferSome}{HC14, HC16, HC17, HC24}  % netty at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseNettyMatchedCasesNotObserved}{none}  % netty at matched timers: cases with a variant not observed
+\newcommand{\CompCaseNettyDefaultVariants}{158}  % netty at default timers: variants
+\newcommand{\CompCaseNettyDefaultVariantsAsExpected}{18}  % netty at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseNettyDefaultVariantsDiffer}{135}  % netty at default timers: variants whose replicates all differ
+\newcommand{\CompCaseNettyDefaultVariantsNotObserved}{5}  % netty at default timers: variants with no replicate observed
+\newcommand{\CompCaseNettyDefaultCasesDifferAll}{HC1, HC2, HC3, HC9, HC10, HC18, HC20, HC25}  % netty at default timers: cases in which every variant differs
+\newcommand{\CompCaseNettyDefaultCasesDifferSome}{HC14, HC16, HC17, HC23, HC24}  % netty at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseNettyDefaultCasesNotObserved}{HC4, HC6, HC12}  % netty at default timers: cases with a variant not observed
+\newcommand{\CompCaseJettyRows}{948}  % jetty: rows of kind competitor-case
+\newcommand{\CompCaseJettyRowsObserved}{948}  % jetty: rows with an outcome
+\newcommand{\CompCaseJettyRowsNotObserved}{0}  % jetty: rows where opcase did not end
+\newcommand{\CompCaseJettyRowsAsExpected}{66}  % jetty: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseJettyRowsDiffer}{882}  % jetty: observed rows whose reply does not
+\newcommand{\CompCaseJettyRowsNoDecision}{0}  % jetty: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseJettyVariants}{158}  % jetty: variants run, those its listener setup covers
+\newcommand{\CompCaseJettyCasesNotCovered}{HC5, HC7, HC15}  % jetty: cases in which it ran no variant
+\newcommand{\CompCaseJettyMatchedVariants}{158}  % jetty at matched timers: variants
+\newcommand{\CompCaseJettyMatchedVariantsAsExpected}{11}  % jetty at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseJettyMatchedVariantsDiffer}{147}  % jetty at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseJettyMatchedVariantsNotObserved}{0}  % jetty at matched timers: variants with no replicate observed
+\newcommand{\CompCaseJettyMatchedCasesDifferAll}{HC1, HC2, HC3, HC8, HC9, HC10, HC11, HC12, HC13, HC14, HC16, HC17, HC18, HC20, HC24, HC25}  % jetty at matched timers: cases in which every variant differs
+\newcommand{\CompCaseJettyMatchedCasesDifferSome}{HC4}  % jetty at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseJettyMatchedCasesNotObserved}{none}  % jetty at matched timers: cases with a variant not observed
+\newcommand{\CompCaseJettyDefaultVariants}{158}  % jetty at default timers: variants
+\newcommand{\CompCaseJettyDefaultVariantsAsExpected}{11}  % jetty at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseJettyDefaultVariantsDiffer}{147}  % jetty at default timers: variants whose replicates all differ
+\newcommand{\CompCaseJettyDefaultVariantsNotObserved}{0}  % jetty at default timers: variants with no replicate observed
+\newcommand{\CompCaseJettyDefaultCasesDifferAll}{HC1, HC2, HC3, HC8, HC9, HC10, HC11, HC12, HC13, HC14, HC16, HC17, HC18, HC20, HC24, HC25}  % jetty at default timers: cases in which every variant differs
+\newcommand{\CompCaseJettyDefaultCasesDifferSome}{HC4}  % jetty at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseJettyDefaultCasesNotObserved}{none}  % jetty at default timers: cases with a variant not observed
+\newcommand{\CompCaseCmuxRows}{774}  % cmux: rows of kind competitor-case
+\newcommand{\CompCaseCmuxRowsObserved}{756}  % cmux: rows with an outcome
+\newcommand{\CompCaseCmuxRowsNotObserved}{18}  % cmux: rows where opcase did not end
+\newcommand{\CompCaseCmuxRowsAsExpected}{273}  % cmux: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseCmuxRowsDiffer}{483}  % cmux: observed rows whose reply does not
+\newcommand{\CompCaseCmuxRowsNoDecision}{15}  % cmux: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseCmuxVariants}{129}  % cmux: variants run, those its listener setup covers
+\newcommand{\CompCaseCmuxCasesNotCovered}{HC9, HC10, HC11, HC12, HC13, HC14, HC15}  % cmux: cases in which it ran no variant
+\newcommand{\CompCaseCmuxMatchedVariants}{129}  % cmux at matched timers: variants
+\newcommand{\CompCaseCmuxMatchedVariantsAsExpected}{48}  % cmux at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseCmuxMatchedVariantsDiffer}{80}  % cmux at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseCmuxMatchedVariantsNotObserved}{1}  % cmux at matched timers: variants with no replicate observed
+\newcommand{\CompCaseCmuxMatchedCasesDifferAll}{HC20, HC25}  % cmux at matched timers: cases in which every variant differs
+\newcommand{\CompCaseCmuxMatchedCasesDifferSome}{HC1, HC2, HC3, HC7, HC17, HC21, HC23, HC24}  % cmux at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseCmuxMatchedCasesNotObserved}{HC4}  % cmux at matched timers: cases with a variant not observed
+\newcommand{\CompCaseCmuxDefaultVariants}{129}  % cmux at default timers: variants
+\newcommand{\CompCaseCmuxDefaultVariantsAsExpected}{43}  % cmux at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseCmuxDefaultVariantsDiffer}{81}  % cmux at default timers: variants whose replicates all differ
+\newcommand{\CompCaseCmuxDefaultVariantsNotObserved}{5}  % cmux at default timers: variants with no replicate observed
+\newcommand{\CompCaseCmuxDefaultCasesDifferAll}{HC7, HC20, HC25}  % cmux at default timers: cases in which every variant differs
+\newcommand{\CompCaseCmuxDefaultCasesDifferSome}{HC1, HC2, HC3, HC17, HC21, HC23, HC24}  % cmux at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseCmuxDefaultCasesNotObserved}{HC4, HC6}  % cmux at default timers: cases with a variant not observed
+\newcommand{\CompCaseHyperUtilRows}{744}  % hyper-util: rows of kind competitor-case
+\newcommand{\CompCaseHyperUtilRowsObserved}{720}  % hyper-util: rows with an outcome
+\newcommand{\CompCaseHyperUtilRowsNotObserved}{24}  % hyper-util: rows where opcase did not end
+\newcommand{\CompCaseHyperUtilRowsAsExpected}{24}  % hyper-util: observed rows whose reply equals what the server's table expects
+\newcommand{\CompCaseHyperUtilRowsDiffer}{696}  % hyper-util: observed rows whose reply does not
+\newcommand{\CompCaseHyperUtilRowsNoDecision}{36}  % hyper-util: observed rows with no decision within T_OBS, also counted by their reply
+\newcommand{\CompCaseHyperUtilVariants}{124}  % hyper-util: variants run, those its listener setup covers
+\newcommand{\CompCaseHyperUtilCasesNotCovered}{HC5, HC7, HC9, HC10, HC11, HC12, HC13, HC14, HC15}  % hyper-util: cases in which it ran no variant
+\newcommand{\CompCaseHyperUtilMatchedVariants}{124}  % hyper-util at matched timers: variants
+\newcommand{\CompCaseHyperUtilMatchedVariantsAsExpected}{4}  % hyper-util at matched timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseHyperUtilMatchedVariantsDiffer}{116}  % hyper-util at matched timers: variants whose replicates all differ
+\newcommand{\CompCaseHyperUtilMatchedVariantsNotObserved}{4}  % hyper-util at matched timers: variants with no replicate observed
+\newcommand{\CompCaseHyperUtilMatchedCasesDifferAll}{HC1, HC2, HC3, HC8, HC16, HC17, HC18, HC19, HC20, HC23, HC24, HC25}  % hyper-util at matched timers: cases in which every variant differs
+\newcommand{\CompCaseHyperUtilMatchedCasesDifferSome}{HC4}  % hyper-util at matched timers: cases in which some variants differ, not all
+\newcommand{\CompCaseHyperUtilMatchedCasesNotObserved}{HC4, HC6}  % hyper-util at matched timers: cases with a variant not observed
+\newcommand{\CompCaseHyperUtilDefaultVariants}{124}  % hyper-util at default timers: variants
+\newcommand{\CompCaseHyperUtilDefaultVariantsAsExpected}{4}  % hyper-util at default timers: variants whose replicates all equal what the server's table expects
+\newcommand{\CompCaseHyperUtilDefaultVariantsDiffer}{116}  % hyper-util at default timers: variants whose replicates all differ
+\newcommand{\CompCaseHyperUtilDefaultVariantsNotObserved}{4}  % hyper-util at default timers: variants with no replicate observed
+\newcommand{\CompCaseHyperUtilDefaultCasesDifferAll}{HC1, HC2, HC3, HC8, HC16, HC17, HC18, HC19, HC20, HC23, HC24, HC25}  % hyper-util at default timers: cases in which every variant differs
+\newcommand{\CompCaseHyperUtilDefaultCasesDifferSome}{HC4}  % hyper-util at default timers: cases in which some variants differ, not all
+\newcommand{\CompCaseHyperUtilDefaultCasesNotObserved}{HC4, HC6}  % hyper-util at default timers: cases with a variant not observed
+\newcommand{\CompCaseSystems}{9}  % systems in the table
+\newcommand{\CompCaseCases}{25}  % Appendix A's cases that some system ran
+\newcommand{\CompCaseVariants}{164}  % distinct variants (ids) in the table
+\newcommand{\CompCaseStarts}{26}  % hc1: starts of a system in a cases kind at a timer setting, all ok
+\newcommand{\CompCaseUnitsMixed}{0}  % variants at a timer setting whose replicates are not alike (each named in a deviation line)
+\newcommand{\CompCaseRows}{8{,}052}  % all systems: Rows
+\newcommand{\CompCaseRowsObserved}{7{,}977}  % all systems: RowsObserved
+\newcommand{\CompCaseRowsNotObserved}{75}  % all systems: RowsNotObserved
+\newcommand{\CompCaseRowsAsExpected}{3{,}327}  % all systems: RowsAsExpected
+\newcommand{\CompCaseRowsDiffer}{4{,}650}  % all systems: RowsDiffer
+\newcommand{\CompCaseRowsNoDecision}{243}  % all systems: RowsNoDecision

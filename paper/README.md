@@ -22,8 +22,12 @@ Discussion and Conclusions are stubs marked pending.
 - `hardcase_macros.py`: writes `../results/hardcase-macros.tex`, B1's and B2's counts and
   decisions, from the hard-case runners' archived outputs (each `hardcases.jsonl` checked against
   its `hardcases-table-<job>.json`) and `summary.json`'s `b1_failures`, naming each input by its
-  sha256. It lives here for the same reason as `design_macros.py` (the revision log's entry "B1's
-  and B2's decisions from the hard-case runners' outputs (a reading)").
+  sha256. With `--competitors JOB competitor_cases.jsonl` it adds the competitors' table of
+  section 10 (lab job hc1; macros `CompCase...`): per system and per timer setting, the rows and
+  variants whose reply equals what the server's frozen table expects, those that differ, those not
+  observed, and the cases of each. It is descriptive and holds no time; it needs `--server L`, whose
+  variants the table must match. It lives here for the same reason as `design_macros.py` (the
+  revision log's entry "B1's and B2's decisions from the hard-case runners' outputs (a reading)").
 - `test_hardcase_macros.py`: its tests.
 - `not_run.py`: writes `../results/not-run.json`, every cell that `summary.json` has short of its
   R, with its not-run file's reason or, for a cell that ran, its rows' counts and invalid reasons,
