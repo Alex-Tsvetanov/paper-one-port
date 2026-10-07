@@ -7156,6 +7156,164 @@ ran from a clone before the change and is not used. For each job's rows file:
 The analysis of section 10 is given the rows of sl3 and ws1 only, never sl1's
 (`~/lab/p3/evidence/s-L-sl1-b1count`).
 
+## L after bs1, 2026-10-07
+
+One agent session on L, after bs1 ended (exit 0 at 2026-10-07 01:29:57) and the coordinator allowed
+connections to L again. W measures ws1 meanwhile; this session ran nothing on W. It follows the
+order of design/STATE.md items 3 to 5 and the commands of "The B1 change, 2026-10-06", section 2,
+with the deviations that sections 3, 4 and 5 name. Nothing here is a result: validity and counts
+only, no arm compared, no ratio, interval or test computed.
+
+### 1. bs1 and bk1: counts
+
+bs1 (lab job pid 791871, `l_run.sh ... b3 bs1` from `m7g/post-src7` at d29968b; start file
+2026-10-05 18:26:20, first window 18:28:00, last window started 2026-10-07 01:28:53, done file
+01:29:57, exit 0), output `~/lab/p3/b3-L`: B3's 34 cells of 6.2 and section 10's 4 other-mode cells,
+2,432 windows planned without reruns (38 cells x 16 sessions x 4 windows). The rows: 2,628
+windows in 657 sessions (608 base sessions and 49 reruns), every row `development: false`, no
+stub, no driver fault. 2,578 windows valid, 50 invalid, so 607 sessions valid. The per-cell counts
+of `l_check.py` and of `summary-b3_run-bs1.json` equal the rows' (checked for all 38 cells:
+sessions, valid sessions, reruns, invalid windows).
+
+Each invalid session holds exactly one invalid window. By the reason string (section 7's rules,
+which describe the host's state at the samples, not a system): 44 windows by the TIME-WAIT rule at
+both samples, 5 by it at sample 2 only, 1 by the settling rule (B3.partial-hello.sslh-ev.epoll.s06,
+W 6749.4 then 6888.7 bytes per pending connection, tolerance 137.8). No cause is established here.
+
+R = 16 valid sessions per cell: 37 cells reached it. **B3.partial-hello.cmux.epoll did not**: 20
+sessions (16 base and the 4 reruns of its cap, 4.1's ceil(R/4) at R = 16), 15 valid, 5 invalid
+(each by the TIME-WAIT rule at both samples). No treatment is proposed here. Per cell, with "TW
+both" and "TW s2 only" for the TIME-WAIT rule at both samples and at sample 2 only:
+
+| Cell | Valid / invalid windows | Valid sessions | Reruns | Invalid windows by reason |
+|---|---|---|---|---|
+| B3.partial-hello.caddy-l4.epoll | 67 / 1 | 16 | 1 | 1 TW both |
+| B3.partial-hello.caddy-l4.io_uring | 67 / 1 | 16 | 1 | 1 TW both |
+| B3.partial-hello.cmux.epoll | 75 / 5 | 15 | 4 | 5 TW both |
+| B3.partial-hello.cmux.io_uring | 67 / 1 | 16 | 1 | 1 TW both |
+| B3.partial-hello.envoy.epoll | 64 / 0 | 16 | 0 | none |
+| B3.partial-hello.envoy.io_uring | 67 / 1 | 16 | 1 | 1 TW both |
+| B3.partial-hello.haproxy.epoll | 73 / 3 | 16 | 3 | 3 TW both |
+| B3.partial-hello.haproxy.io_uring | 64 / 0 | 16 | 0 | none |
+| B3.partial-hello.jetty.epoll | 64 / 0 | 16 | 0 | none |
+| B3.partial-hello.jetty.io_uring | 67 / 1 | 16 | 1 | 1 TW s2 only |
+| B3.partial-hello.netty.epoll | 73 / 3 | 16 | 3 | 2 TW both, 1 TW s2 only |
+| B3.partial-hello.netty.io_uring | 64 / 0 | 16 | 0 | none |
+| B3.partial-hello.nginx.epoll | 70 / 2 | 16 | 2 | 2 TW both |
+| B3.partial-hello.nginx.io_uring | 67 / 1 | 16 | 1 | 1 TW both |
+| B3.partial-hello.sslh-ev.epoll | 73 / 3 | 16 | 3 | 2 TW both, 1 not settled |
+| B3.partial-hello.sslh-ev.io_uring | 73 / 3 | 16 | 3 | 3 TW both |
+| B3.silent.caddy-l4.epoll | 64 / 0 | 16 | 0 | none |
+| B3.silent.caddy-l4.io_uring | 67 / 1 | 16 | 1 | 1 TW s2 only |
+| B3.silent.cmux.epoll | 70 / 2 | 16 | 2 | 2 TW both |
+| B3.silent.cmux.io_uring | 64 / 0 | 16 | 0 | none |
+| B3.silent.envoy.epoll | 70 / 2 | 16 | 2 | 2 TW both |
+| B3.silent.envoy.io_uring | 70 / 2 | 16 | 2 | 2 TW both |
+| B3.silent.haproxy.epoll | 67 / 1 | 16 | 1 | 1 TW both |
+| B3.silent.haproxy.io_uring | 73 / 3 | 16 | 3 | 3 TW both |
+| B3.silent.hyper-util.epoll | 70 / 2 | 16 | 2 | 2 TW both |
+| B3.silent.hyper-util.io_uring | 64 / 0 | 16 | 0 | none |
+| B3.silent.jetty.epoll | 73 / 3 | 16 | 3 | 2 TW both, 1 TW s2 only |
+| B3.silent.jetty.io_uring | 64 / 0 | 16 | 0 | none |
+| B3.silent.netty.epoll | 64 / 0 | 16 | 0 | none |
+| B3.silent.netty.io_uring | 70 / 2 | 16 | 2 | 2 TW both |
+| B3.silent.nginx.epoll | 73 / 3 | 16 | 3 | 3 TW both |
+| B3.silent.nginx.io_uring | 64 / 0 | 16 | 0 | none |
+| B3.silent.sslh-ev.epoll | 67 / 1 | 16 | 1 | 1 TW s2 only |
+| B3.silent.sslh-ev.io_uring | 67 / 1 | 16 | 1 | 1 TW both |
+| S.b3-other-mode.epoll.partial-hello | 67 / 1 | 16 | 1 | 1 TW both |
+| S.b3-other-mode.epoll.silent | 64 / 0 | 16 | 0 | none |
+| S.b3-other-mode.io_uring.partial-hello | 67 / 1 | 16 | 1 | 1 TW both |
+| S.b3-other-mode.io_uring.silent | 64 / 0 | 16 | 0 | none |
+
+bk1 (lab job pid 789468, `m7g/post-src6` at d29968b, 18:15:48 to 18:25:49, exit 0): 17 `ophold`
+windows in `b3-L`, 16 valid; window 1 is invalid (TIME-WAIT count 1 at both samples, 0 at the
+baseline). So K_BASE has its 16 valid windows (WL7); the analysis computes K_BASE itself.
+
+bf1 (21 windows, 20 valid, development data) was archived at its end, and the archive holds
+`b3feas-L`: `~/lab/p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256
+d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd, checked again (`sha256sum -c`
+OK). Nothing was left to archive for it.
+
+bs1's rows carry no `change_commit`: bs1 ran from d29968b, before the B1 change (9cae2de changed
+`cellwin.py`, `wcellwin.py`, `freeze_guard.py` and two test files). Section 3 of "The B1 change"
+asks for the commit of the rows of sl3, ws1 and hc1 only.
+
+### 2. Archive, journal, push
+
+- `b3-L` and the job files of bk1 and bs1 (pid, start, log, done, clock, THP and NOTRACK records;
+  `l_run.sh`): `~/lab/p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz` on L, 16,289,698 bytes, 16,471
+  paths, sha256 3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8 (`.sha256`
+  beside it, `sha256sum -c` OK). `b3-L/windows.jsonl` (2,645 lines: bk1's 17 and bs1's 2,628) has
+  sha256 0fcba90dd1422beeea49089bff0052ae002c1ab5451e97c88cab2c797a51feb0 on disk and inside the
+  archive. One archive serves both jobs because `b3-L` holds both, so the journal lines of bk1 and
+  bs1 name the same sha256 on purpose. Raw data stays out of git.
+- Lab journal (Papers `lab/journal.jsonl`): four lines. bf1, development, b3.py windows; bk1 and
+  bs1, frozen runs (`code_commit` d29968b); sl1 archived, evidence only (`code_commit` 7a63a08), as
+  STATE.md item 4 (a) names.
+- `git push lab main`: d29968b..29ae2b6, so L's clones see 9cae2de and 9830457 now.
+
+### 3. sl1's archive and its directory
+
+`sha256sum -c` on `~/lab/p3-raw-2026-10-05-sl1-partial-ff2679cc8.tar.gz`: OK, sha256
+89b8a036e1266818eb23842c58717ef2e8c815f499c1cab44bd8ccf98138149d. `s-L/windows.jsonl` inside the
+archive and on disk: both 2f2914b612fecdcb0f88877e104df93b6022b15094c973e4855e4ac3afb1af40; 2,225
+paths under `s-L` on disk and in the archive. (The archive and its `.sha256` are in `~/lab`, not in
+`~/lab/p3` where "The B1 change", section 2 step 1 has `cd`; the commands ran from `~/lab`.) Then
+`~/lab/p3/s-L` moved to `~/lab/p3/evidence/s-L-sl1-b1count`; the moved `windows.jsonl` has the same
+sha256, and `~/lab/p3/s-L` did not exist before sl3.
+
+### 4. Clones, and the check of the change on L
+
+- Fresh clones of the lab remote, `~/lab/p3/m7g/post-src8` (sl3) and `post-src9` (hc1), both at
+  29ae2b6 (the docs commit after 9830457): each has 9830457 and 9cae2de as ancestors, and
+  `git status --short` is empty.
+- `test_frozen` and `test_runner` from `post-src8`, as lab job b1chk1 (pid 1195129, nice 0 under
+  the lab lock, 06:52:28 to 06:52:33, exit 0; script `m7g/b1chk.sh` sha256
+  b61941557c8c8fbf70b135ca455709b8cbaec0ba18488dcd2becfa6a45a6972a, `PYTHONDONTWRITEBYTECODE=1` so
+  the clone stays clean). Both exit 0. `test_frozen`: 61 checks, 0 failures, 0 errors, 0 skipped
+  (W: 61, 2 skipped); log `m7g/b1fix-L-test_frozen.log` sha256
+  8749b63c2229b52ca0e3e583b5430abe6bfca32f0152a58b2e367d2bf2332fb0. `test_runner`: 63 checks, 0
+  failures, 0 errors, none skipped (W: 63, 13 skipped); log `m7g/b1fix-L-test_runner.log` sha256
+  c901194edb0f6586700664060aa091a2d5832fea14ac486b7a5b39662cca1f43. The clone is still clean.
+- Deviation from the prepared commands: `grep '^Python3_EXECUTABLE'` finds nothing in the records
+  build's CMakeCache.txt (the key is `_Python3_EXECUTABLE:INTERNAL`). Its value, `/usr/bin/python3.14`
+  (3.14.7), is what `python3` is on L, and what `b1chk.sh` used.
+
+### 5. The chain pc2 (sl3, then hc1)
+
+One lab job at nice 0 under the lab lock, as pc1 was: `m7g/post_chain2.sh` (sha256
+2ccdb16a8e1abbe1620ad840048b222acec5de513f3a8896eaebfdb2c169f2e1) runs `l_run.sh post-src8 s sl3`,
+then `l_run.sh post-src9 comp hc1`, and stops unless a step exits 0 (exit 11 if sl3 fails, 12 if hc1
+fails). It replaces the two separate launches of "The B1 change", section 2 steps 3 and 4, so
+**there is no `sl3.pid`, `sl3.done`, `hc1.pid` or `hc1.done`**. Watch `~/lab/p3/m7g/pc2.pid`,
+`pc2.done` and `pc2.log`: sl3 has ended when `pc2.log` holds the line `== sl3 exit 0`, hc1 when it
+holds `== hc1 exit 0` and `pc2.done` exists. `l_check.py DIR JOB` still works by job name
+(`l_check.py ~/lab/p3/s-L sl3`). Launched from bash on L:
+
+    bash -c '(setsid nohup bash ~/lab/p3/m7g/post-src8/bench/run/lab_job.sh ~/lab/p3/m7g pc2 bash ~/lab/p3/m7g/post_chain2.sh > /dev/null 2>&1 &)'
+
+pc2 (lab job pid 1196837, nice 0) started 2026-10-07 06:55:26; sl3 started 06:55:27 (the 80 s
+warm-up, then its first window at 06:56:49); output `~/lab/p3/s-L` for sl3 and
+`~/lab/p3/hardcomp-L` for hc1. First rows of sl3, read at 59 rows: every row has `job` sl3,
+`development: false` and no driver fault; `provenance.freeze.freeze` names `code_freeze` ff2679c,
+`head` 29ae2b6 and `change_commit` 9cae2deff2b01896bfab25c5af4c610381dc3c1d; section 3's one-liner
+gives 0 rows without the change commit.
+
+The end, an estimate from sl3's first windows only: 5.97 s per window over 59 windows (06:56:49
+to 07:02:35), 2,432 windows planned without reruns (`plan-s_run.json`: 608 base sessions), so sl3
+ends near 10:58 on 2026-10-07, later by its reruns and by any cell whose windows are longer than
+these. At the pace of sl1's first 384 windows (the same order and seed, 6.62 s per window) it would
+be near 11:25. The invalid windows among the first 60 are the logged ones (sslh-ev's cells, and SSH
+C2, which has no keep-alive form: "L after the cost family", section 4 items 3 and 4). hc1 has no
+measured pace (each observation lasts at most T_OBS = 60 s, and how many wait that long is
+unknown), so the chain's end is sl3's end plus hc1's own time, not estimated here.
+
+After sl3 and after hc1, each: `l_check.py`, `bench/check_rows.py` against `gate-L.json`, section
+3's provenance check, the archive (`~/lab/p3-raw-DATE-JOB-ff2679cc8.tar.gz` with its `.sha256`,
+holding the output directory, the job files of pc2 and `post_chain2.sh`), and the journal line. The
+clones `post-src8` and `post-src9` stay as they are until then.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
