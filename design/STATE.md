@@ -3,10 +3,11 @@
 A digest for orientation, refreshed at each milestone. It is not a record: it holds no result and
 compares no arms. `design/status.md` and the revision log at the end of `hypotheses.md` stay
 authoritative; open them only at the section named here, by grep or line range. As of 2026-10-07
-(evening), one-port e5e6724 (the analysis outputs) plus the docs of this refresh (status.md, "The
-confirmatory analysis on W, 2026-10-07"; "L's section 10 job sl3, 2026-10-07", "W's section 10 job
-ws1, 2026-10-07", "L after bs1, 2026-10-07" and "The B1 change, 2026-10-06" before it), plus facts
-from the coordinator not yet in the repo, marked "(coord.)".
+(night), one-port 5cc0cb2 (the macros, the B1 and B2 macros, the not-run list) plus the docs of this
+refresh (status.md, "The macros' TeX escaping and B1's and B2's macros, 2026-10-07"; "The
+confirmatory analysis on W, 2026-10-07", "L's section 10 job sl3, 2026-10-07", "W's section 10 job
+ws1, 2026-10-07" and "L after bs1, 2026-10-07" before it), plus facts from the coordinator not yet
+in the repo, marked "(coord.)".
 
 ## 1. Where P3 stands
 
@@ -18,7 +19,8 @@ change under section 8): sl1 is archived as evidence only (moved to `~/lab/p3/ev
 section 10 runs again from its start. On L that is the chain pc2: sl3 ended 2026-10-07 11:23:38
 (exit 0) and is followed up (status.md "L's section 10 job sl3": 2,548 rows, 31 of 38 cells at R = 16,
 7 cells with no valid session: sslh-ev's four, SSH C2's two and the mixed cell on io_uring; the mixed
-cell on epoll valid, 16 of 16), then the competitors' table hc1, running since 11:23:38; on W, ws1
+cell on epoll valid, 16 of 16), then the competitors' table hc1 (11:23:38 to 18:47:43, `pc2.done`
+exit 0; its follow-up is another agent's); on W, ws1
 ended 2026-10-07 07:00:37 (exit 0) and is followed up (status.md "W's section 10 job ws1": 600 rows,
 8 of 9 cells at R = 16, SSH C2 with no valid window, the mixed cell valid). W: cost family (wc1, stopped at Alex's request, then wc2), M1's IOCP cells
 (wm1) and hard cases on IOCP (wh1) ended 2026-10-06 02:53:16 (wc2, wm1 and wh1 exit 0); the
@@ -27,10 +29,12 @@ hard cases all passed, each out directory archived and journaled; W has no job l
 and followed up, archived and journaled). Freeze order (hypotheses.md section 8): steps 1
 to 6 done (hypotheses freeze 64a23f7, engineering, CODE_FREEZE, A/A pilots, simulation, pilot
 entry). Step 7: rule E, M2's rates, B3 feasibility windows and K_BASE's windows done; confirmatory,
-secondary and hard-case runs in progress (hc1 last). The frozen analysis ran on W on 2026-10-07
+secondary and hard-case runs done (hc1's follow-up open). The frozen analysis ran on W on 2026-10-07
 from every confirmatory row file (status.md "The confirmatory analysis on W, 2026-10-07"); its
-`summary.json`, `decisions.csv` and `provenance.json` are in `results/` (e5e6724).
-`results/macros.tex` is generated but held back (section 5, item 10). Then the paper.
+`summary.json`, `decisions.csv` and `provenance.json` are in `results/` (e5e6724). After the TeX
+escaping of `analysis/macros.py` (a later change, ANALYSIS_COMMIT 2045551) `results/macros.tex` is
+committed (f4ad14e); B1's and B2's macros (`results/hardcase-macros.tex`) and the cells not run or
+short of R (`results/not-run.json`) are committed (5cc0cb2). Then the paper.
 
 ## 2. Fixed points
 
@@ -45,18 +49,28 @@ from every confirmatory row file (status.md "The confirmatory analysis on W, 202
   at 9830457 or later. A clone before 9cae2de has the frozen guard and the defective count, and
   that guard cannot refuse it: never start a frozen run from one. Rows record the commit at
   `provenance.freeze.freeze.change_commit`.
-- ANALYSIS_COMMIT = 9de26d614c85b606fb5169ed16528b7189a87ac4 (2055e63; replaced 7364fbb of d16d8b4);
-  unchanged by the B1 change (no file under `analysis/` changed); its `analysis/` tree is bf77349b.
-  numpy 2.5.0 and Python 3.14.7 in L's venv `~/opt/analysis-numpy-2.5.0/venv` (wheel sha256
+- ANALYSIS_COMMIT = 204555104f0191152d1f4bf392d2a76b0aebc1b5 (entry "The macros' TeX escaping (a
+  later change under section 8)", item 6, 0126ca2; replaced 9de26d6 of 2055e63, which replaced
+  7364fbb). It differs from 9de26d6 in `analysis/macros.py` and `analysis/test_analyse.py` alone;
+  `analyse.py` and its imports are 9de26d6's, whose tree is bf77349b; the pilot ran at 9de26d6.
+  Suite at 2045551 on W: 73 passed, 2 skipped. numpy 2.5.0 and Python 3.14.7 in L's venv `~/opt/analysis-numpy-2.5.0/venv` (wheel sha256
   39a0433b..., PyPI's). On W: `C:\Users\alext\lab\p3\confirm1\venv`, numpy 2.5.0 from the
   win_amd64 wheel (sha256 ebb81d9d..., PyPI's) on Python 3.14.5.
 - The confirmatory analysis (2026-10-07, on W, clone 7c1310a, run twice, byte-identical):
   `results/summary.json` a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8,
   `results/decisions.csv` 6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f,
   `results/provenance.json` 7490b9fb337064a043eb11f130f92d884f21d464fa94ec2ccdfa886b3dbec88c;
-  `macros.tex` (held back, on W in `confirm1\out1`)
-  cb5e16e70879fbab49051045adcad999b6744ff2abe5ca85b8958f31990a61f9. Nothing is run again to
-  change a decision (section 13).
+  the held-back `macros.tex` cb5e16e7 (on W in `confirm1\out1`). Nothing is run again to change a
+  decision (section 13).
+- After the escaping (status.md "The macros' TeX escaping and B1's and B2's macros"):
+  `results/macros.tex` 408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992 (2,168
+  macros; six lines differ from cb5e16e7); `results/macros-provenance.json` (ac9daf1; both hosts'
+  reruns: W's `decisions.csv` byte-identical and `summary.json` only `versions.analysis_commit`
+  apart; L's `macros.tex` byte-identical, its `summary.json` and `decisions.csv` apart from W's in
+  floats of at most 1.1e-16 and in `versions.python`, no decision apart);
+  `results/hardcase-macros.tex` 377a1fa257edeb7fdbf8925d66add899bc02c54798f4b3829624d94a75597765
+  (`paper/hardcase_macros.py`; B1 and B2 hold); `results/not-run.json`
+  04683cff7002d57117cc417b6e9e418d45625a84bb10e40e8b7dbe8a5f8c1bb6 (`paper/not_run.py`, 19 cells).
 - Pilot entry (7455e28): R_C = 28 (rerun cap 7 per cell); m_C = 32 (32 of 36 cost cells resolved).
   Not resolved: cells 34 (C3.W.IOCP.h2c) and 36 (C3.W.IOCP.mqtt), Power_c(31) 0.000; they run at
   R_C and are reported as not resolved, no equivalence claimed. Outside the family: cells 10
@@ -115,6 +129,8 @@ sslh-ev's stalled exchanges, section 10's syscall check (2026-10-02 and 03; `git
 | 10-05 | B3 feasibility windows and competitors' table (two readings) | 1c4193a | `b3.py` runs the 21 windows; the table runs for all nine systems, last on L |
 | 10-05 | M2's rates (M2_RATE) | 7a63a08 | HTTP/1.1 rates; TLS cells not run |
 | 10-06 | The B1 count of the mixed cell (a later change under section 8) | 9830457 | fix 9cae2de (CHANGE_COMMIT); section 8 read part by part; records and gates of CODE_FREEZE still cover the build; sl1 archived as evidence and section 10 again, as Alex's decision (not compelled by the archive clause) |
+| 10-07 | The macros' TeX escaping (a later change under section 8) | 90e5138, 0126ca2 | entry before the fix 2045551, item 6 after it: ANALYSIS_COMMIT 2045551; text values TeX-escaped; no decision moves; checks on W and L defined before they ran |
+| 10-07 | B1's and B2's decisions from the hard-case runners' outputs (a reading) | 18f97a8, 4ca64bb | B1's hard-case part and B2 read from the runners' rows and tables (not `analysis/`); `paper/hardcase_macros.py` writes them; item 6 after its review |
 
 Alex's decisions:
 - 2026-10-03: L kernel 7.2.6 by kexec, for NOTRACK (7001e91); THP at madvise for every lab job
@@ -157,7 +173,7 @@ from its section "W's confirmatory jobs, 2026-10-05/06" (validity read, no arm c
 | B3 feasibility (development) | L | bf1 | `b3feas-L` | done: 21 windows, 20 valid; archived (`p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256 d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd); journaled |
 | K_BASE | L | bk1 | `b3-L` | done: 17 windows, 16 valid (window 1 TIME-WAIT); archived with bs1; journaled |
 | B3 sessions | L | bs1 | `b3-L` | done 2026-10-07 01:29:57, exit 0: 2,628 windows in 657 sessions (49 reruns), 2,578 valid, 50 invalid (44 TIME-WAIT at both samples, 5 at sample 2 only, 1 not settled); 37 of 38 cells reached R = 16; B3.partial-hello.cmux.epoll ended at 15 valid after its 4 reruns (the cap), no treatment proposed; archived with bk1 (`p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz`, sha256 3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8); journaled; rows carry no `change_commit` (ran from d29968b) |
-| Competitors' table | L | hc1 | `hardcomp-L` | second step of pc2, clone `m7g/post-src9` at 29ae2b6; started 2026-10-07 11:23:38 and still running at 17:51 (no `pc2.done` yet); no measured pace |
+| Competitors' table | L | hc1 | `hardcomp-L` | second step of pc2, clone `m7g/post-src9` at 29ae2b6; 2026-10-07 11:23:38 to 18:47:43 (`pc2.done` exit 0); 8,078 lines in `competitor_cases.jsonl` at 18:50; the follow-up (checks, archive, journal) is another agent's, not committed at this refresh |
 
 sl3 ended 2026-10-07 11:23:38 (16,091 s, 2,548 windows with its 29 reruns). hc1 has no measured pace
 (each observation lasts at most T_OBS = 60 s), so the chain's end is not estimated.
@@ -193,8 +209,8 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    chain pc2 (06:55:27 to 11:23:38, exit 0) and is followed up (status.md "L's section 10 job
    sl3": counts per cell, the B1 counts of the mixed cell, provenance and gate checks, archive,
    journal line 162). sl2 is not run.
-5. hc1 on L: the second step of pc2, from `m7g/post-src9` at 29ae2b6, running since 11:23:38. Last
-   on L. Agent after pc2 ends: the follow-up of hc1 as for sl3 (`l_check.py DIR JOB`,
+5. hc1 on L: the second step of pc2, from `m7g/post-src9` at 29ae2b6, 11:23:38 to 18:47:43
+   (`pc2.done` exit 0). Last on L. Its follow-up is another agent's, not committed at this refresh: the follow-up of hc1 as for sl3 (`l_check.py DIR JOB`,
    `bench/check_rows.py` against `gate-L.json`, the provenance check of status.md "The B1 change",
    section 3, an archive with its sha256 that holds the whole `pc2.log`, a journal line), then
    STATE.md. Watch `~/lab/p3/m7g/pc2.pid`, `pc2.done` and `pc2.log` (the `== hc1 exit` line).
@@ -215,17 +231,29 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    returning before the AcceptEx requests are posted; the wider generator placement for W's mixed
    cell; the mixed cell on io_uring starving its churn (status.md section 4 item 2), as the paper
    reports it.
-10. For the coordinator: `results/macros.tex` is held back. As generated it holds an unescaped "%"
-   in five verdict macros and "io_uring" in `\CostClaims` (used in text, `paper/sec-results.tex`
-   line 5), so `paper/main.tex`, which inputs it whenever it exists, stops in every build. The fix
-   is a change of `analysis/macros.py` after ANALYSIS_COMMIT; then regenerate from
-   `results/summary.json` (status.md, the analysis section, sections 5 and 6).
-11. For the coordinator: B1 and B2. `analysis/` reads no hard-case row (`not_produced`), against
-   section 13's "computes every decision"; the runners' tables state 20,992 of 20,992 (L) and 5,248
-   of 5,248 (W) passed, 0 B1 or B2 failures. How their counts reach `results/macros.tex` is open.
-   The paper also quotes the logged reasons of the cells not run, which `summary.json` gives only as
-   "0 valid sessions" (the reasons are in `not-run-*.json`).
-
+10. Done (2026-10-07, status.md "The macros' TeX escaping and B1's and B2's macros"): the entry
+   (90e5138 before the fix, item 6 in 0126ca2), the fix 2045551 (ANALYSIS_COMMIT), reviewed
+   adversarially; W's rerun from a fresh clone gives `decisions.csv` byte-identical and
+   `summary.json` apart in `versions.analysis_commit` alone; `results/macros.tex` from the committed
+   summary (f4ad14e); L's rerun after `pc2.done`: `macros.tex` byte-identical, `summary.json` and
+   `decisions.csv` apart from W's only in floats (BCa p-values, at most 1.1e-16) and
+   `versions.python`, no decision apart; both hosts in `results/macros-provenance.json` (ac9daf1);
+   three journal lines (163 to 165). The draft build ends clean; the submission build stops only on
+   the four `\Pending` stubs.
+11. Done (same section): the reading on B1 and B2 (18f97a8, item 6 in 4ca64bb);
+   `paper/hardcase_macros.py` and `results/hardcase-macros.tex` (B1 and B2 hold), loaded by
+   `paper/main.tex`; `paper/not_run.py` and `results/not-run.json` (19 cells, each with its logged
+   reason; sl3's two sslh-ev m-ttfb cells ran closed-loop churn windows with no valid session);
+   both reviewed adversarially, tests 12 and 7 (5cc0cb2).
+12. hc1's descriptive competitors' counts into `results/hardcase-macros.tex` once its follow-up
+   (item 5) is committed (the reading, item 4); `paper/hardcase_macros.py` has no competitors'
+   part yet.
+13. For the coordinator: `paper/design_macros.py` no longer runs (two patterns match
+   `hypotheses.md` twice since later entries; its tests fail 5 of 6, before this refresh too), so
+   `results/design-macros.tex` cannot be made again, and it prints `\AnalysisCommit` 7364fbb, which
+   sec-method states as the commit that sizes R_C (the pilot ran at 9de26d6). Also open: a count
+   the paper prints from `results/not-run.json` needs a macro; `results/provenance.json`'s held-back
+   note is out of date (`macros-provenance.json` follows it).
 ## 6. Rules every agent keeps
 
 - The no-connection rule for B3's windows ended with bs1 (2026-10-07 01:29:57); connections to L are
@@ -262,4 +290,5 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
 | W frozen build | `C:\Users\alext\lab\p3\m7g\records-ff2679c-W\build-release`, `gate-W.json` |
 | W launchers | `run_chain.cmd` per dir, its `chain.py`, `steps.json`, `launches.txt`; WMI launch by `C:\Users\alext\lab\p3\m6b\wlaunch.ps1`; stop with `chain.stop` |
 | W Python | `C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe` |
-| W analysis | `C:\Users\alext\lab\p3\confirm1\`: `archives\`, `unpacked\`, `files-L\`, `files-W\`, `dl\` (wheel), `venv\`, `src\` (clone at 7c1310a), `run_analysis.sh`, `make_provenance.py`, `out1\`, `out2\` (each with `SHA256SUMS`; `macros.tex` held back there) |
+| W analysis | `C:\Users\alext\lab\p3\confirm1\`: `archives\`, `unpacked\`, `files-L\`, `files-W\`, `dl\` (wheel), `venv\`, `src\` (clone at 7c1310a), `run_analysis.sh`, `make_provenance.py`, `out1\`, `out2\` (each with `SHA256SUMS`; the held-back `macros.tex`); after the escaping: `src2\` (clone at 2045551), `run_analysis2.sh`, `out3\`, `out4\`, `src2-tests.log`, `from-L\` (L's outputs and logs), `compare-W-out3-L-out1.json`, `make_macros_provenance.py` |
+| L analysis | `~/lab/p3/confirm1L/`: `archives/` (W's three), `files-L/`, `files-W/`, `unpacked/`, `src/` (clone of the lab remote at 2045551), `setup_L.sh`, `run_analysis_L.sh`, `l_env.py`, `out1/`, `out2/`, logs; venv `~/opt/analysis-numpy-2.5.0/venv` |

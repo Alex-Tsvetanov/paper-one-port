@@ -7858,6 +7858,130 @@ On W, `<W>`: `archives\` (the ten archives and their `.sha256`), `unpacked\`, `f
 metadata), `venv\`, `src\` (the clone), `run_analysis.sh`, `make_provenance.py`, `provenance.json`,
 `out1\`, `out2\` (each with `SHA256SUMS`), `out1.log`, `out2.log`. In git: one-port e5e6724.
 
+## The macros' TeX escaping and B1's and B2's macros, 2026-10-07
+
+The coordinator's decisions of 2026-10-07 on items 10 and 11 of STATE.md, section 5: make the
+analysis's macros usable in the paper without changing any decision, bring B1's and B2's counts to
+the paper, and list the reasons of the cells not run or short of R. One agent session on W; L read
+over ssh and used for one analysis run after the chain pc2 had ended (`pc2.done`: exit 0,
+18:47:43). No measurement job ran on L or W. `<W>` is `C:\Users\alext\lab\p3\confirm1`.
+
+### 1. The change of `analysis/macros.py`
+
+- Revision log: "The macros' TeX escaping (a later change under section 8)", items 1 to 5 written
+  and committed before the change (90e5138), item 6 after it (0126ca2). The fix is 2045551, which
+  is now `ANALYSIS_COMMIT` (204555104f0191152d1f4bf392d2a76b0aebc1b5, in place of 9de26d6). It
+  changes `analysis/macros.py` (text from the summary is TeX-escaped; `Macros.add` refuses an
+  unescaped `%`, `_`, `&` or `#`) and `analysis/test_analyse.py` (one new test) and nothing else;
+  `analyse.py` and every file it imports are byte-identical to 9de26d6's.
+- The suite at 2045551, from a fresh clone of origin on W (Python 3.14.5, numpy 2.5.0): 73
+  passed, 2 skipped (`<W>\src2-tests.log`, sha256
+  0bcbc11ce11a8386e37ae2bf0ccde5539c2563b2132f35e3bddf18848109aa44); at 9de26d6, 72 and 2. The new
+  test fails on 9de26d6's `macros.py`.
+- A correction to the analysis section above (section 5, item 1) and to the entry's item 1:
+  `\CostClaims` held "io_uring" three times, not twice.
+
+### 2. The checks of the entry's item 5
+
+- (b) W: `<W>\src2`, a fresh clone of origin at 2045551 (clean); `<W>\run_analysis2.sh` (sha256
+  a9b51e8ad4e5485c3ccb42f5d402cc2258f62bf1a1c7e57b2771307f14001130), `run_analysis.sh` with the
+  clone `src2` in its three paths; the same venv and the same inputs by sha256. Two runs, `<W>\out3`
+  and `<W>\out4`, identical: `summary.json`
+  0b71e692fbdb64a3917a0179d2be0dcb956663546f4de6665906ab44562f16ce, `decisions.csv`
+  6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f (the committed file, byte for
+  byte), `macros.tex` 408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992. `diff`
+  against the committed `summary.json` gives one line, `versions.analysis_commit` (7c1310a against
+  2045551); with that field set back the file's sha256 is the committed a94b4bde. Against the
+  held-back `macros.tex` (cb5e16e7) six lines differ: 346, 661, 690, 951, 980 and 1608, the five
+  verdicts and `\CostClaims`.
+- (c) `macros.py` at 2045551 in W's venv on the committed `results/summary.json` writes 408b8ac2,
+  equal to out3's; committed as `results/macros.tex` (f4ad14e).
+- (d) L: `~/lab/p3/confirm1L` (L's four archives checked in `~/lab`, W's three and `gate-W.json`
+  copied from W and checked; `sha256sum -c` and the values in STATE.md; the seven `windows.jsonl`,
+  `pilot.json`, `rule_e.json`, `seeds.json` and both gates have the sha256 that `summary.json`
+  lists; `setup_L.sh` a3ec1e0c91d7df836179ccbf2a97e3da496790b27bd5b31f2773f783885cc292); a clone of
+  the lab remote at 2045551; `run_analysis_L.sh`
+  (be75724fcbd4af02152cf3422ce6867ee3ed0c1bdb5799cd5c5a6393b166afbe) in L's venv (Python 3.14.7,
+  numpy 2.5.0 from the venv's own site-packages; the venv also sees the system's) at nice 19, twice,
+  identical: `summary.json` c39e449099da61ee9e4b8a5edd00c600b9e96c3848fb318c8892a2397fecfbc6,
+  `decisions.csv` fc97b69cd70ac0465d5ca753edc8c78a50e3cd3a8ab9c564b8c4f62219602d11, `macros.tex`
+  408b8ac2 (W's, byte for byte). Against W's out3, field by field (`<W>\compare-W-out3-L-out1.json`):
+  `decisions.csv` differs in 62 of its 91 lines, in `p_boot` (46 values) and `p_boot_holm` (43)
+  alone, by at most 4.1e-16 relative; `summary.json` differs in `versions.python` and in 144 float
+  fields (the BCa p-values `p_boot`, `p_boot_low`, `p_boot_high`, `p_boot_holm`, and one jackknife
+  acceleration `a`), by at most 1.1e-16 absolute. No other field differs: every verdict, pass,
+  count, rank, median and interval bound is the same. So L's `macros.tex` is byte-identical to W's
+  and its `summary.json` and `decisions.csv` are not; no decision differs. The cause is not
+  established here; it fits the review's note 10 above.
+- Provenance of both hosts: `results/macros-provenance.json` (ac9daf1, made by
+  `<W>\make_macros_provenance.py`). L's outputs and logs are copied to `<W>\from-L`.
+- The paper, built from scratch copies of the repo: the draft build (latexmk) ends with no error
+  and loads `design-macros.tex`, `hardcase-macros.tex` and `macros.tex`; the submission build
+  stops only on the four `\Pending` stubs (one each in sec-method, sec-results, sec-discussion and
+  sec-conclusions), and with those four stops made warnings in a scratch copy it ends with no
+  error. A scratch document that typesets all 2,168 macros of `results/macros.tex` compiles; the
+  held-back file does not.
+
+### 3. B1 and B2
+
+- Revision log: "B1's and B2's decisions from the hard-case runners' outputs (a reading)", items 1
+  to 5 (18f97a8), item 6 after the generator's review (4ca64bb).
+- `paper/hardcase_macros.py` writes `results/hardcase-macros.tex` (sha256
+  377a1fa257edeb7fdbf8925d66add899bc02c54798f4b3829624d94a75597765), loaded by `paper/main.tex`.
+  Inputs, by sha256: hl1's `hardcases.jsonl` 661f1cf9 and `hardcases-table-hl1.json` 958468ca
+  (pc1's archive), wh1's `hardcases.jsonl` e67b3ab9 and `hardcases-table-wh1.json` cae9d62a (wh1's
+  archive), `results/summary.json` a94b4bde. L: 8 entries, 1,312 variant-entries, 20,992 runs, all
+  passed, no B1 deviation, no B2 failure, none incomplete, 52 server checks all ok. W: 2, 328,
+  5,248, all passed, 0, 0, 0, 12 all ok. `\BOneVerdict` and `\BTwoVerdict`: holds. The counts are
+  those of the analysis section, section 4, last item. Tests: `paper/test_hardcase_macros.py`, 12.
+- For the paper's wording: `\BOneVerdict` joins the hard cases with `summary.json`'s
+  `b1_failures`, which reads `misclassified` only in the rows that carry it (the analysis section,
+  section 5, note 4).
+
+### 4. Cells not run or short of R
+
+`paper/not_run.py` writes `results/not-run.json` (sha256
+04683cff7002d57117cc417b6e9e418d45625a84bb10e40e8b7dbe8a5f8c1bb6): the 19 cells that `summary.json`
+has short of R, 7 in a family and 12 in section 10 alone. 8 were not run, each with its not-run
+file's reason as written (ml1, wc1, wc2, sl3, ws1; the other host's lines left out); 11 ran, each
+with its windows, sessions, arms and invalid reasons counted from the rows. Each cell names the
+revision-log entries or status.md sections that give its reason, and quotes from them, each checked
+to occur once. The two cells S.m-ttfb.M3.L.epoll.http1.sslh-ev and
+S.m-ttfb.M3.L.epoll.tls-stub.sslh-ev ran closed-loop churn windows (workload churn, no rate, metric
+`conn_per_s`), 80 each in 20 sessions, none valid, while the other M3 cells of that bullet on epoll
+ran 512 open-loop windows at a rate (metric `ttfb_median_us`). Tests: `paper/test_not_run.py`, 7.
+
+### 5. Reviews
+
+Two adversarial reviewers, foreground sub-agents, before each commit. The macros change: nothing
+critical or high; the entry's count of io_uring (corrected in item 6 and above); two test gaps,
+filled. The generators: nothing critical or high; four gaps a crafted input could pass (a run that
+skipped the judge with no reason, rows that disagree with themselves, entries missing from the
+runner's list, `not_run.py` taking development or repeated rows), each closed with a test before
+the commit; the smaller ones fixed (host and runner paired, `WokeTwice` named
+`WokeMoreThanOnce`, digits inside words kept, sessions counted per job) or noted in the entry's
+item 6.
+
+### 6. Journal
+
+Three lines in Papers `lab/journal.jsonl` (163 to 165): the analysis on W of 18:11 (none was
+written then), the rerun on W, the rerun on L.
+
+### 7. Open
+
+1. hc1's descriptive competitors' table: its follow-up (another agent) was not committed at this
+   writing. Its counts join `results/hardcase-macros.tex` once it is (the reading, item 4);
+   `paper/hardcase_macros.py` has no competitors' part yet.
+2. `paper/design_macros.py` no longer runs: two of its patterns ("not resolved at R ≤" and
+   `ANALYSIS_COMMIT` = ..., one-port's last) match `hypotheses.md` twice since later log entries,
+   so its tests fail (5 of 6, before this session too) and `results/design-macros.tex` cannot be
+   made again. That file prints `\AnalysisCommit` 7364fbb, which sec-method states as the commit
+   that sizes R_C (the pilot ran at 9de26d6).
+3. `results/provenance.json`'s note that `macros.tex` is held back is out of date;
+   `results/macros-provenance.json` follows it, and the file is not edited.
+4. `results/not-run.json` is JSON; a count the paper prints from it needs a macro.
+5. `analysis/analyse.py`'s docstring still calls the hard-case runner "still to be written".
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
