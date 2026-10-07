@@ -1,0 +1,231 @@
+{
+ "what": "P3 (one-port): results/macros.tex after the TeX escaping of analysis/macros.py, and the reruns of the confirmatory analysis on W and on L that check the change moves no decision",
+ "entry": {
+  "heading": "2026-10-07: The macros' TeX escaping (a later change under section 8)",
+  "items_1_to_5": "one-port 90e5138 (before the change)",
+  "item_6": "one-port 0126ca2 (names ANALYSIS_COMMIT)"
+ },
+ "code": {
+  "ANALYSIS_COMMIT": "204555104f0191152d1f4bf392d2a76b0aebc1b5",
+  "replaces": "9de26d614c85b606fb5169ed16528b7189a87ac4",
+  "analysis_tree": "0ff957e8735e21b4ad0107f93067351eaec5f97f",
+  "analysis_files_changed": [
+   "analysis/macros.py",
+   "analysis/test_analyse.py"
+  ],
+  "analysis_files_sha256": {
+   "analyse.py": "c1b418eaef40a1d2e91fdf7fcd47d858b09b0555d240035c5a67d761262221f3",
+   "appendix_a_r_rule.py": "ca932e924f3342597093d728ba6694e313a9e894e80bd5c9e8445de75b5e5218",
+   "cells.py": "2442909ced1f1c2232aeb333ff2edb2591ff06bbe7785dd2447c9ee4fa1f5e20",
+   "macros.py": "f30551aebbcbc78ad58bbe9a666b7758b1f37ca2abeafd75022812d81613dd9d",
+   "pilot.py": "c849234d8d17e7500f6c38a357a793b1a76c5a9206ad24c231d006bcdfb6c5d1",
+   "rows.py": "fea47f2fc1596e462bf1d758829d6ff1e7e5f6c3f4b85007728ae1fa363feedd",
+   "stats.py": "9426da8e44145ef4d3bb17bdd25c6ad07ae37f73ce18cf2577724a66aba66f7c",
+   "synth.py": "f6f136d596584db88064dd7ddad18bd909336b831d1c0352c5c2c2f6cc7d5874",
+   "test_analyse.py": "c4d5ee8a5333b9dd12923b4236483e81064b5c47b157736ea979bd6c2ee75643",
+   "test_cells.py": "51e192c1791670b2a746c7aa6276c55f8e3980084bd8088ae562a5f9ee6141d1",
+   "test_pilot.py": "637c5d66373c5e7d9fc1a04bd420a5b67d38feeaf7d24f65081757779b581d60",
+   "test_stats.py": "6cda92a29eb9079dba7ca5ebb674165bddc34e4d874715f4ee4c7766f8c06402",
+   "versions.py": "0524a06361eb619a4aa30c179b4e9115f8526b405f5a8ac7ce8ea10bfaba1828"
+  },
+  "tests_on_W": {
+   "log": "<W>\\src2-tests.log",
+   "sha256": "0bcbc11ce11a8386e37ae2bf0ccde5539c2563b2132f35e3bddf18848109aa44",
+   "last_line": "73 passed, 2 skipped in 30.72s",
+   "runtime": "W's Python 3.14.5 with numpy 2.5.0 and pytest, in the clone <W>\\src2"
+  }
+ },
+ "macros_tex": {
+  "path": "results/macros.tex",
+  "sha256": "408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992",
+  "macros": 2168,
+  "made_by": "<W>\\venv python -s <W>\\src2\\analysis\\macros.py results/summary.json --out results/macros.tex (PYTHONUTF8=1, PYTHONNOUSERSITE=1)",
+  "from_summary_sha256": "a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8",
+  "equals_W_rerun": true,
+  "equals_L_rerun": true,
+  "held_back": {
+   "path": "<W>\\out1\\macros.tex",
+   "sha256": "cb5e16e70879fbab49051045adcad999b6744ff2abe5ca85b8958f31990a61f9",
+   "lines_that_differ": [
+    {
+     "line": 346,
+     "macro": "CThreeLEpollHTwoCVerdict"
+    },
+    {
+     "line": 661,
+     "macro": "BThreeSilentSslhEvEpollVerdict"
+    },
+    {
+     "line": 690,
+     "macro": "BThreeSilentSslhEvIouringVerdict"
+    },
+    {
+     "line": 951,
+     "macro": "BThreePartialHelloSslhEvEpollVerdict"
+    },
+    {
+     "line": 980,
+     "macro": "BThreePartialHelloSslhEvIouringVerdict"
+    },
+    {
+     "line": 1608,
+     "macro": "CostClaims"
+    }
+   ]
+  }
+ },
+ "committed_outputs": {
+  "summary.json": "a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8",
+  "decisions.csv": "6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f",
+  "macros.tex": "408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992",
+  "provenance.json": "7490b9fb337064a043eb11f130f92d884f21d464fa94ec2ccdfa886b3dbec88c"
+ },
+ "hosts": {
+  "W": {
+   "host": "alex-pc, Windows 11 Pro N 10.0.26200, AMD Ryzen 5 3600 (the same as results/provenance.json)",
+   "clone": "<W>\\src2, git clone of origin https://github.com/Alex-Tsvetanov/paper-one-port.git, checked out at ANALYSIS_COMMIT",
+   "clone_head": "204555104f0191152d1f4bf392d2a76b0aebc1b5",
+   "clone_status_porcelain_lines": 0,
+   "runtime": "<W>\\venv: Python 3.14.5, numpy 2.5.0 from the win_amd64 wheel (sha256 ebb81d9d5443e0309d6c54894c3fbed74ad7da0714352a67b6d773cd189eae73), as results/provenance.json",
+   "script": {
+    "path": "<W>\\run_analysis2.sh",
+    "sha256": "a9b51e8ad4e5485c3ccb42f5d402cc2258f62bf1a1c7e57b2771307f14001130",
+    "differs_from": {
+     "path": "<W>\\run_analysis.sh",
+     "sha256": "99f9bea5b189dc30a7fb4a0e144a2f617fbb27d6f424cc60921168fb8827c28e"
+    },
+    "difference": "src2 in place of src in the three paths of the clone, and the comment line"
+   },
+   "inputs": "the same files as results/provenance.json, by sha256: seven windows.jsonl, pilot.json, rule_e.json, seeds.json (the clone's, the same sha256), gate-L.json, gate-W.json",
+   "runs": {
+    "out3": {
+     "summary.json": "0b71e692fbdb64a3917a0179d2be0dcb956663546f4de6665906ab44562f16ce",
+     "decisions.csv": "6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f",
+     "macros.tex": "408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992"
+    },
+    "out4": {
+     "summary.json": "0b71e692fbdb64a3917a0179d2be0dcb956663546f4de6665906ab44562f16ce",
+     "decisions.csv": "6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f",
+     "macros.tex": "408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992"
+    }
+   },
+   "runs_identical": true,
+   "against_committed": {
+    "decisions_csv_identical": true,
+    "summary_json_differs_in": "versions.analysis_commit alone (the clone's commit)",
+    "summary_json_with_that_field_set_back_sha256": "a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8",
+    "summary_json_with_that_field_set_back_identical": true,
+    "versions": {
+     "analysis_commit": "204555104f0191152d1f4bf392d2a76b0aebc1b5",
+     "analysis_dirty": false,
+     "numpy": "2.5.0",
+     "python": "3.14.5"
+    }
+   }
+  },
+  "L": {
+   "host": "alex-laptop, Linux 7.2.6-arch2-1, AMD Ryzen 7 5800H, glibc 2.44",
+   "where": "~/lab/p3/confirm1L on L (alex@192.168.1.62, wired); never a measurement, no lab job, at nice 19",
+   "clone": "~/lab/p3/confirm1L/src, git clone of the lab remote ~/lab/p3/one-port.git, checked out at ANALYSIS_COMMIT; status clean",
+   "runtime": {
+    "python": "3.14.7",
+    "python_build": "3.14.7 (main, Aug 10 2026, 07:46:56) [GCC 16.1.1 20260728]",
+    "numpy": "2.5.0",
+    "numpy_path": "/home/alex/opt/analysis-numpy-2.5.0/venv/lib/python3.14/site-packages/numpy/__init__.py",
+    "venv": "~/opt/analysis-numpy-2.5.0/venv (include-system-site-packages true; numpy from the venv's own site-packages)",
+    "wheel_sha256": "39a0433bd4086ebd462960cf375e19195bb07b53dc1d87dd5fcf47ad78576f03 (PyPI's)"
+   },
+   "scripts": {
+    "setup_L.sh": "a3ec1e0c91d7df836179ccbf2a97e3da496790b27bd5b31f2773f783885cc292",
+    "run_analysis_L.sh": "be75724fcbd4af02152cf3422ce6867ee3ed0c1bdb5799cd5c5a6393b166afbe",
+    "l_env.py": "b10e13d6aa1098bca1080281a03eb7f90c3417e0fca700d40e65ccfc5c159a03"
+   },
+   "logs": {
+    "setup.log": "fde6283967e83fb090fc80ee752f58242052930025c027dbd480825f8e625d4c",
+    "out1.log": "0d904ebc0335f232da06cedf201a068f7f15c6dfbbd6005632731eaf2ee1cbe3",
+    "out2.log": "169619ce22dcce02d42f206018cd10699e9c169b1013f1deeddff5a7781820a1",
+    "l_env.json": "8ace63d21b3d30521c293206957b90d856dee594dc791325da2f3f1ba38a248c"
+   },
+   "inputs": "every archive checked by sha256sum -c and against the value recorded in STATE.md; L's four from ~/lab, W's three (wc1-wc2, wm1, ws1) and gate-W.json copied from W; the seven windows.jsonl, pilot.json, rule_e.json, seeds.json and both gates with the sha256 results/summary.json lists (setup.log)",
+   "runs": {
+    "out1": {
+     "summary.json": "c39e449099da61ee9e4b8a5edd00c600b9e96c3848fb318c8892a2397fecfbc6",
+     "decisions.csv": "fc97b69cd70ac0465d5ca753edc8c78a50e3cd3a8ab9c564b8c4f62219602d11",
+     "macros.tex": "408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992"
+    },
+    "out2": {
+     "summary.json": "c39e449099da61ee9e4b8a5edd00c600b9e96c3848fb318c8892a2397fecfbc6",
+     "decisions.csv": "fc97b69cd70ac0465d5ca753edc8c78a50e3cd3a8ab9c564b8c4f62219602d11",
+     "macros.tex": "408b8ac2d31f863f09d46240e9d54b602d92917402512751b2e4506327048992"
+    }
+   },
+   "runs_identical": true,
+   "against_W": {
+    "macros_tex_identical": true,
+    "decisions_csv_identical": false,
+    "decisions_csv": {
+     "float_cols": {
+      "p_boot": 46,
+      "p_boot_holm": 43
+     },
+     "lines_differ": 62,
+     "max_rel": 4.063461560724704e-16,
+     "nonfloat_diffs": [],
+     "rows": 91,
+     "same_shape": true
+    },
+    "summary_json_identical": false,
+    "summary_json_versions": {
+     "a": {
+      "analysis_commit": "204555104f0191152d1f4bf392d2a76b0aebc1b5",
+      "analysis_dirty": false,
+      "numpy": "2.5.0",
+      "python": "3.14.5"
+     },
+     "b": {
+      "analysis_commit": "204555104f0191152d1f4bf392d2a76b0aebc1b5",
+      "analysis_dirty": false,
+      "numpy": "2.5.0",
+      "python": "3.14.7"
+     }
+    },
+    "summary_json_other_fields": {
+     "float_diffs": 144,
+     "float_fields": {
+      "families.B3.cells[].p_boot": 17,
+      "families.C.cells[].p_boot": 19,
+      "families.C.cells[].p_boot_high": 17,
+      "families.C.cells[].p_boot_holm": 29,
+      "families.C.cells[].p_boot_low": 19,
+      "families.M.cells[].p_boot": 10,
+      "families.M.cells[].p_boot_holm": 14,
+      "secondary[].a": 1,
+      "secondary[].p_boot": 6,
+      "secondary[].p_boot_high": 4,
+      "secondary[].p_boot_low": 8
+     },
+     "leaves": 16774,
+     "max_abs": 1.1102230246251565e-16,
+     "max_rel": 1.896777375242731e-05,
+     "max_rel_at": [
+      "secondary[176].a",
+      1.5524445978343e-13,
+      1.552415151416405e-13
+     ],
+     "nonfloat_diffs": [],
+     "same_paths": true
+    },
+    "reading": "no field other than a float differs: every verdict, pass, count, rank and cell is equal, and so is every median and interval bound; the floats that differ are BCa p-values (and their Holm adjustments) and one jackknife acceleration, by at most 1.1102230246251565e-16 in absolute value; macros.tex, which rounds them, is byte-identical",
+    "report": {
+     "path": "<W>\\compare-W-out3-L-out1.json",
+     "sha256": "21adb8622e4cafab93d26a99b2a9feeee09cf9278b8e5b461fd603a8892d96bd"
+    }
+   }
+  }
+ },
+ "working_dir": "<W> = C:\\Users\\alext\\lab\\p3\\confirm1 on W (outside git); L's outputs copied to <W>\\from-L",
+ "made_by": {
+  "script": "<W>\\make_macros_provenance.py",
+  "sha256": "a1be092b64908a7481bbff4d12285c0a4b1e3fe81cb6956f6fb9fe72f4fea8a1"
+ }
+}
