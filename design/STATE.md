@@ -3,11 +3,13 @@
 A digest for orientation, refreshed at each milestone. It is not a record: it holds no result and
 compares no arms. `design/status.md` and the revision log at the end of `hypotheses.md` stay
 authoritative; open them only at the section named here, by grep or line range. As of 2026-10-07
-(night), one-port 5cc0cb2 (the macros, the B1 and B2 macros, the not-run list) plus the docs of this
-refresh (status.md, "The macros' TeX escaping and B1's and B2's macros, 2026-10-07"; "The
-confirmatory analysis on W, 2026-10-07", "L's section 10 job sl3, 2026-10-07", "W's section 10 job
-ws1, 2026-10-07" and "L after bs1, 2026-10-07" before it), plus facts from the coordinator not yet
-in the repo, marked "(coord.)".
+(night), one-port fc81372 (the macros, the B1 and B2 macros, the not-run list, the docs of their
+refresh) plus the commits of this refresh: the competitors' macros and the follow-up of hc1
+(status.md, "The competitors' table hc1, 2026-10-07"; "The macros' TeX escaping and B1's and B2's
+macros, 2026-10-07", "The confirmatory analysis on W, 2026-10-07", "L's section 10 job sl3,
+2026-10-07", "W's section 10 job ws1, 2026-10-07" and "L after bs1, 2026-10-07" before it), plus
+facts from the coordinator not yet in the repo, marked "(coord.)". All confirmatory and descriptive
+data are in; no job is open on L or W.
 
 ## 1. Where P3 stands
 
@@ -20,7 +22,8 @@ section 10 runs again from its start. On L that is the chain pc2: sl3 ended 2026
 (exit 0) and is followed up (status.md "L's section 10 job sl3": 2,548 rows, 31 of 38 cells at R = 16,
 7 cells with no valid session: sslh-ev's four, SSH C2's two and the mixed cell on io_uring; the mixed
 cell on epoll valid, 16 of 16), then the competitors' table hc1 (11:23:38 to 18:47:43, `pc2.done`
-exit 0; its follow-up is another agent's); on W, ws1
+exit 0; followed up: status.md "The competitors' table hc1": 8,052 case rows, 7,977 observed, 75 not
+observed, a descriptive table); on W, ws1
 ended 2026-10-07 07:00:37 (exit 0) and is followed up (status.md "W's section 10 job ws1": 600 rows,
 8 of 9 cells at R = 16, SSH C2 with no valid window, the mixed cell valid). W: cost family (wc1, stopped at Alex's request, then wc2), M1's IOCP cells
 (wm1) and hard cases on IOCP (wh1) ended 2026-10-06 02:53:16 (wc2, wm1 and wh1 exit 0); the
@@ -29,12 +32,13 @@ hard cases all passed, each out directory archived and journaled; W has no job l
 and followed up, archived and journaled). Freeze order (hypotheses.md section 8): steps 1
 to 6 done (hypotheses freeze 64a23f7, engineering, CODE_FREEZE, A/A pilots, simulation, pilot
 entry). Step 7: rule E, M2's rates, B3 feasibility windows and K_BASE's windows done; confirmatory,
-secondary and hard-case runs done (hc1's follow-up open). The frozen analysis ran on W on 2026-10-07
+secondary, hard-case and descriptive runs done and followed up. The frozen analysis ran on W on 2026-10-07
 from every confirmatory row file (status.md "The confirmatory analysis on W, 2026-10-07"); its
 `summary.json`, `decisions.csv` and `provenance.json` are in `results/` (e5e6724). After the TeX
 escaping of `analysis/macros.py` (a later change, ANALYSIS_COMMIT 2045551) `results/macros.tex` is
 committed (f4ad14e); B1's and B2's macros (`results/hardcase-macros.tex`) and the cells not run or
-short of R (`results/not-run.json`) are committed (5cc0cb2). Then the paper.
+short of R (`results/not-run.json`) are committed (5cc0cb2); the competitors' counts joined
+`results/hardcase-macros.tex` after hc1's follow-up. Then the paper.
 
 ## 2. Fixed points
 
@@ -68,8 +72,11 @@ short of R (`results/not-run.json`) are committed (5cc0cb2). Then the paper.
   reruns: W's `decisions.csv` byte-identical and `summary.json` only `versions.analysis_commit`
   apart; L's `macros.tex` byte-identical, its `summary.json` and `decisions.csv` apart from W's in
   floats of at most 1.1e-16 and in `versions.python`, no decision apart);
-  `results/hardcase-macros.tex` 377a1fa257edeb7fdbf8925d66add899bc02c54798f4b3829624d94a75597765
-  (`paper/hardcase_macros.py`; B1 and B2 hold); `results/not-run.json`
+  `results/hardcase-macros.tex` 9c9e0f38555331cfbba8696220676aca7cde8355c9e1f91819c5d00a65985e28
+  (`paper/hardcase_macros.py`; B1 and B2 hold; 235
+  macros: the 26 of B1 and B2, byte for byte as in 377a1fa2, and 209 `CompCase...` macros of hc1's
+  descriptive table, from `competitor_cases.jsonl` c13b5fd21e0d1d34a69c3927b4a1a2e25cecfb52cde17859c164db6aeeb02f92);
+  `results/not-run.json`
   04683cff7002d57117cc417b6e9e418d45625a84bb10e40e8b7dbe8a5f8c1bb6 (`paper/not_run.py`, 19 cells).
 - Pilot entry (7455e28): R_C = 28 (rerun cap 7 per cell); m_C = 32 (32 of 36 cost cells resolved).
   Not resolved: cells 34 (C3.W.IOCP.h2c) and 36 (C3.W.IOCP.mqtt), Power_c(31) 0.000; they run at
@@ -173,10 +180,10 @@ from its section "W's confirmatory jobs, 2026-10-05/06" (validity read, no arm c
 | B3 feasibility (development) | L | bf1 | `b3feas-L` | done: 21 windows, 20 valid; archived (`p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256 d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd); journaled |
 | K_BASE | L | bk1 | `b3-L` | done: 17 windows, 16 valid (window 1 TIME-WAIT); archived with bs1; journaled |
 | B3 sessions | L | bs1 | `b3-L` | done 2026-10-07 01:29:57, exit 0: 2,628 windows in 657 sessions (49 reruns), 2,578 valid, 50 invalid (44 TIME-WAIT at both samples, 5 at sample 2 only, 1 not settled); 37 of 38 cells reached R = 16; B3.partial-hello.cmux.epoll ended at 15 valid after its 4 reruns (the cap), no treatment proposed; archived with bk1 (`p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz`, sha256 3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8); journaled; rows carry no `change_commit` (ran from d29968b) |
-| Competitors' table | L | hc1 | `hardcomp-L` | second step of pc2, clone `m7g/post-src9` at 29ae2b6; 2026-10-07 11:23:38 to 18:47:43 (`pc2.done` exit 0); 8,078 lines in `competitor_cases.jsonl` at 18:50; the follow-up (checks, archive, journal) is another agent's, not committed at this refresh |
+| Competitors' table | L | hc1 | `hardcomp-L` | done: second step of pc2, clone `m7g/post-src9` at 29ae2b6; 2026-10-07 11:23:38 to 18:47:42, exit 0 (`== hc1 exit 0, 26644 s` in `pc2.log`; `pc2.done` exit 0 at 18:47:43); 8,078 lines in `competitor_cases.jsonl` (sha256 c13b5fd2...): 8,052 case rows, 7,977 observed, 75 not observed (opcase did not end), 26 start rows all ok; of the observed rows 3,327 have a reply equal to what the server's frozen table expects and 4,650 do not, a descriptive field that decides nothing; 9 systems, 164 variants, 25 cases; every row names `change_commit` 9cae2de and `check_rows.py` binds all 8,078 to `gate-L.json`; archived (`~/lab/p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz`, sha256 7df1d9af5396f8d24d0fc5edb93f438054a3670f25250b38cb851d0f93120629, with the whole `pc2.log`; copy on W in `C:\Users\alext\lab\`, checked there); journaled (line 166); its counts are in `results/hardcase-macros.tex` (209 `CompCase...` macros) |
 
-sl3 ended 2026-10-07 11:23:38 (16,091 s, 2,548 windows with its 29 reruns). hc1 has no measured pace
-(each observation lasts at most T_OBS = 60 s), so the chain's end is not estimated.
+sl3 ended 2026-10-07 11:23:38 (16,091 s, 2,548 windows with its 29 reruns). hc1 ended 18:47:42
+(26,644 s, 8,052 observations of at most T_OBS = 60 s each); the chain pc2 is done.
 
 Not run by design, with the reason logged: M2's TLS cells (7a63a08); W's churn h2c and MQTT
 (2055e63); section 10's 2-core IOCP cell (2055e63) and TLS resumption (13004bc). Expected without
@@ -209,11 +216,11 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    chain pc2 (06:55:27 to 11:23:38, exit 0) and is followed up (status.md "L's section 10 job
    sl3": counts per cell, the B1 counts of the mixed cell, provenance and gate checks, archive,
    journal line 162). sl2 is not run.
-5. hc1 on L: the second step of pc2, from `m7g/post-src9` at 29ae2b6, 11:23:38 to 18:47:43
-   (`pc2.done` exit 0). Last on L. Its follow-up is another agent's, not committed at this refresh: the follow-up of hc1 as for sl3 (`l_check.py DIR JOB`,
-   `bench/check_rows.py` against `gate-L.json`, the provenance check of status.md "The B1 change",
-   section 3, an archive with its sha256 that holds the whole `pc2.log`, a journal line), then
-   STATE.md. Watch `~/lab/p3/m7g/pc2.pid`, `pc2.done` and `pc2.log` (the `== hc1 exit` line).
+5. Done (2026-10-07, status.md "The competitors' table hc1"): hc1 on L, the second step of pc2, from
+   `m7g/post-src9` at 29ae2b6, 11:23:38 to 18:47:42 (`pc2.done` exit 0), last on L. Followed up as
+   for sl3: `l_check.py`, `bench/check_rows.py` against `gate-L.json` (8,078 rows, none refused), the
+   provenance check (`change_commit` 9cae2de in every row), the archive with the whole `pc2.log`,
+   journal line 166. No job is open on L or W.
 6. Done (2026-10-07, status.md "W's section 10 job ws1"): ws1 on W ran from `m7g\ws-src1` at
    29ae2b6 through the chain `m7g\wsfix` and ended 07:00:37 with exit 0; its rows, the provenance
    and gate checks, the archive and the journal line are in that section. The old chain `m7g\ws` is
@@ -245,9 +252,12 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    `paper/main.tex`; `paper/not_run.py` and `results/not-run.json` (19 cells, each with its logged
    reason; sl3's two sslh-ev m-ttfb cells ran closed-loop churn windows with no valid session);
    both reviewed adversarially, tests 12 and 7 (5cc0cb2).
-12. hc1's descriptive competitors' counts into `results/hardcase-macros.tex` once its follow-up
-   (item 5) is committed (the reading, item 4); `paper/hardcase_macros.py` has no competitors'
-   part yet.
+12. Done (2026-10-07, status.md "The competitors' table hc1", section 4): hc1's descriptive
+   competitors' counts are in `results/hardcase-macros.tex` (the reading, item 4):
+   `paper/hardcase_macros.py --competitors hc1 competitor_cases.jsonl` (with `--server L`), 209
+   `CompCase...` macros per system and timer setting; "equal" and "differs" describe the field
+   `reply_as_the_server_table_expects`, never a pass or a failure of the system; no time of the
+   table is used. The paper's text about it is not written.
 13. For the coordinator: `paper/design_macros.py` no longer runs (two patterns match
    `hypotheses.md` twice since later entries; its tests fail 5 of 6, before this refresh too), so
    `results/design-macros.tex` cannot be made again, and it prints `\AnalysisCommit` 7364fbb, which
@@ -257,8 +267,9 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
 ## 6. Rules every agent keeps
 
 - The no-connection rule for B3's windows ended with bs1 (2026-10-07 01:29:57); connections to L are
-  allowed (coord.). While pc2 measures, keep them light: reads of files and logs, no build, no test
-  run, no archive, no extra server on L, no job of another name (the lab lock would queue it).
+  allowed (coord.). While a job measures, keep them light: reads of files and logs, no build, no test
+  run, no archive, no extra server on L, no job of another name (the lab lock would queue it). pc2
+  ended 2026-10-07 18:47:43; no job runs on L or W now.
 - L jobs: from bash at nice 0 under `SRC/bench/run/lab_job.sh` (lab lock, clock floor, THP madvise,
   NOTRACK), each from a fresh clone of the lab remote; watch pid and done files in `~/lab/p3/m7g/`
   (for sl3 and hc1: `pc2.*`, not `sl3.*` or `hc1.*`); never `pgrep -f` or `pkill -f`. ssh only to
@@ -283,7 +294,7 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
 | L clones | `m7g/post-src2` 77cedae, `post-src3` 86c0283, `post-src4` 7a63a08, `post-src5..7` d29968b, `ana-src` 9de26d6; `post-src8` (sl3, left as it is) and `post-src9` (hc1), both at 29ae2b6 (made 2026-10-07) |
 | L evidence | `~/lab/p3/evidence/s-L-sl1-b1count` (sl1's output, moved there 2026-10-07; never analysed) |
 | L frozen build | `~/lab/p3/m7g/records-ff2679c/build-release`, `gate-L.json`; pilot output `m7g/pilot-entry/pilot.json` |
-| L archives, logs | `~/lab/p3-raw-2026-10-05-<job>-ff2679cc8.tar.gz` (+ `.sha256`; `bk1-bs1` is one archive for both jobs); `~/lab/p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz` (+ `.sha256`; sl3, with `pc2.log`'s sl3 part as a snapshot, staged in `~/lab/stage-sl3/`; copies on W in `C:\Users\alext\lab\`); `~/lab/records-logs/<record>/`; the check of the B1 change `m7g/b1fix-L-test_*.log` |
+| L archives, logs | `~/lab/p3-raw-2026-10-05-<job>-ff2679cc8.tar.gz` (+ `.sha256`; `bk1-bs1` is one archive for both jobs); `~/lab/p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz` (+ `.sha256`; sl3, with `pc2.log`'s sl3 part as a snapshot, staged in `~/lab/stage-sl3/`; copies on W in `C:\Users\alext\lab\`); `~/lab/p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz` (+ `.sha256`; hc1 with `hardcomp-L`, the job files of pc2 and the whole `pc2.log`; copy on W in `C:\Users\alext\lab\`); `~/lab/records-logs/<record>/`; the check of the B1 change `m7g/b1fix-L-test_*.log` |
 | L launch | `bash -c '(setsid nohup bash SRC/bench/run/lab_job.sh ~/lab/p3/m7g NAME bash ~/lab/p3/m7g/l_run.sh SRC STEP JOB > /dev/null 2>&1 &)'`; the chain pc2: the same with `NAME` pc2 and `bash ~/lab/p3/m7g/post_chain2.sh` in place of `l_run.sh SRC STEP JOB` |
 | W job dirs | `C:\Users\alext\lab\p3\m7g\` `wcost`, `wm`, `whard`, `wnight2` (chain wc2, wm1, wh1; `chain.log`, `chain.done`), `wpilot`, `wrule`; `wsfix` (ws1, done); `ws` retired (B1 change) |
 | W clones, files | `m7g\post-src2` 77cedae, `m7g\pilot-src2` f185a8a, `m7g\ws-src1` 29ae2b6 (ws1); `m7g\pilot.json`, `m7g\rule_e.json`, `m7g\stopat.py`; the B1 change's checks `m7g\b1fix\` (`SHA256SUMS` sha256 32418367ea727376f6566a8502f3450183f796e10649429548f0954dc832789e) |

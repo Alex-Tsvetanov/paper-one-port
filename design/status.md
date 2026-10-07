@@ -7982,6 +7982,155 @@ written then), the rerun on W, the rerun on L.
 4. `results/not-run.json` is JSON; a count the paper prints from it needs a macro.
 5. `analysis/analyse.py`'s docstring still calls the hard-case runner "still to be written".
 
+## The competitors' table hc1, 2026-10-07
+
+The follow-up of hc1, the second step of the chain pc2 on L ("L's section 10 job sl3", section 7), and
+its macros. One agent session on W. L was read over ssh (`l_check.py`, files, one archive at nice 19
+under `ionice -c3`); no lab job was started on L or W. The table is descriptive and decides nothing
+(revision log, the entry of 1c4193a, item 3; "B1's and B2's decisions from the hard-case runners'
+outputs (a reading)", item 3 (d)). No time of it is used and none is set beside a time of the server.
+Nothing here is a result.
+
+### 1. The job and the rows
+
+- hc1: `hardcase_run.py --part competitors`, clone `m7g/post-src9` at 29ae2b6, 2026-10-07 11:23:38
+  to 18:47:42 (26,644 s; `pc2.log` holds `== hc1 exit 0, 26644 s`; `pc2.done` exit 0 at 18:47:43).
+  Out `~/lab/p3/hardcomp-L`: `competitor_cases.jsonl` (8,078 lines, sha256
+  c13b5fd21e0d1d34a69c3927b4a1a2e25cecfb52cde17859c164db6aeeb02f92), `hc1.inputs.json` (68aa7da6...,
+  the sha256 of sl3's), `raw/` (the systems' run directories, 128 files).
+- Rows: 8,052 `competitor-case` and 26 `competitor-start`. 9 systems at 2 timer settings, the kind
+  "cases" for each system and "cases-fallback" for haproxy, envoy, sslh-ev and cmux: 26 groups, one
+  start row each, `ok` true (recorded exit values 0, -15, 15 and 143). Every variant has its
+  replicates 1 to 3 at each timer setting, with no duplicate. `l_check.py ~/lab/p3/hardcomp-L hc1`
+  on L agrees (observed 7,977, starts 26, failed 0, rows per system as in section 2). The hc1 part of
+  `pc2.log` (lines 2564 to 10620) holds the 8,052 case lines in the order of the rows, and no other
+  output.
+- Provenance and gate, in all 8,078 rows: `development` false, job hc1, runner `hardcase_run`;
+  `provenance.commit` ff2679c, `dirty` false, `runner_commit` 29ae2b6, `runner_dirty` false;
+  `provenance.freeze.freeze` with code_freeze ff2679c, head 29ae2b6 and `change_commit`
+  9cae2deff2b01896bfab25c5af4c610381dc3c1d; `gates` `["gate-L.json"]`; the seeds file, `pilot.json`
+  and `rule_e.json` with the sha256 of STATE.md (3a2dd436..., bc48a736..., fb50302a...); one
+  `inputs_hash`; `binaries` oneport 4c64edc25f76 and opcase 49cb3c049250. The rows carry no `host` and
+  no `fingerprint` (hl1's rows carry neither), so they do not record NOTRACK, THP or the clock floor;
+  the job files in the archive do (`pc2.notrack.json`, `pc2.thp.json`, `pc2.clock.json`). The
+  competitors' own binaries are pinned and not first-party; no row names them.
+- `bench/check_rows.py --gate gate-L.json competitor_cases.jsonl`, on W, on a copy whose sha256 equals
+  L's: 8,078 rows, none refused, exit 0. `gate-L.json` has sha256 c6517177... (STATE.md's); `bench/`
+  is unchanged from 29ae2b6 to this commit.
+
+### 2. What the rows record
+
+The judged field is `reply_as_the_server_table_expects`: true when the reply equals what the server's
+frozen table expects of the server (the reference transcript of the dedicated port, a 200, a 400, a
+TLS flight, a close, or any reply). False also holds a row whose reference run failed; the row does
+not record that. Nothing is judged against the server's outcome, so "equals" and "differs" are used
+here, not "pass" and "fail". A row with no outcome ("opcase did not end") has no such field and is
+counted apart.
+
+| System | Rows | Observed | Not observed | Reply equals | Reply differs | No decision within T_OBS | Variants |
+|---|---|---|---|---|---|---|---|
+| nginx | 948 | 948 | 0 | 390 | 558 | 0 | 158 |
+| haproxy | 984 | 984 | 0 | 549 | 435 | 3 | 164 |
+| envoy | 984 | 984 | 0 | 693 | 291 | 0 | 164 |
+| caddy-l4 | 948 | 948 | 0 | 714 | 234 | 174 | 158 |
+| sslh-ev | 774 | 756 | 18 | 492 | 264 | 6 | 129 |
+| netty | 948 | 933 | 15 | 126 | 807 | 9 | 158 |
+| jetty | 948 | 948 | 0 | 66 | 882 | 0 | 158 |
+| cmux | 774 | 756 | 18 | 273 | 483 | 15 | 129 |
+| hyper-util | 744 | 720 | 24 | 24 | 696 | 36 | 124 |
+| All | 8,052 | 7,977 | 75 | 3,327 | 4,650 | 243 | 164 |
+
+The three replicates of a variant at a timer setting agree in all 2,684 variant and timer groups; 25
+groups have none observed (the 75 rows). The variants by timer setting, and the cases of Appendix A in
+which every variant differs or some do (a case holds one to 62 variants):
+
+| System | Timers | Variants | Equal | Differ | Not observed | Cases where every variant differs | Cases where some do |
+|---|---|---|---|---|---|---|---|
+| nginx | matched | 158 | 65 | 93 | 0 | HC10, HC13, HC18, HC19 | HC1, HC2, HC3, HC14, HC24 |
+| nginx | default | 158 | 65 | 93 | 0 | HC10, HC13, HC18, HC19 | HC1, HC2, HC3, HC14, HC24 |
+| haproxy | matched | 164 | 123 | 41 | 0 | HC10, HC20, HC25 | HC2, HC3, HC14, HC21, HC24 |
+| haproxy | default | 164 | 60 | 104 | 0 | HC2, HC3, HC10, HC20, HC25 | HC1, HC7, HC14, HC21, HC24 |
+| envoy | matched | 164 | 116 | 48 | 0 | HC13, HC18, HC19, HC25 | HC1, HC2, HC3, HC14, HC17, HC24 |
+| envoy | default | 164 | 115 | 49 | 0 | HC13, HC18, HC19, HC25 | HC1, HC2, HC3, HC7, HC14, HC17, HC24 |
+| caddy-l4 | matched | 158 | 119 | 39 | 0 | HC9, HC10, HC25 | HC2, HC3, HC14, HC16, HC17 |
+| caddy-l4 | default | 158 | 119 | 39 | 0 | HC9, HC10, HC25 | HC2, HC3, HC14, HC16, HC17 |
+| sslh-ev | matched | 129 | 81 | 46 | 2 | HC5, HC18, HC19, HC20 | HC1, HC2, HC3, HC4, HC7, HC21, HC24 |
+| sslh-ev | default | 129 | 83 | 42 | 4 | HC5, HC18, HC19, HC20 | HC1, HC2, HC3, HC7, HC21, HC24 |
+| netty | matched | 158 | 24 | 134 | 0 | HC1, HC2, HC3, HC9, HC10, HC18, HC20, HC25 | HC14, HC16, HC17, HC24 |
+| netty | default | 158 | 18 | 135 | 5 | HC1, HC2, HC3, HC9, HC10, HC18, HC20, HC25 | HC14, HC16, HC17, HC23, HC24 |
+| jetty | matched | 158 | 11 | 147 | 0 | HC1, HC2, HC3, HC8, HC9, HC10, HC11, HC12, HC13, HC14, HC16, HC17, HC18, HC20, HC24, HC25 | HC4 |
+| jetty | default | 158 | 11 | 147 | 0 | HC1, HC2, HC3, HC8, HC9, HC10, HC11, HC12, HC13, HC14, HC16, HC17, HC18, HC20, HC24, HC25 | HC4 |
+| cmux | matched | 129 | 48 | 80 | 1 | HC20, HC25 | HC1, HC2, HC3, HC7, HC17, HC21, HC23, HC24 |
+| cmux | default | 129 | 43 | 81 | 5 | HC7, HC20, HC25 | HC1, HC2, HC3, HC17, HC21, HC23, HC24 |
+| hyper-util | matched | 124 | 4 | 116 | 4 | HC1, HC2, HC3, HC8, HC16, HC17, HC18, HC19, HC20, HC23, HC24, HC25 | HC4 |
+| hyper-util | default | 124 | 4 | 116 | 4 | HC1, HC2, HC3, HC8, HC16, HC17, HC18, HC19, HC20, HC23, HC24, HC25 | HC4 |
+
+Cases in which a system ran no variant (its listener setup does not cover them): nginx, caddy-l4,
+netty and jetty HC5, HC7 and HC15; sslh-ev and cmux HC9 to HC15; hyper-util HC5, HC7 and HC9 to HC15;
+haproxy and envoy none. Cases with a variant not observed (matched, default): sslh-ev HC4 and HC6 in
+both; netty none and HC4, HC6, HC12; cmux HC4 and HC4, HC6; hyper-util HC4 and HC6 in both. The 75 rows
+are HC4's drip variants (HTTP/1.1, h2c, SSH, TLS), HC6 (silent) and netty's HC12 at its defaults; the
+reason is "opcase did not end" in all 75 (`run_variant`'s outer limit, 120 s). The 243 rows with no
+decision within T_OBS are also counted by their reply.
+
+### 3. Archive and journal
+
+- Archive `~/lab/p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz` on L (488,907 bytes, 197 paths), sha256
+  7df1d9af5396f8d24d0fc5edb93f438054a3670f25250b38cb851d0f93120629, with its `.sha256` in `sha256sum`
+  form (`sha256sum -c` OK). It holds `hardcomp-L` (`competitor_cases.jsonl`, `hc1.inputs.json`, `raw/`),
+  the job files of pc2 (`pc2.pid`, `pc2.start`, `pc2.done`, `pc2.clock.json`, `pc2.thp.json`,
+  `pc2.notrack.json`), `post_chain2.sh`, `l_run.sh` and the whole `m7g/pc2.log` (10,627 lines, sha256
+  22ccb96785229791f71773604dc80865146495c3efb54f00fbadb1f30632cf4c, both steps sl3 and hc1; sl3's
+  archive holds only its snapshot, lines 1 to 2563). `competitor_cases.jsonl` and `pc2.log` read out
+  of the archive have the sha256 above, on L and on W. Copies on W, `C:\Users\alext\lab\` (the archive
+  and its `.sha256`), `sha256sum -c` OK there. Raw data stays out of git. The clone `post-src9` is
+  left as it is.
+- Lab journal (Papers `lab/journal.jsonl`, line 166): hc1 as for hl1 (`journal.py --kind runner --job
+  hc1`, the `run` field worded "frozen", host alex-laptop, `code_commit` 29ae2b6). The rows carry
+  neither `valid` nor `passed`, so `summary.valid` is null and each case cell holds the judged field
+  as `reply_as_expected` (absent for a row not observed); `summary` adds the counts of section 2.
+
+### 4. The competitors' macros
+
+- `paper/hardcase_macros.py --competitors hc1 competitor_cases.jsonl` (it needs `--server L`: the
+  table must hold L's server part's variants, 164 ids with their cases and setups, no more and no
+  fewer) adds 209 `CompCase...` macros to `results/hardcase-macros.tex`, 235 in all, sha256
+  9c9e0f38555331cfbba8696220676aca7cde8355c9e1f91819c5d00a65985e28. Its inputs, by sha256: hl1's `hardcases.jsonl` 661f1cf9 and table
+  958468ca (pc1's archive), wh1's `hardcases.jsonl` e67b3ab9 and table cae9d62a (wh1's archive),
+  `results/summary.json` a94b4bde, hc1's `competitor_cases.jsonl` c13b5fd2 (out of the archive on W).
+  The first 26 macros and the five input lines are byte for byte those of 377a1fa2; the output is
+  the same on a second run.
+- Per system: the rows, observed, not observed, equal, differ, no decision, variants, and the cases
+  with no variant run. Per system and timer setting: the variants, those equal, those that differ,
+  those not observed, and the cases where every variant differs, where some do, and with a variant
+  not observed. Totals: 9 systems, 25 cases, 164 variants, 26 starts, no variant with replicates that
+  are not alike, 8,052 rows. The notes of the file say what "equal", "differs" and "not observed"
+  mean. No time of a row reaches a macro, and the free text of a row is not written (only the label
+  of its reason). The paper words the counts as "the reply equals what the server's frozen table
+  expects", never as a pass or a failure of the system.
+- The generator refuses an input that disagrees: a row of another job, a development run, another
+  runner, a provenance without CODE_FREEZE and CHANGE_COMMIT, a system, timer setting or cases kind
+  outside `competitors.py`'s, a cases kind that the system's listener setup does not give, an id of
+  another case, a repeated row, a variant without its 3 replicates, a system or a variant missing,
+  a start row missing, repeated or not ok, a reason that `run_variant` does not write, or a variant
+  list that differs from L's server part. Tests: `paper/test_hardcase_macros.py`, 66 (12 before), and
+  `paper/test_not_run.py`, 7, all pass; 12 mutations of the generator are each caught. Every
+  competitor macro was recounted by separate code from the rows (209 of 209 equal).
+- One adversarial reviewer (foreground) before the commit. It found the free text of a row reaching a
+  TeX comment line, a narrowed run passing (the runner does not refuse `--cases` for this part), and
+  a partly observed variant that was untested and mislabelled "disagree"; the smaller ones were a
+  wrong item number in a citation, notes that said too little, a missing type check, an id prefix
+  that was too loose and test gaps. All are fixed; `paper/check_text.py` now scans
+  `results/hardcase-macros.tex` for dashes too (0 problems). The draft build of the paper (latexmk, a
+  scratch copy, forced) ends with no error, no undefined reference and 24 pages; a scratch document
+  that typesets all 235 macros compiles.
+
+### 5. Open
+
+1. The paper's text about the competitors' table is not written; it uses `\CompCase...` and the
+   wording of section 4.
+2. The items of STATE.md section 5 (8, 9 and 13) are unchanged.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
