@@ -7,14 +7,15 @@ Adapted from the previous paper's paper/check_text.py (papers/typed-routing, sam
 
 1. No en dash, em dash or other dash character, and no "--" or "---" (which LaTeX sets as
    dashes), in any .tex file of paper/, in references.bib, in paper/*.py, or in the generated
-   macro files results/design-macros.tex, results/hardcase-macros.tex and results/macros.tex (if they
-   exist), comments included.
+   macro files results/design-macros.tex, results/hardcase-macros.tex, results/macros.tex and
+   results/report-macros.tex (if they exist) and the generated tables results/tables/*.tex,
+   comments included.
 2. No digit in the prose of paper/*.tex: every number comes from the macro files. The arguments
    of \\ForAlex, \\TODO and \\Pending are notes, not prose, and are left out. Commands whose
    arguments are not prose (cite, ref, label, input, url, lengths) are removed first, and a short
    list of names that contain digits is allowed: the hypothesis, workload and hard-case names (C1
    to C3, B1 to B3, M1 to M3, WL1 to WL8, HC1 to HC25), RFC numbers, HTTP/1.1 and HTTP/2, TLS 1.3,
-   MQTT 3.1.1 and 5.0, PROXY v1 and v2, C++23, X25519, IPv4 and IPv6, SHA-256, h2, the postal
+   MQTT 3.1.1 and 5.0, PROXY v1 and v2, C++23, X25519, IPv4 and IPv6, SHA-256, UTF-8, h2, the postal
    address, the ORCID, hexadecimal bytes and status codes in texttt, and file names in texttt.
 3. No sentence of more than 30 words, in the prose and the captions of paper/*.tex. A macro
    counts as one word. Tables, notes (TODO, ForAlex, Pending) and MDPI's fixed forms (author
@@ -33,12 +34,12 @@ RESULTS = HERE.parent / "results"
 DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"
 ALLOWED = [r"\b(?:HC|WL)\d+\b", r"\b[CBM][1-3]\b", r"RFC~?\d+", r"HTTP/1\.1", r"HTTP/[12]\b", r"TLS~1\.3", r"caddy-l4",
            r"MQTT~(?:3\.1\.1|5\.0)", r"\bv[12]\b", r"C\+\+23", r"X25519", r"\bIPv[46]\b", r"SHA-256", r"\bh2c?\b",
-           r"\bnghttp2\b", r"\bG1\b", r"\bz_0\b",
+           r"\bnghttp2\b", r"\bG1\b", r"\bz_0\b", r"UTF-8",
            r"Bradistilov 11", r"\\newcommand\{\\orcidauthorA\}\{[^}]*\}",
            r"\\texttt\{0x[0-9A-Fa-f]+\}", r"\\texttt\{[1-5]\d\d\}",
            r"\\texttt\{[^}]*(/|\\_|\.py|\.sh|\.md|\.tex|\.json)[^}]*\}"]
-STRIP = [r"\\vspace\{[^}]*\}", r"\\begin\{adjustwidth\}\{[^}]*\}\{[^}]*\}",
-         r"\\(cite|ref|label|input|includegraphics|bibliography|bibliographystyle|url|href|setlength|"
+STRIP = [r"\\vspace\{[^}]*\}", r"\\multicolumn\{\d+\}\{[lcrX|]+\}",r"\\begin\{adjustwidth\}\{[^}]*\}\{[^}]*\}",
+         r"\\(cite|ref|label|input|tabinput|includegraphics|bibliography|bibliographystyle|url|href|setlength|"
          r"usepackage|documentclass)(\[[^\]]*\])?\{[^}]*\}(\{[^}]*\})?",
          r"\\begin\{tabularx\}\{[^}]*\}\{[^}]*\}", r"\\begin\{tabular\}\{[^}]*\}",
          r"\\(begin|end)\{[a-z*]+\}(\[[^\]]*\])?", r"\\[A-Za-z]+\*?", r"\[[0-9a-z=,.!]+\]"]
@@ -156,9 +157,10 @@ def check_sentences(path: Path) -> tuple[list[str], list[str]]:
 def main() -> int:
     tex = sorted(HERE.glob("*.tex"))
     dash_files = tex + [HERE / "references.bib"] + sorted(HERE.glob("*.py")) + [RESULTS / "design-macros.tex"]
-    for name in ("hardcase-macros.tex", "macros.tex"):
+    for name in ("hardcase-macros.tex", "macros.tex", "report-macros.tex", "w-evidence-macros.tex"):
         if (RESULTS / name).exists():
             dash_files.append(RESULTS / name)
+    dash_files += sorted((RESULTS / "tables").glob("*.tex"))
     bad, notes = [], []
     for p in dash_files:
         bad += check_dashes(p)
