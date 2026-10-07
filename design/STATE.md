@@ -3,9 +3,9 @@
 A digest for orientation, refreshed at each milestone. It is not a record: it holds no result and
 compares no arms. `design/status.md` and the revision log at the end of `hypotheses.md` stay
 authoritative; open them only at the section named here, by grep or line range. As of 2026-10-07
-(morning), one-port 29ae2b6 plus the docs of this refresh (status.md, "L after bs1, 2026-10-07";
-"The B1 change, 2026-10-06" before it), plus facts from the coordinator not yet in the repo, marked
-"(coord.)".
+(morning), one-port 29ae2b6 plus the docs of this refresh (status.md, "W's section 10 job ws1,
+2026-10-07"; "L after bs1, 2026-10-07" and "The B1 change, 2026-10-06" before it), plus facts from
+the coordinator not yet in the repo, marked "(coord.)".
 
 ## 1. Where P3 stands
 
@@ -15,11 +15,13 @@ confirmatory runs are under way. L: cost family, hard cases' server part, mechan
 (sl1) on the B1 counting defect. The B1 change is committed (fix 9cae2de, entry 9830457, a later
 change under section 8): sl1 is archived as evidence only (moved to `~/lab/p3/evidence/`) and
 section 10 runs again from its start. On L that is the chain pc2 (sl3, then the competitors' table
-hc1), launched 2026-10-07 06:55:26 and running; on W, ws1 (coord.: measuring). W: cost family (wc1, stopped at Alex's request, then wc2), M1's IOCP cells
+hc1), launched 2026-10-07 06:55:26 and running; on W, ws1 ended 2026-10-07 07:00:37 (exit 0) and is
+followed up (status.md "W's section 10 job ws1": 600 rows, 8 of 9 cells at R = 16, SSH C2 with no
+valid window, the mixed cell valid). W: cost family (wc1, stopped at Alex's request, then wc2), M1's IOCP cells
 (wm1) and hard cases on IOCP (wh1) ended 2026-10-06 02:53:16 (wc2, wm1 and wh1 exit 0); the
 follow-up is done: every W cell reached its R, the three invalid windows are in status.md, the
-hard cases all passed, each out directory archived and journaled; W has no job left except
-section 10's ws1 (prepared in `m7g\wsfix`). Freeze order (hypotheses.md section 8): steps 1
+hard cases all passed, each out directory archived and journaled; W has no job left (ws1 is done
+and followed up, archived and journaled). Freeze order (hypotheses.md section 8): steps 1
 to 6 done (hypotheses freeze 64a23f7, engineering, CODE_FREEZE, A/A pilots, simulation, pilot
 entry). Step 7: rule E, M2's rates, B3 feasibility windows and K_BASE's windows done; confirmatory,
 secondary and hard-case runs in progress. Then the analysis of each family once both hosts' data
@@ -114,8 +116,8 @@ Alex's decisions:
   evidence, section 10 again from its start on L and W with the fixed runner (entry 9830457, item 5).
 - 2026-10-05: no larger io_uring buffer pool in P3 (a compiled change after CODE_FREEZE); a
   labelled exploratory follow-up after the confirmatory runs; buffer sizing goes to P4 (coord.).
-- 2026-10-05: W's section 10 run (ws1) waits for the B1 fix (coord.). The fix is in; ws1 is
-  prepared in `m7g\wsfix`.
+- 2026-10-05: W's section 10 run (ws1) waits for the B1 fix (coord.). The fix is in; ws1 ran in
+  `m7g\wsfix` on 2026-10-07 (section 4).
 
 Coordinator's decision, 2026-10-05 17:55: run bf1, bk1, bs1, then hc1 on L; hold sl2 for the B1 fix.
 sl2 (the resumption of sl1) is not run: section 10 starts again as sl3.
@@ -137,7 +139,7 @@ from its section "W's confirmatory jobs, 2026-10-05/06" (validity read, no arm c
 | Mechanism (M) | L | ml1 | `m-L` | done: 14 cells 16 valid each; sslh-ev's two M3 cells none (logged defect); M2 TLS not run; archived; journaled |
 | Mechanism (M) | W | wm1 | `m-W` | done: M1's two IOCP cells, 01:10:03 to 02:28:41, exit 0, 128 rows, 16 valid sessions each, no invalid window; archived (`C:\Users\alext\lab\p3-raw-2026-10-06-wm1-ff2679cc8.tar.gz`, sha256 acb1590cb0adc18ce6dc2191ec65ca7d88dfe25912b9f63a8ca7431fa84b0b9a); journaled |
 | Section 10 | L | sl1; sl3 | `s-L` | sl1 stopped 17:53:12 (exit 143), 384 windows, 331 valid; archived (partial; sha256 checked again 2026-10-07); journaled (and the evidence-only line). Under the B1 change: evidence only, never used; moved to `~/lab/p3/evidence/s-L-sl1-b1count`. sl3 (section 10 from its start, 608 base sessions, 2,432 windows without reruns) runs inside the chain pc2 (job pid 1196837, started 2026-10-07 06:55:26, clone `m7g/post-src8` at 29ae2b6); its first rows name `change_commit` 9cae2de; no `sl3.pid` or `sl3.done` (watch `pc2.*`, status.md "L after bs1", section 5) |
-| Section 10 | W | ws1 | `s-W` | prepared in `m7g\wsfix` (clone `m7g\ws-src1` at 9830457 or later, cutoff at launch); (coord.) W is measuring ws1 as of 2026-10-07; this session did not touch W and has not checked it |
+| Section 10 | W | ws1 | `s-W` | done: 2026-10-07 02:12:32 to 07:00:37, exit 0 (chain `m7g\wsfix`, clone `m7g\ws-src1` at 29ae2b6; 2 refusals before it, one per launch); 600 rows in 150 sessions (144 base, 6 reruns), 517 valid windows, 128 valid sessions; 8 of 9 cells reached R = 16; S.ssh.C2.W.IOCP ran its 16 sessions and the 4 reruns of its cap with no valid window (opgen exit 2, the logged keep-alive SSH defect), so 0 of 16; the mixed cell is valid (64 of 64 windows; not invalid by the generator rule as expected); 3 other invalid windows (one in M1 HTTP/1.1, two in C3 SSH, each session rerun once); not run on W: TLS resumption, 2-core; every row names `change_commit` 9cae2de and `check_rows.py` binds all 600 to `gate-W.json`; archived (`C:\Users\alext\lab\p3-raw-2026-10-07-ws1-ff2679cc8.tar.gz`, sha256 966ce1c61a547241e86da4d5c04ce136c3a193e5a59a121a1f8684e5bbbc2766); journaled (line 161) |
 | B3 feasibility (development) | L | bf1 | `b3feas-L` | done: 21 windows, 20 valid; archived (`p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256 d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd); journaled |
 | K_BASE | L | bk1 | `b3-L` | done: 17 windows, 16 valid (window 1 TIME-WAIT); archived with bs1; journaled |
 | B3 sessions | L | bs1 | `b3-L` | done 2026-10-07 01:29:57, exit 0: 2,628 windows in 657 sessions (49 reruns), 2,578 valid, 50 invalid (44 TIME-WAIT at both samples, 5 at sample 2 only, 1 not settled); 37 of 38 cells reached R = 16; B3.partial-hello.cmux.epoll ended at 15 valid after its 4 reruns (the cap), no treatment proposed; archived with bk1 (`p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz`, sha256 3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8); journaled; rows carry no `change_commit` (ran from d29968b) |
@@ -150,8 +152,10 @@ estimated.
 Not run by design, with the reason logged: M2's TLS cells (7a63a08); W's churn h2c and MQTT
 (2055e63); section 10's 2-core IOCP cell (2055e63) and TLS resumption (13004bc). Expected without
 a valid session: sslh-ev's M3 cells and their section 10 cells (logged defect); section 10's SSH C2
-cells (opgen has no keep-alive SSH form, status.md section 4 item 3); W's mixed cell (generator
-rule, status.md "M7 freeze night" item 7).
+cells (opgen has no keep-alive SSH form, status.md section 4 item 3; on W the cell ran and used its
+rerun cap, 0 of 16 valid sessions). W's mixed cell was expected to be invalid by the generator rule
+(status.md "M7 freeze night" item 7) and is not: all 64 of its windows in ws1 are valid
+(status.md "W's section 10 job ws1", section 3).
 
 ## 5. Open items, in order
 
@@ -174,9 +178,10 @@ rule, status.md "M7 freeze night" item 7).
    `gate-L.json`, the provenance check of status.md "The B1 change", section 3, an archive with its
    sha256 for each, journal lines), then STATE.md. Watch `~/lab/p3/m7g/pc2.pid`, `pc2.done` and
    `pc2.log` (the `== sl3 exit` and `== hc1 exit` lines).
-6. ws1 on W (agent, quiet W window; (coord.) launched, W measures it as of 2026-10-07): clone `m7g\ws-src1` at 9830457 or later, set the cutoff in
-   `m7g\wsfix\run_chain.cmd`, launch through `wlaunch.ps1` (status.md, the same section 2). The old
-   chain `m7g\ws` is retired (its launcher and steps renamed `*.superseded-b1fix`).
+6. Done (2026-10-07, status.md "W's section 10 job ws1"): ws1 on W ran from `m7g\ws-src1` at
+   29ae2b6 through the chain `m7g\wsfix` and ended 07:00:37 with exit 0; its rows, the provenance
+   and gate checks, the archive and the journal line are in that section. The old chain `m7g\ws` is
+   retired (its launcher and steps renamed `*.superseded-b1fix`).
 7. Before any analysis of sl3, ws1 and hc1: every row names `change_commit` 9cae2de at
    `provenance.freeze.freeze.change_commit` (status.md, the same section, section 3); sl1's rows
    are given to no analysis. Then the analysis per family at ANALYSIS_COMMIT: cost (L and W),
@@ -221,8 +226,8 @@ rule, status.md "M7 freeze night" item 7).
 | L frozen build | `~/lab/p3/m7g/records-ff2679c/build-release`, `gate-L.json`; pilot output `m7g/pilot-entry/pilot.json` |
 | L archives, logs | `~/lab/p3-raw-2026-10-05-<job>-ff2679cc8.tar.gz` (+ `.sha256`; `bk1-bs1` is one archive for both jobs); `~/lab/records-logs/<record>/`; the check of the B1 change `m7g/b1fix-L-test_*.log` |
 | L launch | `bash -c '(setsid nohup bash SRC/bench/run/lab_job.sh ~/lab/p3/m7g NAME bash ~/lab/p3/m7g/l_run.sh SRC STEP JOB > /dev/null 2>&1 &)'`; the chain pc2: the same with `NAME` pc2 and `bash ~/lab/p3/m7g/post_chain2.sh` in place of `l_run.sh SRC STEP JOB` |
-| W job dirs | `C:\Users\alext\lab\p3\m7g\` `wcost`, `wm`, `whard`, `wnight2` (chain wc2, wm1, wh1; `chain.log`, `chain.done`), `wpilot`, `wrule`; `wsfix` (ws1, prepared); `ws` retired (B1 change) |
-| W clones, files | `m7g\post-src2` 77cedae, `m7g\pilot-src2` f185a8a; to make: `m7g\ws-src1` at 9830457 or later; `m7g\pilot.json`, `m7g\rule_e.json`, `m7g\stopat.py`; the B1 change's checks `m7g\b1fix\` (`SHA256SUMS` sha256 32418367ea727376f6566a8502f3450183f796e10649429548f0954dc832789e) |
+| W job dirs | `C:\Users\alext\lab\p3\m7g\` `wcost`, `wm`, `whard`, `wnight2` (chain wc2, wm1, wh1; `chain.log`, `chain.done`), `wpilot`, `wrule`; `wsfix` (ws1, done); `ws` retired (B1 change) |
+| W clones, files | `m7g\post-src2` 77cedae, `m7g\pilot-src2` f185a8a, `m7g\ws-src1` 29ae2b6 (ws1); `m7g\pilot.json`, `m7g\rule_e.json`, `m7g\stopat.py`; the B1 change's checks `m7g\b1fix\` (`SHA256SUMS` sha256 32418367ea727376f6566a8502f3450183f796e10649429548f0954dc832789e) |
 | W frozen build | `C:\Users\alext\lab\p3\m7g\records-ff2679c-W\build-release`, `gate-W.json` |
 | W launchers | `run_chain.cmd` per dir, its `chain.py`, `steps.json`, `launches.txt`; WMI launch by `C:\Users\alext\lab\p3\m6b\wlaunch.ps1`; stop with `chain.stop` |
 | W Python | `C:\Users\alext\AppData\Local\Python\pythoncore-3.14-64\python.exe` |

@@ -7314,6 +7314,180 @@ After sl3 and after hc1, each: `l_check.py`, `bench/check_rows.py` against `gate
 holding the output directory, the job files of pc2 and `post_chain2.sh`), and the journal line. The
 clones `post-src8` and `post-src9` stay as they are until then.
 
+## W's section 10 job ws1, 2026-10-07
+
+The follow-up of ws1 (the section "The B1 change, 2026-10-06", section 2 "W, ws1" and section 3),
+read from the rows, the done files, the logs and the preflight files, with no arm compared and no
+ratio, interval or test computed. One agent session on W after the chain `m7g\wsfix` ended; no W
+job was started and no Windows setting changed (`powercfg /getactivescheme` read "ChrisTitus -
+Ultimate Power Plan" afterwards, and `ws1.done` has `plan_restored` true). Nothing was done on L
+except one `git push lab`. The one use of `analysis/rows.py` is its grouping (`refuse_flags` and
+`assemble`, with the secondary cells' roles from `analysis/cells.py`), to see how the analysis will
+read the sessions: it accepts all 600 rows (`refuse_flags` with `frozen` true and no synthetic row),
+gives 150 sessions of 9 cells, 128 of them valid, and refuses nothing. Nothing here is a result.
+
+**Two things differ from what the earlier sections led to expect.** (1) The mixed cell on W did not
+come out invalid by section 7's generator rule: all 64 of its windows are valid (section 3 below).
+(2) SSH C2 is not a cell that did not run: it ran, used its rerun cap and has no valid window
+(section 2 below).
+
+### 1. The job
+
+| Job | Out directory | Start to end | Exit | Refusals before it | Rows |
+|---|---|---|---|---|---|
+| ws1 | `s-W` | 2026-10-07 02:12:32 to 07:00:37 (`chain.done` 07:00:39, status "done") | 0 | 2 (one per launch) | 600 (first window 02:14:54, last window started 07:00:00) |
+
+Run from the clone `m7g\ws-src1` at 29ae2b6 (`git status --short` empty; every row has
+`provenance.runner_commit` 29ae2b6 and `runner_dirty` false), by the chain `m7g\wsfix` launched
+through WMI (`launches.txt`), in Python's UTF-8 mode (`utf8.txt` reads `utf8_mode 1`), with the
+arguments `chain.log` records (`--code-freeze` ff2679c, `--gate` `gate-W.json`, `--pilot`,
+`--rule-e`, `--seeds` the clone's `design/seeds.json`).
+
+**Refusals: two, not the one that `chain.done` reads.** `chain.done` counts the second launch only
+(`"refusals": 1`). The first launch (cmd pid 28668, 2026-10-06 19:41:29, cutoff 23:30) made one
+attempt, refused at 19:41:42 (wjob exit 90 "W is not quiet", no lab plan set, no window; mean idle
+82.8%; CPUs 2, 6, 7, 8, 9 and 10 below 90% idle, CPUs 8 and 10 at 59.9% and 65.5%; `MsMpEng` 72.8%,
+`CrossDeviceService` 22.8%, `node` 19.5% and `dwm` 15.0% of one CPU), and was ended by
+`chain.stop` at 19:43:10 (`chain-run1.done`, status "stopped by chain.stop", no result). The
+second launch (cmd pid 14996, 2026-10-07 02:07:17, cutoff 13:30) was refused at 02:07:29 (mean
+idle 93.4%; CPUs 8 and 10 at 83.1% and 78.6% idle; no process above 10%), and its next attempt, 300
+s later, passed at 02:12:32 (mean idle 98.7%, no CPU below 95.7% idle, no process above 5.0%).
+Files: `ws1-refused1.*`, `ws1-refused2.*`, `ws1.preflight.json`, `ws1.done`.
+
+Warm-up (discarded, never rows; `warmup-ws_run-ws1.json`): in S.ssh.C1.W.IOCP, 4 windows, 114.4 s
+(02:12:46 to 02:14:47), ended by length, no driver fault.
+
+The stop watcher, `stopat.py` (pid 8376 in `launches.txt`, `--until-file wsfix\chain.done`): not
+running. `Get-Process -Id` finds none of the recorded pids 8376 (watcher), 14996 and 28668 (cmd of
+the two launches), 21836 (`chain.pid`), 3212 and 7596 (wjob launchers). Its log `ws1.stopat.jsonl`
+holds two lines: "start" 02:07:17 (rule time 17:30) and "job done before the rule's time"
+07:00:48. It never acted on the job.
+
+### 2. Per cell: 600 rows against 576 planned
+
+The plan is 9 cells of 16 base sessions (144 base sessions in two groups, the second being C3,
+which takes its open-loop rate from C1's sessions; `ssh-rates-ws1.json`, written 06:20:05), four
+windows each, 576 windows, and a rerun cap of 4 per cell (ceil(R/4) at R = 16). 150 sessions ran:
+the 144 base sessions (every one has its four rows, at positions 0 to 3, arms X Y Y X, the first
+arm as `plan-ws_run.json` gives it) and 6 reruns, so 600 = 576 + 6 x 4. The rows' per-cell
+counts equal `summary-ws_run-ws1.json`'s (sessions, valid sessions, reruns, invalid windows, checked
+for all 9 cells; no stub window).
+
+| Cell | Rows | Valid windows | Invalid windows | Sessions | Reruns | Valid sessions | R = 16 |
+|---|---|---|---|---|---|---|---|
+| S.ssh.C1.W.IOCP | 64 | 64 | 0 | 16 | 0 | 16 | reached |
+| S.ssh.C2.W.IOCP | 80 | 0 | 80 | 20 | 4 (the cap) | 0 | **not reached** |
+| S.ssh.C3.W.IOCP | 68 | 66 | 2 | 17 | 1 | 16 | reached |
+| S.mixed.C1.W.IOCP | 64 | 64 | 0 | 16 | 0 | 16 | reached |
+| S.tls-variants.C1.W.IOCP.alpn-h2 | 64 | 64 | 0 | 16 | 0 | 16 | reached |
+| S.iocp-forms.W.IOCP.acceptex-buffer | 64 | 64 | 0 | 16 | 0 | 16 | reached |
+| S.iocp-forms.W.IOCP.receive-form | 64 | 64 | 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M1.W.IOCP.http1 | 68 | 67 | 1 | 17 | 1 | 16 | reached |
+| S.m-ttfb.M1.W.IOCP.h2c | 64 | 64 | 0 | 16 | 0 | 16 | reached |
+| All | 600 | 517 | 83 | 150 | 6 | 128 | 8 of 9 cells |
+
+Each cell's valid sessions are exactly 16 where reached, so no cell has more than R.
+
+**SSH C2 ran and has no valid window.** The engine ran its 16 base sessions and the 4 reruns of
+its cap (20 sessions, 80 windows; first window 02:23:33, last window started 06:18:02; the reruns
+r1 to r4 ran from 06:17:19 to 06:18:01). Every one of the 80 windows is invalid with the same two
+reasons: "opgen wrote no report (exit 2)" followed by the tail of opgen's usage text, and "opgen
+failed: no report". `opgen_exit` is 2 in all 80 rows; each row's probe (one SSH exchange against
+the server) completed (exit 0, "ssh: exchange completed", no connect failure), `server_exit` is 0,
+and the command line of each window carries `--load keepalive`. This is the logged defect: opgen has no
+keep-alive SSH form ("L after the cost family", section 4 item 3). The cell used its whole rerun
+cap, ended with 0 of 16 valid sessions, and no treatment is proposed here. The analysis reads it
+as 20 invalid sessions ("4 invalid windows" each).
+
+The other three invalid windows, with their reasons as the rows give them:
+- S.m-ttfb.M1.W.IOCP.http1.s08, position 3, arm B (03:33:36): "errors 0.461% > 0.1%", "190 connects
+  failed". Its rerun r1 (order index 100004, started 06:18:09) has four valid windows.
+- S.ssh.C3.W.IOCP.s14, position 0, arm B (06:20:12): "no exchange completed", "27841 connects
+  failed", "open loop: 0.00% of the exchanges due completed, below 99%"; and position 1, arm A
+  (06:20:53): "869 connects failed". The session's other two windows (positions 2 and 3) are valid.
+  Its rerun r1 (order index 100005, started 06:58:18) has four valid windows. s14 was the first
+  session of C3's group (C3's first window, 06:20:12, is seven seconds after `ssh-rates-ws1.json`
+  was written).
+
+No other cell has an invalid window, a rerun or a stub.
+
+### 3. The mixed cell on W: valid
+
+"M7 freeze night", section 7 and its item for Alex say that on W the mixed cell's generator, on CPUs
+2 to 5, was 97.5% to 99.1% busy in the functional check wf3 (the dry run's build, development seed),
+so that every dedicated window of that check was invalid by section 7's generator rule, and that
+the cell's W windows "will report invalid windows with this reason". **In ws1 they do not.**
+S.mixed.C1.W.IOCP has 64 rows, 32 dedicated and 32 one-port, all 64 valid with no invalid reason:
+16 sessions, 16 valid, no rerun. The rows' `gen_cpu_pct_rule` (the larger of opgen's own CPU share
+and the busy share of its CPUs, wwindow.py's rule on W, 90% being the bound) lies between 69.5% and
+75.8% over the 64 windows (opgen's own share 67.3% to 74.8%); the placement is the one the entry
+"The job's warm-up and W's runners (M7e)" item 4 gives (`placement` "mixed", generator CPUs 2 to 5,
+server CPU 10, the TLS background on CPUs 6 and 7, the MQTT background and the silent holder on
+8 and 9). In every window the three background jobs (TLS, MQTT, silent) have exit 0 and `ok`
+true, `misclassified` is 0 in each of the 32 one-port windows (the dedicated windows carry none), and no row of the job
+has `misclassified` above 0. No cause for the difference from wf3 is established here (different
+build, runner and day; nothing was run to find out). The earlier sections are not edited; this
+section corrects their expectation, and STATE.md's list of cells expected without a valid session
+no longer names the mixed cell on W.
+
+### 4. Cells not run
+
+`not-run-ws1.json` has 46 entries. Two are W's: S.tls-variants.C1.W.IOCP.resumption (section 2.1
+fixes no session tickets and no session cache, and TLS 1.3 resumes a session only from a ticket;
+revision log, "M7c's open items, before the code freeze", item 5) and S.two-cores.C1.W.IOCP.two-cores
+(the server serves one IOCP worker, a second is a new threading model, and the cell is secondary
+and decides nothing; "The job's warm-up and W's runners (M7e)", the coordinator's decision). Of the
+other 44, 42 are L's cells ("L's cell, run by L's runner (bench/run/s_run.py)") and 2 are L's TLS
+resumption cells (the same reason as W's). S.ssh.C2.W.IOCP is not in the file: it ran (section 2).
+The section 10 cells of W in the analysis's list are 11; 9 ran, 2 did not.
+
+### 5. Provenance and gate checks
+
+- Every one of the 600 rows names `change_commit` 9cae2deff2b01896bfab25c5af4c610381dc3c1d at
+  `provenance.freeze.freeze.change_commit` (section 3 of "The B1 change"'s one-liner: 0 rows
+  without it), `code_freeze` ff2679c and `head` 29ae2b6, `gates` `["gate-W.json"]`.
+- `bench/check_rows.py --gate gate-W.json windows.jsonl` binds all 600 rows, refused none, exit
+  0. `gate-W.json` (`m7g\records-ff2679c-W`) sha256
+  329d372ee7d4dc15ef6b7bac76fb9d8de35d5d048f9eea5108ae08caefc9e1fc, equal to STATE.md's. The
+  covered binaries are oneport 749d0209c112, opgen b1e608dd6203 and opcase 40ca5aad0c96; the rows'
+  `binaries` are oneport 749d0209c112 and opgen b1e608dd6203 in 536 rows and those two and opcase
+  in the 64 mixed-cell rows (the silent holder).
+- Every row: `development` false, `job` ws1, `runner` ws_run, `host` W, `seed` 904573355,
+  `provenance.commit` ff2679c and `dirty` false, `provenance.runner_commit` 29ae2b6 and
+  `runner_dirty` false, `functional_job` false, lab plan 277bfd76-c26d-4cac-b253-a8500e6728d8; no
+  dry-run or synthetic row, no stub, no driver-fault row, no duplicate (session, position).
+  `ws1.done`: `functional_check` false, `stop_requested` false, `plan_restored` true.
+- `pilot.json`, `rule_e.json` and `steps.json` of the chain have the sha256 STATE.md and "The B1
+  change" give (bc48a736..., fb50302a..., 336bfc46...).
+
+### 6. Files, archive, journal
+
+sha256, under `C:\Users\alext\lab\p3\`: `s-W\windows.jsonl`
+6f7a1b2f12c808aae375ee393e0a9aced60f931227a0ee47187315e976bb74b8 (600 lines);
+`s-W\summary-ws_run-ws1.json` d91cec2453fa51a497a664dddef0862f1731e0e840bacdbb964d0612612fb3f7;
+`s-W\plan-ws_run.json` f0664ffba4277c4006afde213e5f1cd5dc68d0ccc7d4cfb96da8a756b3d8827b;
+`s-W\not-run-ws1.json` 18440ea069f74c1d1012af71a9c1e1f7cd81c22344eb15ab1534501ef5fec1de;
+`s-W\ssh-rates-ws1.json` 788081e3823df743657f987719c98b276770a880be1e95e803c30eceea33a1b8;
+`s-W\warmup-ws_run-ws1.json` d305ee13ab1ec5d83dc7799db2f0d0705ccb6b5ec08e24bb2b5b13b73c975489;
+`s-W\provenance-ws1.json` 6a05e2dcf29097ca7e64990326c4221b10bd3088578018bd3f5b6896ddd195b9;
+`s-W\ws1.inputs.json` 17e9b22a3a8a3c86e05bb94e6ccd4136c3f761fdda3548fe8fc3d69fd596ff8e; under
+`m7g\wsfix\`: `ws1.log` ba1db89197b0a4311a5b3cc4f4bb9915c9783948d544cedb30f051d8d8484fc1,
+`chain.log` 5b6470c64d3476b50fcc60a0a709d5e709ae75b78fbc3ef12ba46347d1e75350, `chain.done`
+b05cd6fe7d357e81b0e7f80fd12d613ca560231852d716b3b93b3056154a4d2b, `ws1.done`
+7cd8a01763579e063750075802dafd5e67fe364aa33342da66f6ff2038182238, `ws1.stopat.jsonl`
+493b1d688460fa94762d985cf1003ece9b405f7a724d1f7dac83f2c2630e42bc.
+
+Archive on W, `C:\Users\alext\lab\p3-raw-2026-10-07-ws1-ff2679cc8.tar.gz` (`s-W` with its 2,052 raw
+files, and the chain directory `m7g\wsfix`: 2,085 files in all, 1,910,854 bytes), sha256
+966ce1c61a547241e86da4d5c04ce136c3a193e5a59a121a1f8684e5bbbc2766, with its `.sha256` beside it in
+`sha256sum` form (`sha256sum -c` OK); `s-W/windows.jsonl` has the sha256 above on disk and inside
+the archive. Raw data stays out of git.
+
+Lab journal (Papers `lab/journal.jsonl`, line 161, `journal.py --kind runner --job ws1`, the `run`
+field worded "frozen" and the host ALEX-PC, as for wc1 to wh1): ws1 (600 rows, 517 valid);
+`code_commit` 29ae2b6 (the clone's HEAD, as `runner_commit` records), the archive's name and sha256
+in `note`.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
