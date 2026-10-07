@@ -7488,6 +7488,207 @@ field worded "frozen" and the host ALEX-PC, as for wc1 to wh1): ws1 (600 rows, 5
 `code_commit` 29ae2b6 (the clone's HEAD, as `runner_commit` records), the archive's name and sha256
 in `note`.
 
+## L's section 10 job sl3, 2026-10-07
+
+The follow-up of sl3, the first step of the chain pc2 ("L after bs1, 2026-10-07", section 5; STATE.md
+item 5), read from the rows, the log and the job files, with no arm compared and no ratio, interval
+or test computed. One agent session on W. hc1, the chain's second step, was still running on L (it
+is functional and not timed); no lab job was started on L. The session read files over ssh, ran
+`l_check.py` and made one archive. The rows and the small files were copied to W by scp, each with a
+sha256 equal to L's (section 7), and `bench/check_rows.py` ran on W against that copy. Nothing here
+is a result.
+
+**Three things the earlier sections did not list.** (1) Seven cells ended with no valid session, one
+more than the logged six: besides sslh-ev's four cells and the two SSH C2 cells (both logged),
+S.mixed.C1.L.io_uring has 0 valid sessions of 16 (section 3). (2) Neither sslh-ev's cells nor SSH C2
+are in `not-run-sl3.json`: they ran and used the rerun cap of their cells (section 5). (3) The mixed
+cell on epoll has 16 valid sessions, all 64 of its windows valid, with `misclassified` 0 in each of
+its 32 one-port windows (section 4); in sl1's 14 one-port windows of this cell `misclassified` was
+`connects_run` + 128 ("L after the cost family", section 4 item 1).
+
+### 1. The job
+
+| Job | Out directory | Start to end | Exit | Rows |
+|---|---|---|---|---|
+| sl3 (first step of pc2, lab job pid 1196837, nice 0) | `~/lab/p3/s-L` | 2026-10-07 06:55:27 to 11:23:38 (16,091 s; `pc2.log` holds `== sl3 exit 0, 16091 s`) | 0 | 2,548 (first window 06:56:49, last window started 11:23:30) |
+
+Run from the clone `m7g/post-src8` at 29ae2b6: every row has `provenance.runner_commit` 29ae2b6 and
+`runner_dirty` false. Warm-up (discarded, never rows; `warmup-s_run-sl3.json`): in
+S.m-ttfb.M1.L.epoll.http1, 13 windows, 80.9 s (06:55:28 to 06:56:49), ended by length. The plan is
+38 cells of 16 base sessions (608 base sessions, 2,432 windows; `plan-s_run.json`, two groups of
+576 and 32 sessions, the second being C3, which takes its open-loop rate from C1's sessions), four
+windows each, and a rerun cap of 4 per cell. 637 sessions ran
+(`sessions_run_this_job` 637): the 608 base sessions and 29 reruns, so 2,548 = 2,432 + 29 x 4. Every
+session has its four rows at positions 0 to 3 in the arm order X Y Y X; there is no duplicate
+(session, position), no stub and no driver-fault row. In every row: `job` sl3, `development` false,
+`runner` s_run, `host` alex-laptop, `seed` 3488492621, `functional_job` absent, NOTRACK active, the
+clock floor held, THP held. The counts of `l_check.py ~/lab/p3/s-L sl3` and of
+`summary-s_run-sl3.json` equal the rows' for all 38 cells (sessions, valid sessions, reruns, invalid
+windows, stub windows). `pc2.done` did not exist yet; hc1 had started at 11:23:38.
+
+### 2. Per cell: 2,548 rows against 2,432 planned
+
+Valid sessions are the sessions whose four windows are all valid. R = 16 reached in 31 cells; no
+cell has more than 16.
+
+| Cell | Rows | Valid / invalid windows | Sessions | Reruns | Valid sessions | R = 16 |
+|---|---|---|---|---|---|---|
+| S.m-ttfb.M1.L.epoll.h2c | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M1.L.epoll.http1 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M1.L.io_uring.h2c | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M1.L.io_uring.http1 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.http1.caddy-l4 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.http1.envoy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.http1.haproxy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.http1.nginx | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.http1.sslh-ev | 80 | 40 / 40 | 20 | 4 | 0 | **not reached** |
+| S.m-ttfb.M3.L.epoll.tls-stub.caddy-l4 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.tls-stub.envoy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.tls-stub.haproxy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.tls-stub.nginx | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.m-ttfb.M3.L.epoll.tls-stub.sslh-ev | 80 | 40 / 40 | 20 | 4 | 0 | **not reached** |
+| S.mixed.C1.L.epoll | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.mixed.C1.L.io_uring | 80 | 0 / 80 | 20 | 4 | 0 | **not reached** |
+| S.relay-io_uring.L.io_uring.http1.caddy-l4 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.http1.envoy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.http1.haproxy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.http1.nginx | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.http1.sslh-ev | 80 | 40 / 40 | 20 | 4 | 0 | **not reached** |
+| S.relay-io_uring.L.io_uring.tls-stub.caddy-l4 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.tls-stub.envoy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.tls-stub.haproxy | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.tls-stub.nginx | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.relay-io_uring.L.io_uring.tls-stub.sslh-ev | 80 | 40 / 40 | 20 | 4 | 0 | **not reached** |
+| S.ssh.C1.L.epoll | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.ssh.C1.L.io_uring | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.ssh.C2.L.epoll | 80 | 0 / 80 | 20 | 4 | 0 | **not reached** |
+| S.ssh.C2.L.io_uring | 80 | 0 / 80 | 20 | 4 | 0 | **not reached** |
+| S.ssh.C3.L.epoll | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.ssh.C3.L.io_uring | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.tls-variants.C1.L.epoll.alpn-h2 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.tls-variants.C1.L.io_uring.alpn-h2 | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.two-cores.C1.L.epoll.reuseport | 68 | 67 / 1 | 17 | 1 | 16 | reached |
+| S.two-cores.C1.L.epoll.two-cores | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.two-cores.C1.L.io_uring.reuseport | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| S.two-cores.C1.L.io_uring.two-cores | 64 | 64 / 0 | 16 | 0 | 16 | reached |
+| All | 2,548 | 2,147 / 401 | 637 | 29 | 496 | 31 of 38 cells |
+
+### 3. The seven cells short of R
+
+Each of the seven ran its 16 base sessions and the 4 reruns of its cap (20 sessions, 80 windows) and
+ended with 0 valid sessions.
+
+- **sslh-ev, four cells** (S.m-ttfb.M3.L.epoll.http1.sslh-ev, S.m-ttfb.M3.L.epoll.tls-stub.sslh-ev,
+  S.relay-io_uring.L.io_uring.http1.sslh-ev, S.relay-io_uring.L.io_uring.tls-stub.sslh-ev). In each,
+  40 windows are valid and 40 invalid. Every invalid window is arm B (system sslh-ev), two in each of
+  the 20 sessions; arm A (one-port-relay) has no invalid window. Reasons: "errors N% > 0.1%" in all
+  40 of each cell (0.572% to 0.646%, 0.614% to 0.692%, 0.581% to 0.661% and 0.608% to 0.703% in the
+  order above), and "N connects failed" besides it in 6, 6, 7 and 3 of them (1 to 10 connects). The
+  logged defect (revision log, "sslh-ev's stalled exchanges, before the code freeze"; ml1's M3 cells
+  ended the same way).
+- **S.ssh.C2.L.epoll and S.ssh.C2.L.io_uring.** All 80 windows of each are invalid, with the same two
+  reasons: "opgen wrote no report (exit 2)" and "opgen failed: no report". `opgen_exit` is 2 in all
+  160 rows; each row's probe completed (exit 0), `server_exit` is 0, and the command of each window
+  carries `--load keepalive`. The logged defect: opgen has no keep-alive SSH form ("L after the cost
+  family", section 4 item 3). Windows from 07:49:15 to 11:08:27 (epoll) and from 07:01:55 to 11:07:30
+  (io_uring).
+- **S.mixed.C1.L.io_uring.** All 80 windows are invalid, 40 dedicated and 40 one-port, with these
+  reasons: "probe failed: http1: failed (timeout)" in 76 of them, and "errors N% > 0.1%" in all 80
+  (0.95% to 62.5%). The 4 windows whose probe passed are all dedicated, arm B (s02 position 1, s12
+  position 0, r1 positions 1 and 2). `opgen_exit` is 0 in all 80. B1 is not among the reasons: the 40
+  one-port windows have `misclassified` 0 and no unbounded class (section 4). This is the behaviour
+  that "L after the cost family", section 4 item 2 records for sl1 (the churn starved on io_uring, in
+  both modes); no cause is established here, and STATE.md item 9 keeps it for Alex.
+
+One other invalid window in the job: S.two-cores.C1.L.epoll.reuseport.s16, position 1, arm A,
+one-port (2026-10-07 08:44:03), reason "probe failed: " with an empty detail (probe exit 1,
+`connect_failures` 0). The session was rerun once (r1, whose windows started from 11:09:50 to 11:10:09), and r1's four
+windows are valid; the cell has 17 sessions, 1 rerun and 16 valid sessions. No explanation is given here.
+
+### 4. The mixed cell's B1 count, read from `connects_run`
+
+Section 3 of "The B1 change" asks whether the one-port windows now show the count that the change
+reads. In every one-port row of the mixed cell the row holds `misclassified` and
+`misclassified_unbounded`, and the dedicated rows hold neither. Counts, no verdict:
+
+| Cell | Windows (dedicated / one-port) | Valid windows | `misclassified` in the one-port windows | `misclassified_unbounded` | opgen `connects_run` | Background `connects_run` (TLS, MQTT) | Server's classified HTTP/1.1, TLS, MQTT |
+|---|---|---|---|---|---|---|---|
+| S.mixed.C1.L.epoll | 32 / 32 | 64 | 0 in all 32 | empty in all 32 | 104,481 to 106,544 | 64 and 64 in all 32 | HTTP/1.1 104,482 to 106,545 (`connects_run` + 1 in all 32), TLS 64, MQTT 64, every other class 0 |
+| S.mixed.C1.L.io_uring | 40 / 40 | 0 | 0 in all 40 | empty in all 40 | 656 to 934 | 64 and 64 in all 40 | HTTP/1.1 657 to 935 (`connects_run` + 1 in all 40), TLS 64, MQTT 64, every other class 0 |
+
+No row of the job has `misclassified` above 0 (796 rows carry the key, all with `mode` one-port;
+`misclassified_unbounded` appears only in the 72 mixed-cell one-port rows). In all 144
+mixed-cell windows the three background jobs (TLS, MQTT, silent) report `ok` true. The 16 sessions
+of the epoll cell are all valid (64 of 64 windows, no rerun).
+
+### 5. Cells not run
+
+`not-run-sl3.json` has 13 entries. Two are L's: S.tls-variants.C1.L.epoll.resumption and
+S.tls-variants.C1.L.io_uring.resumption (section 2.1 fixes no session tickets and no session cache,
+and TLS 1.3 resumes a session only from a ticket; revision log, "M7c's open items, before the code
+freeze", item 5). The other 11 are W's cells, which W's runner ran (ws1: 9 ran, and on W the
+resumption and two-cores cells did not; "W's section 10 job ws1", section 4). The cells expected to
+end without a valid session, sslh-ev's four and SSH C2's two, are not in the file: they ran
+(section 3). Section 10's L cells in the analysis's list (`analysis/cells.py`, without B3's 4 other-mode cells,
+which bs1 ran) are 40; 38 ran in sl3 and 2 did not.
+
+`ssh-rates-sl3.json` (C3's open-loop rates, which `s_run.py` takes from the C1 cells' sessions; the
+file's mtime is 11:10, and C3's first window started at 11:10:17; no rate is quoted here) has its
+sha256 in section 7.
+
+### 6. Provenance and gate checks
+
+- Every one of the 2,548 rows names `change_commit` 9cae2deff2b01896bfab25c5af4c610381dc3c1d at
+  `provenance.freeze.freeze.change_commit` (the one-liner of "The B1 change", section 3: 0 rows
+  without it), `code_freeze` ff2679c and `head` 29ae2b6, with `provenance.freeze.gate.gates`
+  `["gate-L.json"]`; the seeds file, `pilot.json` and `rule_e.json` named in `provenance.freeze` have
+  the sha256 of STATE.md (3a2dd436..., bc48a736..., fb50302a...) in all rows, and `inputs_hash` is
+  one value in all rows.
+- `bench/check_rows.py --gate gate-L.json windows.jsonl` binds all 2,548 rows, refused none, exit 0.
+  It ran on W, from `bench/check_rows.py` as in this repository (unchanged since 29ae2b6), on copies
+  of `windows.jsonl` and `gate-L.json` whose sha256 equal L's. `gate-L.json`
+  (`m7g/records-ff2679c`) has sha256 c6517177d497dc7f6951d2860926e950618a17cd6b1fc9568e0f8375ccfc1ab9,
+  equal to STATE.md's. The covered binaries are oneport 4c64edc25f76, opgen a25faa11e47f and opcase
+  49cb3c049250 (and the harness and ophold binaries of the other L jobs); the rows' `binaries` are
+  oneport and opgen in 2,404 rows, and those and opcase in the 144 mixed-cell rows (the silent
+  holder).
+- Every row: `development` false, `provenance.commit` ff2679c and `dirty` false,
+  `provenance.runner_commit` 29ae2b6 and `runner_dirty` false.
+
+### 7. Files, archive, journal
+
+sha256 under `~/lab/p3/s-L/` (copies on W checked equal): `windows.jsonl`
+77955a0c8ffa108c40ced0d5f744414ff19c50c55430df310042826dbbf672cf (2,548 lines);
+`summary-s_run-sl3.json` a9a0fb63bad14862896239c4601b4f95fc7abc5fd37df767813b7043ce000842;
+`plan-s_run.json` 98a42ebb740106e1e2e6b3dcafd425f6c70d4c9919bc168fee457501519afb4e;
+`not-run-sl3.json` 947e77392a69b411ca370517980a7623759afeae91350714a18cfb68b8cb5c90;
+`ssh-rates-sl3.json` 1f951e6a98677070519c45a39cbbe4ff98c794ce523bc827a49d0763a9911af3;
+`provenance-sl3.json` 99681d6462210d5c39cd2f52c0b628794ea615424b8b098a6cc964e0a389add0;
+`warmup-s_run-sl3.json` 7089cac03191dca993ede6aff44c7e7e0e3e3cfcedb6a7efb3108197473f7dcd;
+`sl3.inputs.json` 68aa7da6d7090265facabe7b7cfd1886eaf289f17822870217eae292213bed15.
+
+Archive `~/lab/p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz` on L (4,848,247 bytes, 13,605 paths), sha256
+0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af, with its `.sha256` beside it in
+`sha256sum` form (`sha256sum -c` OK). It holds `s-L` (13,597 paths on disk and in the archive), the
+job files of pc2 (`pc2.pid`, `pc2.start`, `pc2.clock.json`, `pc2.thp.json`, `pc2.notrack.json`),
+`post_chain2.sh`, `l_run.sh`, and `m7g/pc2.log.sl3-part`: **a snapshot** of `pc2.log`'s lines 1 to
+2563 (the log was live and `pc2.done` did not exist; line 2563 is `== sl3 exit 0`, line 2564 is
+`== hc1 start`), sha256 95e4ad1f67bfc1aedf262f6e7bcbaaeab24abd9d2641b911875f2f16445151a2, staged in
+`~/lab/stage-sl3/m7g/`. The whole log goes with hc1's archive. `s-L/windows.jsonl` has the sha256
+above on disk and inside the archive. Copies on W, `C:\Users\alext\lab\`
+(`p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz` and its `.sha256`), `sha256sum -c` OK there. Raw data stays
+out of git. Deviation from STATE.md section 6 ("no archive while pc2 measures"): the brief for this
+session asked for the archive while hc1 runs, and hc1 is not timed; the tar ran at nice 19 under
+`ionice -c3` and took under a second. The clone `post-src8` is left as it is.
+
+Lab journal (Papers `lab/journal.jsonl`, line 162, `journal.py --kind runner --job sl3`, the `run`
+field worded "frozen" and the host alex-laptop, as for cl1 to sl1): sl3 (2,548 rows, 2,147 valid);
+`code_commit` 29ae2b6 (the clone's HEAD), the archive's name and sha256 in `note`.
+
+hc1 is next: after `pc2.done`, the follow-up of hc1 (`l_check.py`, `check_rows.py`, the provenance
+check, an archive with its sha256, a journal line) and the analysis of section 10 from sl3 and ws1
+only.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
