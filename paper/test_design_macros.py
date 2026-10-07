@@ -83,6 +83,32 @@ def test_a_missing_or_repeated_value_stops_the_run():
         raise AssertionError("a pattern that matches nothing was accepted")
 
 
+def test_the_three_analysis_commits():
+    """SizingCommit sized R_C, AnalysisRunCommit ran the confirmatory analysis, AnalysisCommit wrote
+    the macros. The run's commit is the one the revision log names by its short form, and its
+    analysis/ tree is the sizing commit's (git, where the repository's history is at hand)."""
+    values = D.values_of(items())
+    assert D.run_commit_disagreements(values) == []
+    assert len({values["SizingCommit"], values["AnalysisRunCommit"], values["AnalysisCommit"]}) == 3
+    import shutil
+    import subprocess
+    if shutil.which("git") is None:
+        return
+    def tree(commit: str) -> str | None:
+        r = subprocess.run(["git", "rev-parse", f"{commit}:analysis"], cwd=HERE.parent, capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+    sizing, run = tree(values["SizingCommit"]), tree(values["AnalysisRunCommit"])
+    if sizing is None or run is None:
+        return  # a shallow clone without these commits
+    assert sizing == run
+
+
+def test_a_disagreeing_run_commit_is_reported():
+    values = D.values_of(items())
+    values = {**values, "AnalysisRunShort": "0000000"}
+    assert D.run_commit_disagreements(values) != []
+
+
 def test_committed_file_is_current():
     committed = (HERE.parent / "results" / "design-macros.tex").read_text(encoding="utf-8")
     assert committed == D.render(items())
