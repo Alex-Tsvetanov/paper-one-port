@@ -8003,8 +8003,9 @@ Nothing here is a result.
   start row each, `ok` true (recorded exit values 0, -15, 15 and 143). Every variant has its
   replicates 1 to 3 at each timer setting, with no duplicate. `l_check.py ~/lab/p3/hardcomp-L hc1`
   on L agrees (observed 7,977, starts 26, failed 0, rows per system as in section 2). The hc1 part of
-  `pc2.log` (lines 2564 to 10620) holds the 8,052 case lines in the order of the rows, and no other
-  output.
+  `pc2.log` (lines 2564 to 10620) holds the 8,052 case lines in the order of the rows, between five
+  marker lines (`== hc1 start` and `== hc1 exit 0`, `l_run.sh`'s start and exit lines, and
+  `build_inputs`), and no other output.
 - Provenance and gate, in all 8,078 rows: `development` false, job hc1, runner `hardcase_run`;
   `provenance.commit` ff2679c, `dirty` false, `runner_commit` 29ae2b6, `runner_dirty` false;
   `provenance.freeze.freeze` with code_freeze ff2679c, head 29ae2b6 and `change_commit`
