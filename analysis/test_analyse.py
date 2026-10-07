@@ -351,6 +351,30 @@ def test_macros_letters_only_and_synthetic_head(run):
         MC.Macros().add("COne2", "x")
 
 
+def test_macros_escape_text_for_tex(run):
+    """The verdicts and the claims' list are text from the summary, written with TeX's special
+    characters escaped (revision log, "The macros' TeX escaping (a later change under section 8)");
+    the numbers keep the forms TeX reads as they are."""
+    text = (run["outs"][0] / "macros.tex").read_text(encoding="utf-8")
+    values = re.findall(r"^\\newcommand\{\\[A-Za-z]+\}\{(.*)\}(?:  % .*)?$", text, flags=re.M)
+    assert values and len(values) == text.count("\\newcommand")
+    assert not [v for v in values if re.search(r"(?<!\\)[%_&#]", v)]
+    assert "the 95\\% interval" in text and "$\\le$" in text
+    assert MC.tex_text("a 95% interval on io_uring & #1 {x} ~ ^ $ \\") == (
+        "a 95\\% interval on io\\_uring \\& \\#1 \\{x\\} \\textasciitilde{} \\textasciicircum{} \\$ \\textbackslash{}")
+    escaped = MC.Macros()
+    escaped.add("Probe", MC.tex_text("the 95% interval on io_uring & #1"))
+    assert escaped.items == [("Probe", "the 95\\% interval on io\\_uring \\& \\#1", "")]
+    s = {"claims": {"C": [{"proto": "tls", "backend": "io_uring", "host": "L"}, {"proto": "http1", "backend": "IOCP", "host": "W"}],
+                    "B3": [], "M": []}, "k_base": {"K_BASE": None}, "b1_failures": []}
+    mc = MC.Macros()
+    MC.claims(mc, s)
+    assert dict((n, v) for n, v, _ in mc.items)["CostClaims"] == "TLS on io\\_uring (L) and HTTP/1.1 on IOCP (W)"
+    for bad in ("the 95% interval", "io_uring", "a & b", "#1"):
+        with pytest.raises(ValueError):
+            MC.Macros().add("Probe", bad)
+
+
 def test_byte_identical(run):
     a, b = run["outs"]
     for name in ("summary.json", "decisions.csv", "macros.tex"):

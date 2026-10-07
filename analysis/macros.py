@@ -8,7 +8,10 @@ generated results/macros.tex"; hypotheses.md section 13), and every macro here c
 summary.json: nothing is typed in by hand. Names are letters only, never a digit: each part of a
 cell id maps to a word (C1 is COne, io_uring is Iouring, caddy-l4 is CaddyLFour), and a name that
 would hold anything else stops the run. A macro whose value is missing from the summary (a cell
-without its sessions) is not written, so LaTeX stops on it rather than print a stale value.
+without its sessions) is not written, so LaTeX stops on it rather than print a stale value. Text
+taken from the summary (the verdicts, the claims' list) is written with TeX's special characters
+escaped (the revision log's entry "The macros' TeX escaping (a later change under section 8)"),
+and a value with an unescaped "%", "_", "&" or "#" stops the run.
 
 Adapted from the previous paper's analysis/macros.py and macros_util.py (papers/typed-routing,
 same author): the macro store, the rounding rule (half away from zero on the shortest decimal
@@ -88,6 +91,16 @@ def count(n) -> str:
     return grouped(str(int(n)))
 
 
+TEX_SPECIAL = {"\\": r"\textbackslash{}", "{": r"\{", "}": r"\}", "$": r"\$", "&": r"\&", "#": r"\#",
+               "^": r"\textasciicircum{}", "_": r"\_", "~": r"\textasciitilde{}", "%": r"\%"}
+
+
+def tex_text(s: str) -> str:
+    """Text taken from the summary (the verdicts, the claims' list), with TeX's special characters
+    escaped, so that it prints as written: "95%" would start a comment and "io_uring" a subscript."""
+    return "".join(TEX_SPECIAL.get(c, c) for c in s)
+
+
 def scientific(x: float) -> str:
     """p-values, math mode: a.b x 10^e."""
     if x == 0:
@@ -112,6 +125,8 @@ class Macros:
             return
         if not re.fullmatch(r"[A-Za-z]+", name):
             raise ValueError(f"macro name {name!r} is not letters only")
+        if re.search(r"(?<!\\)[%_&#]", str(value)):
+            raise ValueError(f"macro {name}'s value {value!r} holds a TeX special character that is not escaped")
         if name in self.names:
             raise ValueError(f"macro {name} defined twice")
         self.names.add(name)
@@ -180,7 +195,7 @@ def family(mc: Macros, s: dict, fam: str, prefix: str) -> None:
                 mc.add(f"{w}SignXHigh", count(x["sign_x_high"]))
         if x["holm"]:
             mc.add(f"{w}Holds", "holds" if x.get("passes") else "does not hold")
-        mc.add(f"{w}Verdict", x["verdict"].replace("<=", "$\\le$"))
+        mc.add(f"{w}Verdict", tex_text(x["verdict"]).replace("<=", "$\\le$"))
         mc.add(f"{w}InvalidWindows", count(sum(len(v) for v in x["invalid_windows"].values())))
         if "D" in x:
             mc.add(f"{w}DMedian", bytes_(x["D"]["median"]))
@@ -199,7 +214,7 @@ def claims(mc: Macros, s: dict) -> None:
     cl = s["claims"]["C"]
     mc.add("CostClaimCount", count(len(cl)))
     items = [f"{PROTO_TEXT[c['proto']]} on {c['backend']} ({c['host']})" for c in cl]
-    mc.add("CostClaims", ", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + (items[-1] if items else "none"))
+    mc.add("CostClaims", tex_text(", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + (items[-1] if items else "none")))
     for c in cl:
         mc.add(f"{word(c['host'] + '.' + c['backend'] + '.' + c['proto'])}JointPower", opt(power, c.get("joint_power")))
     mc.add("BThreeClaimCount", count(len(s["claims"]["B3"])))
