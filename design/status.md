@@ -7689,6 +7689,175 @@ hc1 is next: after `pc2.done`, the follow-up of hc1 (`l_check.py`, `check_rows.p
 check, an archive with its sha256, a journal line) and the analysis of section 10 from sl3 and ws1
 only.
 
+## The confirmatory analysis on W, 2026-10-07
+
+The frozen analysis (section 13) of the cost, B3 and mechanism families and section 10's
+intervals, from every confirmatory row file, run on W, twice. One agent session on W. No job ran
+on L or W; L was read over ssh only (hc1 was still running there). The outputs are committed in
+one-port e5e6724 (`results/summary.json`, `results/decisions.csv`, `results/provenance.json`);
+`results/macros.tex` is generated but held back (section 6, item 1). This section records the run,
+its inputs and the review; it interprets nothing.
+
+### 1. The run
+
+- Working directory on W, outside git: `C:\Users\alext\lab\p3\confirm1` (below, `<W>`).
+- Code: `<W>\src`, a clean clone of `origin` at 7c1310a. `git rev-parse HEAD:analysis` and
+  `9de26d6:analysis` are the same tree, bf77349b868f1aac80557bbfe70f500f4553c590, so `analysis/` is
+  byte-identical to ANALYSIS_COMMIT (LF in the working tree, `core.autocrlf` false). The two files
+  outside `analysis/` that `analyse.py` imports have one blob at 7c1310a, 9de26d6 and CODE_FREEZE:
+  `bench/check_rows.py` b6f6893a, `bench/run/footprint.py` 6ce70525.
+- Runtime: `<W>\venv`, Python 3.14.5 (W's `pythoncore-3.14-64`, `-m venv`), numpy 2.5.0 installed
+  with `pip --no-index --no-deps` from `numpy-2.5.0-cp314-cp314-win_amd64.whl`, 12,551,749 bytes,
+  sha256 ebb81d9d5443e0309d6c54894c3fbed74ad7da0714352a67b6d773cd189eae73, equal to the sha256 PyPI
+  publishes for it (https://pypi.org/pypi/numpy/2.5.0/json; downloaded from files.pythonhosted.org).
+  L's wheel, read on L: `numpy-2.5.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl`
+  in `~/opt/analysis-numpy-2.5.0/dl/`, sha256
+  39a0433bd4086ebd462960cf375e19195bb07b53dc1d87dd5fcf47ad78576f03, equal to PyPI's. The pilot
+  entry ran Python 3.14.7 on L; `versions.py` pins numpy 2.5.0 and Python 3.14, and passed. The venv
+  holds numpy and pip only; the analysis tests were not run in it (they need pytest).
+- Command: `<W>\run_analysis.sh OUT` (sha256
+  99f9bea5b189dc30a7fb4a0e144a2f617fbb27d6f424cc60921168fb8827c28e): `analyse.py` with `--seeds`,
+  `--pilot`, `--rule-e`, both gates and the seven row files of section 2, then `macros.py`; Python
+  with `-s`, `PYTHONUTF8=1` and `PYTHONNOUSERSITE=1`. Run into `<W>\out1` (finished 18:11:46) and
+  into `<W>\out2` (finished 18:12:00); about 10 s each.
+- Outputs, byte-identical in both runs (sha256): `summary.json`
+  a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8, `decisions.csv`
+  6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f, `macros.tex`
+  cb5e16e70879fbab49051045adcad999b6744ff2abe5ca85b8958f31990a61f9 (2,168 macros). `macros.py` run
+  again on a copy of the committed `summary.json` gives the same `macros.tex`. Each out directory
+  holds a `SHA256SUMS`.
+- Provenance: `results/provenance.json` (sha256
+  7490b9fb337064a043eb11f130f92d884f21d464fa94ec2ccdfa886b3dbec88c), made by
+  `<W>\make_provenance.py` (sha256 b8299ad9d2b34a8a03182cde033b4c15e2ee733bf53e7f6e4ecf4e7bc088cab3):
+  every input with its archive and sha256, the code, the runtime and wheels, the host (ALEX-PC,
+  Windows 11 Pro N 10.0.26200, AMD Ryzen 5 3600), the command, both runs' hashes, and what was left
+  out. `summary.json` itself names each row file only as `windows.jsonl` with its sha256, and its
+  `versions.analysis_commit` is the clone's 7c1310a.
+
+### 2. Inputs
+
+Every archive was checked with `sha256sum -c` against its `.sha256` and equals the value recorded
+in STATE.md and the sections above; L's were copied by scp from alex@192.168.1.62, W's from
+`C:\Users\alext\lab\`. Unpacked under `<W>\unpacked\<job>\`.
+
+| `--rows`, in order | Archive (sha256 as recorded) | Rows file sha256 | Rows | Valid | Jobs |
+|---|---|---|---|---|---|
+| `cost-L/windows.jsonl` | `p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz` (d18221a5) | ee257a16 | 2,688 | 2,688 | cl1 |
+| `cost-W/windows.jsonl` | `p3-raw-2026-10-05-wc1-wc2-ff2679cc8.tar.gz` (c1c8804d) | 9707e942 | 1,129 | 1,126 | wc1, wc2 |
+| `m-L/windows.jsonl` | `p3-raw-2026-10-05-ml1-ff2679cc8.tar.gz` (33366aa4) | 26b971a6 | 1,056 | 976 | ml1 |
+| `m-W/windows.jsonl` | `p3-raw-2026-10-06-wm1-ff2679cc8.tar.gz` (acb1590c) | f296229a | 128 | 128 | wm1 |
+| `b3-L/windows.jsonl` | `p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz` (3bb796bb) | 0fcba90d | 2,645 | 2,594 | bk1, bs1 |
+| `s-L/windows.jsonl` | `p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz` (0f289133) | 77955a0c | 2,548 | 2,147 | sl3 |
+| `s-W/windows.jsonl` | `p3-raw-2026-10-07-ws1-ff2679cc8.tar.gz` (966ce1c6) | 6f7a1b2f | 600 | 517 | ws1 |
+
+- All 10,794 rows have `development` false; none is a dry run, synthetic or a stub. The gate bound
+  all 10,794 against `gate-L.json` (c6517177) and `gate-W.json` (329d372e), none left out.
+- `provenance.freeze.freeze.change_commit` is 9cae2deff2b01896bfab25c5af4c610381dc3c1d in 2,548 of
+  2,548 sl3 rows and 600 of 600 ws1 rows (STATE.md item 7). hc1, still running: 7,901 of 7,901 rows
+  of `~/lab/p3/hardcomp-L/competitor_cases.jsonl` at 18:07, read on L at nice 19; the full check is
+  the hc1 follow-up's (STATE.md item 5).
+- The other inputs, by sha256: `pilot.json` bc48a736 (L `~/lab/p3/m7g/pilot-entry/`, the pilot
+  entry's item 3; W's copy equal); `rule_e.json` fb50302a (L `~/lab/p3/m7g/`, rule E's entry; W's
+  copy equal); `design/seeds.json` 3a2dd436; `m2_rates.json` 5c7ddc3e (read by the runs, not by
+  `analysis/`; every M2 row's rate equals it, per the review). Also fetched and checked, not read by
+  `analysis/`: the pilot's archive (019c7986), mr1's (6b6413dd), wh1's (46df3e6e) and the hard-case
+  part of pc1's.
+
+### 3. Left out, and why
+
+- The pilot's rows: the pilot enters through `pilot.json` (4.6, section 9.2).
+- mr1: development sessions (every row `development` true); they set M2_RATE.
+- bf1: development data (section 8 step 7; 1c4193a); not fetched.
+- sl1: evidence only, given to no analysis (9830457, items 5 and 7); not fetched.
+- hc1: the competitors' descriptive table; `analysis/` draws nothing for it; still running.
+- `hard-L/hardcases.jsonl` and `hard-W/hardcases.jsonl`: `analyse.py` reads no hard-case row
+  (`not_produced`); B1's and B2's counts below come from the runners' own outputs.
+
+### 4. What the outputs state
+
+- `analyse.py`'s lines: "C: 30 of 32 Holm cells pass under both computations"; "B3: 14 of 18";
+  "M: 15 of 20". No cell has the two computations disagreeing. Per cell: `results/decisions.csv`
+  and `results/summary.json`.
+- `summary.json`: Holm m 32, 18 and 20; R_C 28; `b1_failures` empty (no fed row has
+  `misclassified` above 0); K_BASE from bk1's 16 valid `ophold` windows of 17; all 12 `c3_rates`
+  equal the pilot entry's lambda; 285 section 10 entries, 183 with an interval and 102 without (80
+  of them the by-job analysis: 73 cells in one lab job, 7 short of R).
+- Cells short of R, by the frozen rules (4.1: p = 1 in Holm; 4.7: no draw): C1.W.IOCP.h2c and
+  C1.W.IOCP.mqtt (0 sessions, outside the family); M2.L.epoll.tls and M2.L.io_uring.tls (0
+  sessions, not run, 7a63a08); M3's two sslh-ev cells (20 sessions, 0 valid); B3's descriptive
+  B3.partial-hello.cmux.epoll (15 valid of 20 sessions); in section 10, SSH C2 on three backends,
+  S.mixed.C1.L.io_uring, sslh-ev's relay-io_uring and m-ttfb cells (0 valid), TLS resumption (3)
+  and the 2-core IOCP cell (not run). Cells 34 and 36 ran at R_C and are "not resolved at R <= 32".
+- B1 and B2, from the hard-case runners' outputs (`analysis/` writes no macro for them): L,
+  `hardcases-table-hl1.json` (958468ca), 1,312 variant entries, 20,992 runs, 20,992 passed; `hardcases.jsonl`,
+  0 rows with a non-empty `b1` or `b2_failed`, 52 `hardcase-servers` rows, all `ok`. W,
+  `hardcases-table-wh1.json` (cae9d62a), 328 entries, 5,248 runs, 5,248 passed; 0 and 0; 12 server
+  rows, all `ok`.
+
+### 5. The review
+
+One adversarial reviewer (a foreground sub-agent) checked every rule against the frozen text and
+the entries, recomputed every family interval in draw order (equal), and found no wrong decision.
+Its findings:
+1. Fix before `results/macros.tex` (not fixable here): five verdict macros hold an unescaped "%"
+   ("the 95% interval": `\CThreeLEpollHTwoCVerdict` and the four sslh-ev B3 verdicts), and
+   `\CostClaims` holds "io_uring" twice, used in text by `paper/sec-results.tex` line 5. A scratch
+   pdflatex stops on both. `paper/main.tex` inputs `../results/macros.tex` whenever it exists. The
+   fix is in `analysis/macros.py`, frozen. Held back (section 6, item 1).
+2. Section 13 has `analysis/` compute every decision; for B1's hard-case table and B2's checks it
+   does not (`not_produced`), and `analyse.py`'s docstring still calls the hard-case runner "still to
+   be written". Recorded here; route open (section 6, item 2).
+3. Note: B3.silent.sslh-ev.epoll's 95% upper end is 0.99996934, printed `1.0000` by the macro beside
+   the verdict "lies wholly below 1.00".
+4. Note: B1's check over measured windows reads `misclassified`, which 3,518 of the 10,794 fed rows
+   carry (the in-process one-port windows). In the others (M2, the relay fronts, B3's server arms)
+   the reviewer read the server's class counters: only the script's protocol and the probe.
+5. Note, code against text: 4.2 says the jackknife acceleration of a median is 0 at even R;
+   M2.L.epoll.http1 has a = 0.0589 (two middle values 1 ulp apart; CPU times stored to 0.01 s). Its
+   BCa p is 1.40e-3 against 1.17e-4 at a = 0; it passes either way (Holm-adjusted 0.0084). The same
+   in 9 WL4 intervals of section 10.
+6. Note: sl3's two cells S.m-ttfb.M3.L.epoll.{http1,tls-stub}.sslh-ev ran churn windows (`workload`
+   churn, `rate` null, metric `conn_per_s`), 80 rows each, no session valid; M3's sslh-ev cells have
+   no closed-loop rate. Had a session been valid, `rows.metric_value` would have refused the input.
+7. Note: cells not run carry the generic reason "0 valid sessions, fewer than R"; the logged reasons
+   (7a63a08 item 2, 13004bc item 5, M7e item 3) are in the `not-run-*.json` files, which `analysis/`
+   does not read.
+8. Note: the by-job analysis gives no interval for 73 cells (one lab job); the 10 W cost cells have
+   two jobs.
+9. Note: in 56 of 68 B3 arm medians Ks minus K_BASE is below 0 (-8.0 to -265.0 bytes); the
+   `SkbGrowth` and `SharedGrowth` macros are host-wide byte totals beside per-connection parts; the
+   joint powers print to 3 decimals; cells 34 and 36 carry p-value macros though no test applies.
+10. Note: reproducibility. Neither the Python patch nor the platform's libm can move a decision. The
+    Holm-adjusted p closest to 0.025: C1.L.io_uring.h2c, sign test 0.0188 (x_low 21 of 28; 20 would
+    give 0.0535), BCa 0.0069; M2.L.epoll.http1, BCa 0.0084; M1.W.IOCP.http1, sign test 0.00156.
+11. Note: not in `summary.json` (listed in `not_produced`): section 10's operations and `perf trace
+    -s` windows, M1's IOCP peek-to-replay counts (5.3), B3's server bounds (5.2).
+
+Left open by the frozen text, none changing a verdict on these data: the direction words of "a
+measured cost" (the code's); the order of sessions within a cell for resampling (job, then session
+id); the quantile method and z0's clipping; the draw order within section 10's TTFB and CPU bullet;
+which CPU section 10 means for M2 and M3 (the code takes the front's); how intervals with one or two
+lab jobs are reported; the Python patch version.
+
+### 6. Open for the coordinator
+
+1. `results/macros.tex` is not committed: as generated it stops every paper build (section 5,
+   item 1). It stays at `<W>\out1\macros.tex` and `<W>\out2\macros.tex` with its sha256 above, and
+   regenerates from `results/summary.json`. Escaping "%" and "_" is a change of `analysis/macros.py`
+   after ANALYSIS_COMMIT.
+2. B1 and B2: how their counts reach `results/macros.tex` (section 13), since `analysis/` does not
+   read the hard-case runs.
+3. The paper must quote the logged reasons of the cells not run (section 5, item 7).
+4. hc1's full `change_commit` check and follow-up, after `pc2.done` (STATE.md item 5).
+5. No line was added to the lab journal for this analysis.
+
+### 7. Files
+
+On W, `<W>`: `archives\` (the ten archives and their `.sha256`), `unpacked\`, `files-L\` and
+`files-W\` (pilot, rule E, M2 rates, gates and measured files), `dl\` (the wheel and PyPI's
+metadata), `venv\`, `src\` (the clone), `run_analysis.sh`, `make_provenance.py`, `provenance.json`,
+`out1\`, `out2\` (each with `SHA256SUMS`), `out1.log`, `out2.log`. In git: one-port e5e6724.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
