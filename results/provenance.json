@@ -1,0 +1,382 @@
+{
+ "what": "P3 (one-port) confirmatory analysis: analysis/analyse.py and analysis/macros.py at ANALYSIS_COMMIT's analysis tree, run twice on W",
+ "code": {
+  "ANALYSIS_COMMIT": "9de26d614c85b606fb5169ed16528b7189a87ac4",
+  "CODE_FREEZE": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+  "CHANGE_COMMIT": "9cae2deff2b01896bfab25c5af4c610381dc3c1d",
+  "clone": "<W>\\src, git clone of origin https://github.com/Alex-Tsvetanov/paper-one-port.git",
+  "clone_head": "7c1310adc4b3029d1b377d1d47b756f494916615",
+  "clone_status_porcelain_lines": 0,
+  "analysis_tree_at_clone_head": "bf77349b868f1aac80557bbfe70f500f4553c590",
+  "analysis_tree_at_ANALYSIS_COMMIT": "bf77349b868f1aac80557bbfe70f500f4553c590",
+  "bench_files_analysis_imports": {
+   "bench/check_rows.py": {
+    "7c1310adc4b3029d1b377d1d47b756f494916615": "b6f6893a1a8f09f00c9233ad22f5227a96c8fff4",
+    "9de26d614c85b606fb5169ed16528b7189a87ac4": "b6f6893a1a8f09f00c9233ad22f5227a96c8fff4",
+    "ff2679cc89d23e08a817308c9aeba7901e056fef": "b6f6893a1a8f09f00c9233ad22f5227a96c8fff4"
+   },
+   "bench/run/footprint.py": {
+    "7c1310adc4b3029d1b377d1d47b756f494916615": "6ce70525845ab77d0110cf8a30fe2e384c2d2b7d",
+    "9de26d614c85b606fb5169ed16528b7189a87ac4": "6ce70525845ab77d0110cf8a30fe2e384c2d2b7d",
+    "ff2679cc89d23e08a817308c9aeba7901e056fef": "6ce70525845ab77d0110cf8a30fe2e384c2d2b7d"
+   }
+  },
+  "analysis_identical_to_ANALYSIS_COMMIT": true,
+  "analysis_files_sha256": {
+   "analyse.py": "c1b418eaef40a1d2e91fdf7fcd47d858b09b0555d240035c5a67d761262221f3",
+   "appendix_a_r_rule.py": "ca932e924f3342597093d728ba6694e313a9e894e80bd5c9e8445de75b5e5218",
+   "cells.py": "2442909ced1f1c2232aeb333ff2edb2591ff06bbe7785dd2447c9ee4fa1f5e20",
+   "macros.py": "f902cd47af8f8d123d07b2ec6f68e20921a26908f2080b38a0b60daee2682459",
+   "pilot.py": "c849234d8d17e7500f6c38a357a793b1a76c5a9206ad24c231d006bcdfb6c5d1",
+   "rows.py": "fea47f2fc1596e462bf1d758829d6ff1e7e5f6c3f4b85007728ae1fa363feedd",
+   "stats.py": "9426da8e44145ef4d3bb17bdd25c6ad07ae37f73ce18cf2577724a66aba66f7c",
+   "synth.py": "f6f136d596584db88064dd7ddad18bd909336b831d1c0352c5c2c2f6cc7d5874",
+   "test_analyse.py": "149f6b75986cad4ef67cce85b101df7a17440135d14fac2cf27adc8daccbac37",
+   "test_cells.py": "51e192c1791670b2a746c7aa6276c55f8e3980084bd8088ae562a5f9ee6141d1",
+   "test_pilot.py": "637c5d66373c5e7d9fc1a04bd420a5b67d38feeaf7d24f65081757779b581d60",
+   "test_stats.py": "6cda92a29eb9079dba7ca5ebb674165bddc34e4d874715f4ee4c7766f8c06402",
+   "versions.py": "0524a06361eb619a4aa30c179b4e9115f8526b405f5a8ac7ce8ea10bfaba1828"
+  }
+ },
+ "runtime": {
+  "python": "3.14.5",
+  "python_build": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "numpy": "2.5.0",
+  "numpy_path": "<W>\\venv\\Lib\\site-packages\\numpy\\__init__.py",
+  "analysis_tests": "not run in this venv: they need pytest, which the analysis does not require, and the venv holds numpy alone; the suite at 9de26d6 ran on L (lab job ana2: 73 passed, 1 skipped; the slow test 2 passed) and on W (numpy 2.5.0, Python 3.14.5: 72 passed, 2 skipped), status.md, M7e",
+  "venv": "<W>\\venv, from C:\\Users\\alext\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe -m venv; numpy installed from the W wheel with pip --no-index --no-deps",
+  "pip_bootstrap": "26.1.1 (the venv's own; analysis/ imports nothing from it)",
+  "env": {
+   "PYTHONUTF8": "1",
+   "PYTHONNOUSERSITE": "1"
+  },
+  "python_flags": "-s",
+  "pilot_entry_runtime_on_L": "numpy 2.5.0 and Python 3.14.7 in ~/opt/analysis-numpy-2.5.0/venv (status.md, sim1)",
+  "host": {
+   "name": "alex-pc",
+   "os": "Windows 11 10.0.26200",
+   "machine": "AMD64",
+   "cpu": "AMD Ryzen 5 3600 6-Core Processor (6 cores, 12 logical)"
+  }
+ },
+ "numpy_wheels": {
+  "W": {
+   "file": "numpy-2.5.0-cp314-cp314-win_amd64.whl",
+   "size": 12551749,
+   "sha256": "ebb81d9d5443e0309d6c54894c3fbed74ad7da0714352a67b6d773cd189eae73",
+   "pypi_sha256": "ebb81d9d5443e0309d6c54894c3fbed74ad7da0714352a67b6d773cd189eae73",
+   "url": "https://files.pythonhosted.org/packages/f2/9e/4dd1459282229a72d92dece2ae9138e5cac94a72263a7ceb48f37434c925/numpy-2.5.0-cp314-cp314-win_amd64.whl",
+   "pypi_metadata": "https://pypi.org/pypi/numpy/2.5.0/json",
+   "pypi_metadata_sha256": "0c7f4f06910bfd86cb6c85e29034be1a78449cc8ec365c76157890e56ff27a09"
+  },
+  "L": {
+   "file": "numpy-2.5.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+   "sha256_on_L": "39a0433bd4086ebd462960cf375e19195bb07b53dc1d87dd5fcf47ad78576f03",
+   "where": "L ~/opt/analysis-numpy-2.5.0/dl/ (read 2026-10-07 by sha256sum over ssh)",
+   "pypi_sha256": "39a0433bd4086ebd462960cf375e19195bb07b53dc1d87dd5fcf47ad78576f03"
+  }
+ },
+ "command": {
+  "script": "<W>\\run_analysis.sh",
+  "sha256": "99f9bea5b189dc30a7fb4a0e144a2f617fbb27d6f424cc60921168fb8827c28e",
+  "text": "#!/usr/bin/env bash\n# The confirmatory analysis of P3 on W: analysis/analyse.py then analysis/macros.py, into OUT.\n# Usage: run_analysis.sh OUT\nset -euo pipefail\nW=/c/Users/alext/lab/p3/confirm1\nOUT=$1\nU=$W/unpacked\nexport PYTHONUTF8=1 PYTHONNOUSERSITE=1\nPY=$W/venv/Scripts/python.exe\nmkdir -p \"$OUT\"\n\"$PY\" -s \"$W/src/analysis/analyse.py\" \\\n  --seeds \"$W/src/design/seeds.json\" \\\n  --pilot \"$W/files-L/pilot.json\" \\\n  --rule-e \"$W/files-L/rule_e.json\" \\\n  --gate \"$W/files-L/gate-L.json\" --gate \"$W/files-W/gate-W.json\" \\\n  --rows \"$U/pc1/cost-L/windows.jsonl\" \\\n  --rows \"$U/wc1-wc2/cost-W/windows.jsonl\" \\\n  --rows \"$U/ml1/m-L/windows.jsonl\" \\\n  --rows \"$U/wm1/m-W/windows.jsonl\" \\\n  --rows \"$U/bk1-bs1/b3-L/windows.jsonl\" \\\n  --rows \"$U/sl3/s-L/windows.jsonl\" \\\n  --rows \"$U/ws1/s-W/windows.jsonl\" \\\n  --out \"$OUT\"\n\"$PY\" -s \"$W/src/analysis/macros.py\" \"$OUT/summary.json\" --out \"$OUT/macros.tex\"\n"
+ },
+ "archives": {
+  "pc1": {
+   "file": "p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/",
+   "sha256": "d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692",
+   "sha256_sidecar": "d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692",
+   "bytes": 6074812
+  },
+  "wc1-wc2": {
+   "file": "p3-raw-2026-10-05-wc1-wc2-ff2679cc8.tar.gz",
+   "origin": "W C:\\Users\\alext\\lab\\",
+   "sha256": "c1c8804d76fbe71b56bbbacb551a5481a17af34c71e84186a113322f7d6a16e9",
+   "sha256_sidecar": "c1c8804d76fbe71b56bbbacb551a5481a17af34c71e84186a113322f7d6a16e9",
+   "bytes": 3901403
+  },
+  "ml1": {
+   "file": "p3-raw-2026-10-05-ml1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/",
+   "sha256": "33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652",
+   "sha256_sidecar": "33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652",
+   "bytes": 2091395
+  },
+  "wm1": {
+   "file": "p3-raw-2026-10-06-wm1-ff2679cc8.tar.gz",
+   "origin": "W C:\\Users\\alext\\lab\\",
+   "sha256": "acb1590cb0adc18ce6dc2191ec65ca7d88dfe25912b9f63a8ca7431fa84b0b9a",
+   "sha256_sidecar": "acb1590cb0adc18ce6dc2191ec65ca7d88dfe25912b9f63a8ca7431fa84b0b9a",
+   "bytes": 463289
+  },
+  "bk1-bs1": {
+   "file": "p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/",
+   "sha256": "3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8",
+   "sha256_sidecar": "3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8",
+   "bytes": 16289698
+  },
+  "sl3": {
+   "file": "p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/ (copy on W C:\\Users\\alext\\lab\\, used)",
+   "sha256": "0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af",
+   "sha256_sidecar": "0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af",
+   "bytes": 4848247
+  },
+  "ws1": {
+   "file": "p3-raw-2026-10-07-ws1-ff2679cc8.tar.gz",
+   "origin": "W C:\\Users\\alext\\lab\\",
+   "sha256": "966ce1c61a547241e86da4d5c04ce136c3a193e5a59a121a1f8684e5bbbc2766",
+   "sha256_sidecar": "966ce1c61a547241e86da4d5c04ce136c3a193e5a59a121a1f8684e5bbbc2766",
+   "bytes": 1910854
+  },
+  "wh1": {
+   "file": "p3-raw-2026-10-06-wh1-ff2679cc8.tar.gz",
+   "origin": "W C:\\Users\\alext\\lab\\",
+   "sha256": "46df3e6edbaff644e53da4398ec2aba413a50e06baa99414a30d292dd14d1aa3",
+   "sha256_sidecar": "46df3e6edbaff644e53da4398ec2aba413a50e06baa99414a30d292dd14d1aa3",
+   "bytes": 700663
+  },
+  "mr1": {
+   "file": "p3-raw-2026-10-05-mr1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/",
+   "sha256": "6b6413dd05a7a93b66861fb10abb3ac794ac58f0a28669dda5c96eacf9471512",
+   "sha256_sidecar": "6b6413dd05a7a93b66861fb10abb3ac794ac58f0a28669dda5c96eacf9471512",
+   "bytes": 159424
+  },
+  "pilot": {
+   "file": "p3-raw-2026-10-05-pilot-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/",
+   "sha256": "019c7986f3eefbeb3eb5234f3666180e2a1ae5346761aad8b7060d830db431ab",
+   "sha256_sidecar": "019c7986f3eefbeb3eb5234f3666180e2a1ae5346761aad8b7060d830db431ab",
+   "bytes": 4435720
+  }
+ },
+ "rows": [
+  {
+   "what": "cost family on L (lab job pc1, runner job cl1)",
+   "path_in_archive": "cost-L/windows.jsonl",
+   "archive": "p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz",
+   "archive_sha256": "d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692",
+   "sha256": "ee257a16c954e81d6e5d93debff47e5547d5086f5be405a1ddb7878617ab8dba",
+   "rows": 2688,
+   "valid_rows": 2688,
+   "jobs": [
+    "cl1"
+   ],
+   "development_false": 2688,
+   "change_commit_values": [
+    "None"
+   ]
+  },
+  {
+   "what": "cost family on W (W lab jobs wc1, wc2)",
+   "path_in_archive": "cost-W/windows.jsonl",
+   "archive": "p3-raw-2026-10-05-wc1-wc2-ff2679cc8.tar.gz",
+   "archive_sha256": "c1c8804d76fbe71b56bbbacb551a5481a17af34c71e84186a113322f7d6a16e9",
+   "sha256": "9707e942b52afa9daac6bb1d2237630618fdba1078c3fea7b591379ff58ce5da",
+   "rows": 1129,
+   "valid_rows": 1126,
+   "jobs": [
+    "wc1",
+    "wc2"
+   ],
+   "development_false": 1129,
+   "change_commit_values": [
+    "None"
+   ]
+  },
+  {
+   "what": "mechanism family on L (ml1)",
+   "path_in_archive": "m-L/windows.jsonl",
+   "archive": "p3-raw-2026-10-05-ml1-ff2679cc8.tar.gz",
+   "archive_sha256": "33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652",
+   "sha256": "26b971a6dfc82db206764021034923a25c3323ae1be21c1e485de42780d697d9",
+   "rows": 1056,
+   "valid_rows": 976,
+   "jobs": [
+    "ml1"
+   ],
+   "development_false": 1056,
+   "change_commit_values": [
+    "None"
+   ]
+  },
+  {
+   "what": "mechanism family on W, M1's IOCP cells (wm1)",
+   "path_in_archive": "m-W/windows.jsonl",
+   "archive": "p3-raw-2026-10-06-wm1-ff2679cc8.tar.gz",
+   "archive_sha256": "acb1590cb0adc18ce6dc2191ec65ca7d88dfe25912b9f63a8ca7431fa84b0b9a",
+   "sha256": "f296229af2fba99b5abaca1e03a29ff1842e44c97c68a56b34ca10a10a609650",
+   "rows": 128,
+   "valid_rows": 128,
+   "jobs": [
+    "wm1"
+   ],
+   "development_false": 128,
+   "change_commit_values": [
+    "None"
+   ]
+  },
+  {
+   "what": "K_BASE's ophold windows (bk1) and B3's sessions with section 10's B3 other-mode cells (bs1)",
+   "path_in_archive": "b3-L/windows.jsonl",
+   "archive": "p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz",
+   "archive_sha256": "3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8",
+   "sha256": "0fcba90dd1422beeea49089bff0052ae002c1ab5451e97c88cab2c797a51feb0",
+   "rows": 2645,
+   "valid_rows": 2594,
+   "jobs": [
+    "bk1",
+    "bs1"
+   ],
+   "development_false": 2645,
+   "change_commit_values": [
+    "None"
+   ]
+  },
+  {
+   "what": "section 10 on L (sl3, the chain pc2)",
+   "path_in_archive": "s-L/windows.jsonl",
+   "archive": "p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz",
+   "archive_sha256": "0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af",
+   "sha256": "77955a0c8ffa108c40ced0d5f744414ff19c50c55430df310042826dbbf672cf",
+   "rows": 2548,
+   "valid_rows": 2147,
+   "jobs": [
+    "sl3"
+   ],
+   "development_false": 2548,
+   "change_commit_values": [
+    "9cae2deff2b01896bfab25c5af4c610381dc3c1d"
+   ]
+  },
+  {
+   "what": "section 10 on W (ws1, the chain wsfix)",
+   "path_in_archive": "s-W/windows.jsonl",
+   "archive": "p3-raw-2026-10-07-ws1-ff2679cc8.tar.gz",
+   "archive_sha256": "966ce1c61a547241e86da4d5c04ce136c3a193e5a59a121a1f8684e5bbbc2766",
+   "sha256": "6f7a1b2f12c808aae375ee393e0a9aced60f931227a0ee47187315e976bb74b8",
+   "rows": 600,
+   "valid_rows": 517,
+   "jobs": [
+    "ws1"
+   ],
+   "development_false": 600,
+   "change_commit_values": [
+    "9cae2deff2b01896bfab25c5af4c610381dc3c1d"
+   ]
+  }
+ ],
+ "files": [
+  {
+   "path": "<W>\\files-L\\pilot.json",
+   "origin": "L ~/lab/p3/m7g/pilot-entry/pilot.json (copy on W m7g\\pilot.json has the same sha256)",
+   "role": "--pilot: the simulation's output",
+   "logged_in": "The pilot entry (7455e28), item 3",
+   "sha256": "bc48a736e97a33392b5545f2ba79e317daa19e37e3990c40a232e160f448771d"
+  },
+  {
+   "path": "<W>\\files-L\\rule_e.json",
+   "origin": "L ~/lab/p3/m7g/rule_e.json (copy on W m7g\\rule_e.json has the same sha256)",
+   "role": "--rule-e",
+   "logged_in": "Rule E's choices (77cedae), item 3",
+   "sha256": "fb50302aa4e42fc453e7230ed6472e0010f7ac98f1fab96b3daf7ead5ca2dec5"
+  },
+  {
+   "path": "<W>\\src\\design\\seeds.json",
+   "origin": "the clone",
+   "role": "--seeds",
+   "logged_in": "The seeds of section 4.7 (M7d), item 7",
+   "sha256": "3a2dd43623aa96190b5b3fac737d96af5a8fabed9853a82233c3a3c9f4c35b3e"
+  },
+  {
+   "path": "<W>\\files-L\\gate-L.json",
+   "origin": "L ~/lab/p3/m7g/records-ff2679c/gate-L.json",
+   "role": "--gate",
+   "logged_in": "The code freeze, item 5",
+   "sha256": "c6517177d497dc7f6951d2860926e950618a17cd6b1fc9568e0f8375ccfc1ab9"
+  },
+  {
+   "path": "<W>\\files-W\\gate-W.json",
+   "origin": "W C:\\Users\\alext\\lab\\p3\\m7g\\records-ff2679c-W\\gate-W.json",
+   "role": "--gate",
+   "logged_in": "The code freeze, item 5",
+   "sha256": "329d372ee7d4dc15ef6b7bac76fb9d8de35d5d048f9eea5108ae08caefc9e1fc"
+  },
+  {
+   "path": "<W>\\files-L\\measured-L.json",
+   "origin": "L ~/lab/p3/m7g/records-ff2679c/measured-L.json",
+   "role": "beside gate-L.json, not read",
+   "logged_in": "The code freeze, item 5",
+   "sha256": "ede490f425e7ec5781deb72cf199b71ffdff3036df0431caf8430f4511556a96"
+  },
+  {
+   "path": "<W>\\files-W\\measured-W.json",
+   "origin": "W C:\\Users\\alext\\lab\\p3\\m7g\\records-ff2679c-W\\measured-W.json",
+   "role": "beside gate-W.json, not read",
+   "logged_in": "The code freeze, item 5",
+   "sha256": "82e01e6bfc348bf2794bbb299d819287228b8ba550eaade73a87f68c13299c0d"
+  },
+  {
+   "path": "<W>\\files-L\\m2_rates.json",
+   "origin": "L ~/lab/p3/m2rate-L/m2_rates.json",
+   "role": "not read by analysis/: the rates M2's open-loop windows ran at (ml1)",
+   "logged_in": "M2's rates (M2_RATE) (7a63a08), item 4",
+   "sha256": "5c7ddc3ef16a04a8f3be3fbe91ee26d662f4ab8d8be937fcfb530b14f1cff3f6"
+  }
+ ],
+ "not_inputs": [
+  {
+   "what": "pilot rows (pilot-L, pilot-W windows.jsonl and parts.jsonl)",
+   "why": "the A/A pilot enters only through pilot.json, the output the pilot entry was made from (4.6, section 9.2); its archive was fetched and checked, its rows are not confirmatory"
+  },
+  {
+   "what": "mr1 (m2rate-L)",
+   "why": "development sessions (WL6, 9.3; every row development true); they set M2_RATE, which governed ml1's M2 windows"
+  },
+  {
+   "what": "bf1 (b3feas-L)",
+   "why": "B3 feasibility windows, development data (section 8 step 7; entry 1c4193a); never used; not fetched"
+  },
+  {
+   "what": "sl1 (evidence/s-L-sl1-b1count)",
+   "why": "archived as evidence only and given to no analysis (entry 9830457, items 5 and 7); not fetched"
+  },
+  {
+   "what": "hc1 (hardcomp-L)",
+   "why": "the competitors' hard-case table, descriptive (section 10; entry 1c4193a, item 3); analysis/ draws nothing for it; still running on L at this run"
+  },
+  {
+   "what": "hard-L/hardcases.jsonl, hard-W/hardcases.jsonl",
+   "why": "B1's hard-case table and B2's checks: analysis/analyse.py at ANALYSIS_COMMIT reads no hard-case row (its not_produced list); their verdicts are in the hard-case runners' own outputs"
+  }
+ ],
+ "runs": {
+  "out1": {
+   "summary.json": "a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8",
+   "decisions.csv": "6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f",
+   "macros.tex": "cb5e16e70879fbab49051045adcad999b6744ff2abe5ca85b8958f31990a61f9",
+   "summary_mtime": "2026-10-07T18:11:46+03:00"
+  },
+  "out2": {
+   "summary.json": "a94b4bde0eddf2a7ef8bbc16de0e1a256a10a4f5ed64d99ea8d841d5c8bb9af8",
+   "decisions.csv": "6752c68e472f83379e913a4442a187bbd6bb67f47bf0d5ef0e25577d132c753f",
+   "macros.tex": "cb5e16e70879fbab49051045adcad999b6744ff2abe5ca85b8958f31990a61f9",
+   "summary_mtime": "2026-10-07T18:12:00+03:00"
+  }
+ },
+ "runs_identical": true,
+ "macros_tex": {
+  "sha256": "cb5e16e70879fbab49051045adcad999b6744ff2abe5ca85b8958f31990a61f9",
+  "kept_at": "<W>\\out1\\macros.tex and <W>\\out2\\macros.tex",
+  "in_results": false,
+  "why": "not placed at results/macros.tex: five verdict values hold an unescaped '%' and CostClaims holds 'io_uring' with '_' in text mode, so paper/main.tex, which inputs ../results/macros.tex whenever it exists, stops in every build; the fix is in analysis/macros.py, frozen at ANALYSIS_COMMIT, and is left to the coordinator. The file regenerates from results/summary.json with analysis/macros.py at the analysis tree above, to this sha256"
+ },
+ "working_dir": "<W> = C:\\Users\\alext\\lab\\p3\\confirm1 on W (outside git); archives unpacked under <W>\\unpacked",
+ "made_by": {
+  "script": "<W>\\make_provenance.py",
+  "sha256": "b8299ad9d2b34a8a03182cde033b4c15e2ee733bf53e7f6e4ecf4e7bc088cab3"
+ }
+}
