@@ -1,0 +1,167 @@
+\section{Deviations and Reproducibility}\label{sec:deviations}
+
+Every change after the hypotheses freeze is in the revision log, with its reason. Each change to
+the frozen code or rules was logged before any data it governs. Two entries came after the data
+they concern: the escaping of Section~\ref{sec:dev-escaping}, which changes no decision, and the
+reading of Section~\ref{sec:dev-runners}. This section lists the changes and records that bear on
+the results, in the order they were made.
+
+\subsection{Decisions Made before the Data}\label{sec:dev-before}
+
+L's kernel changed before the code freeze. The frozen text fixes L at kernel \KernelFrozen. By the
+author's decision L moved to \KernelL{} by kexec, so that the module that exempts loopback traffic
+from connection tracking could load. Every cited source line was checked unchanged at the new
+kernel's tag, and the records, the pilot and every confirmatory run used \KernelL.
+
+Four more decisions came before the code freeze, each before any confirmatory data. First, on W the
+churn of h2c and MQTT measures the generator, not the server, so the author placed their C1 cells
+outside the cost family. In both protocols the client closes first, so each connection leaves a
+TIME-WAIT socket that holds a client port. Development runs showed Windows' bind and close in the
+generator growing slower as those sockets grew. The two cells ran in the pilot only, which gives the
+open-loop rates of the C3 cells of h2c and MQTT on W. The pilot's rows show neither the server nor
+the generator's CPUs saturated in them (Section~\ref{sec:res-cost}). Second, the author decided not to run M2's TLS cells
+(Section~\ref{sec:res-mech}). Third, the study's coordinator decided not to run the secondary cell
+with two server cores on IOCP, since the server serves one IOCP worker.
+\ForAlex{The text names decisions of ``the study's coordinator''. Decide how to name that role in a
+sole-author paper, in line with the AI-use statement.}
+Fourth, every job of the session engine starts with discarded windows of at least \JobWarmupS~s.
+Two development jobs on W showed a slow start of the job, of unknown cause, that lasted several
+windows. The hard cases, the windows of \Kbase{} and the pilot's parts run outside that engine and
+have no such warm-up.
+
+After the pilot entry, rule~E kept every proposed default, and M2's rates were set from development
+sessions. Section~\ref{sec:order} gives both.
+
+\subsection{The Count of Misclassified Connections, a Later Change}\label{sec:dev-b1}
+
+\runin{The defect.} In the one-port arm of the mixed-protocol cell, the runners bounded each
+script's class in the count of misclassified connections. They read each bound from a field that
+the generator's report does not hold. So the bounds were the probe's one connection for HTTP/1.1
+and none for TLS and MQTT. Every connection of the window but one then counted as classified other
+than as its script's protocol. By the rule of validity, every one-port window of the mixed cell
+would be invalid. And the analysis's list of B1 failures would list each such window, after which
+the robustness claim is withheld.
+
+\runin{The evidence.} The first job of the secondary cells on L, \JobSlOne{}, stopped after
+\SlOneWindows{} windows, \SlOneValid{} of them valid. It ran \SlOneMixed{} one-port windows of the
+mixed cell, \SlOneMixedEpoll{} on epoll and \SlOneMixedIouring{} on io\_uring. In each, the server's
+counters classified as HTTP/1.1 exactly the generator's connections and the probe, and as TLS and
+MQTT exactly the background's connections. The row's count was the generator's connections plus
+\SlOneExtra. In one row on epoll the generator made \SlOneConnectsRun{} connections. The server
+classified \SlOneClassifiedHttp{} as HTTP/1.1, \SlOneClassifiedTls{} as TLS and
+\SlOneClassifiedMqtt{} as MQTT, and the row counted \SlOneMisclassified{} misclassified. With the
+bounds that the generator does report, the count in each of these windows is zero. The counters
+are totals per class, so neither count can see two connections whose classes are swapped.
+
+\runin{The change.} The author followed the frozen rule for a later change. One commit,
+\hex{\ChangeCommit}, changed five Python files of the runners, their tests and the freeze guard,
+and nothing that is compiled. On W every target's hash of inputs equals the measured build's at the
+code freeze. On L the change touches no file that a target compiles. So the green sanitizer
+records and the gates of the code freeze still cover every measured build, and no record was made
+again. The rule archives every confirmatory window of an old build. Read with the build as the
+compiled build, which the records cover, it found no such window, since no compiled input changed.
+The pilot and its entry stand, as do rule~E's choices and M2's rates.
+
+\runin{What was run again.} The scope of what ran again was the author's decision, not the rule's.
+All of \JobSlOne{}'s windows are archived and kept only as the defect's evidence, and no analysis
+reads them. The secondary cells ran again from their start on L and for the first time on W, and
+the competitors' table ran, all with the changed runners. The four secondary cells of B3 in the
+other detection mode had run in B3's own job, whose rows hold no such count, and were not run
+again. Every row of the new jobs names the change's commit. Beside the defect, the follow-up of
+\JobSlOne{} recorded three readings and one expectation, each named beside the new rows in
+Section~\ref{sec:res-secondary}. The mixed cell on io\_uring starved in both modes, the SSH cells
+of C2 could not run, and the silent connections' lives differed by mode. sslh-ev's secondary cells
+were expected to end without a valid session. No measured window of the new jobs counted a
+misclassified connection.
+
+\subsection{B1 and B2 from the Runners' Rows}\label{sec:dev-runners}
+
+The frozen text has the analysis code compute every decision. That code reads no row of the hard
+cases, so for B1's hard cases and for B2 it computes nothing. A reading in the revision log, made
+after those runs and before any count reached the paper, takes both decisions from the runners'
+rows. The runners judge each run with the frozen test suite's checks, ported line for line. A
+separate generator counts the rows, names each input by its SHA-256, and stops on any row that
+disagrees with itself. So for these two decisions the frozen sentence does not hold in its letter.
+
+\subsection{The Macros' Escaping, a Later Change}\label{sec:dev-escaping}
+
+The analysis's macro writer wrote text taken from the summary as it was. Of its \HeldBackMacros{}
+macros, \CountEscapedLines{} held a percent sign or an underscore, which stopped every build of the
+paper, so the file was held back. One commit made the writer escape TeX's special characters. The
+code that computes the decisions did not change. The checks were defined in the revision log before
+they ran. On W, the analysis run again from a fresh clone wrote the same decisions byte for byte, as
+required. Its summary differed only in the commit it records, and its macros only in those lines.
+
+On L, with Python \RerunPythonL{} against W's \AnalysisPythonW, the decisions file was not
+byte-identical to W's. The provenance of the macros, among the results files, records the counts
+and largest values of the differences and names the full comparison by its SHA-256. Every verdict, pass, count, rank, median and interval bound is equal. The floats that
+differ are BCa $p$-values, their Holm adjustments and one jackknife acceleration. The largest
+relative difference in the decisions file is $\RerunDecisionsMaxRel$, and the largest absolute
+difference in the summary is $\RerunSummaryMaxAbs$. The two hosts wrote the same macros byte for
+byte, so no printed value differs.
+
+\subsection{W's Procedure}\label{sec:dev-w}
+
+The frozen procedure on W asks for a CPU frequency counter tested against a known load. No counter
+passed: under three power plans neither the counter nor a fixed loop's rate of work moved. So W's
+windows were validated without the frequency rule, and each row records the counter. W's CPU
+measure of WL4 is the server's processor cycles, read with \texttt{QueryProcessCycleTime}, a design
+choice made before any confirmatory data. Windows' process times move in whole clock ticks of
+\WTickMs~ms, so at a low load they sample the CPU time rather than sum it. A ratio of two arms'
+cycles needs no conversion. W has no counter of listen overflows. A connection it refuses shows as a
+failed connect, which makes the window invalid. On W the generator binds each source address with
+\texttt{SO\_REUSE\_UNICASTPORT}, the reading of Section~\ref{sec:generators}.
+
+The check that a W job must pass before it starts was lowered by the author's decision, before any
+pilot data. It now asks for a mean idle of at least \QuietIdleMin\%. Each CPU a window uses must be
+at least \QuietCpuIdleMin\% idle, and no process may use more than \QuietProcessMax\% of a CPU. It
+had asked for \QuietIdleOld\%, \QuietCpuIdleOld\% and \QuietProcessOld\%. With programs the author
+keeps running on W, it had refused job starts through an evening. The check gates a job's start
+only, and every rule of validity of a window is unchanged.
+
+The freeze guard reads the frozen text through git in the locale's encoding, a Windows code page on
+W, while the text is UTF-8. So the first start of W's pilot stopped in the guard, before any window.
+Every frozen run on W then ran in Python's UTF-8 mode, set for its own process only. Every text that
+mode changes is ASCII, except git's, so no recorded value depends on it. The guard itself is not
+fixed; that would be a later change.
+
+The cost family on W ran as two jobs. The first was stopped at the author's request, inside the
+first window of a session; that window is invalid with the stop as its reason. The second job
+resumed from the rows already written. At the end of the family's order it ran a new session in
+place of the cut one, as the rule for invalid windows prescribes.
+
+\subsection{The Analysis Code}\label{sec:dev-analysis}
+
+Before the code freeze the analysis code moved once. Its first named commit,
+\hex{\AnalysisCommitFirst}, was replaced so that W's CPU is read as cycles and W's two churn cells can never be resolved. No
+pilot session had run then.
+
+Three commits of the analysis code bear on the results. The simulation that sized \RC{} ran at
+\hex{\SizingCommit}. The decisions were computed from a clone at \hex{\AnalysisRunCommit}, whose
+directory of analysis code is byte for byte the sizing commit's, as their git trees show. The
+macros were written at \hex{\AnalysisCommit}, the escaping's commit. It differs from the sizing
+commit in the macro writer and its test alone. The analysis ran on W with numpy \AnalysisNumpyW{} on
+Python \AnalysisPythonW, twice, and the two runs were byte-identical.
+
+The frozen text remarks that the jackknife acceleration of a median is zero at an even $R$. Beyond
+floating-point noise it is not zero in M2's HTTP/1.1 cell on epoll, nor in some intervals of WL4.
+In that cell the two middle values differ by the smallest step of a floating-point number, and it
+passes either way.
+
+\subsection{Outputs Not Produced}\label{sec:dev-not-produced}
+
+The frozen text lists four descriptive outputs that no generated results file holds. They are B2's
+distributions of lateness and decision latency, the operations and copies per connection, the
+system calls of the proxies, and the check of the server's system-call counters. The rows hold the
+server's counters and the hard cases' times, but no analysis of them was made for this paper. No
+results file holds the untimed windows of the two system-call outputs. This paper reports none of
+the four, which departs from the frozen list of secondary analyses.
+
+\subsection{Reproducibility}\label{sec:dev-repro}
+
+The code freeze is the commit \hex{\CodeFreeze}. Every measured build compiled inputs that green
+sanitizer records of that commit cover, on the host that ran it, and every row is bound to its
+host's gate. Raw outputs are archived with their SHA-256. The results files name every input they
+read by its SHA-256, and the generators of this paper's macros and tables check that their outputs
+match the committed files. The pre-specification, with its revision log, is in the paper's
+repository.

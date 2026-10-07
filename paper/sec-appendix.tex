@@ -1,0 +1,121 @@
+\appendixtitles{yes}
+\appendixstart
+\appendix
+\section{Per-Cell Tables}\label{app:tables}
+
+This appendix holds the per-cell tables that Sections~\ref{sec:results} and~\ref{sec:discussion}
+cite. Each is generated from the results files, and every value in it is a macro of the generated
+macro files or a count from the results files.
+
+\begin{table}[H]
+\caption{Every invalid window of a family cell, per arm, with its reasons. The count after a reason
+is the number of windows that gave it; a window may give several.\label{tab:invalid}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l r X@{}}
+\toprule
+\textbf{Cell} & \textbf{Arm} & \textbf{Windows} & \textbf{Reasons} \\
+\midrule
+\tabinput{../results/tables/invalid}
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\caption{The secondary metrics of the cost cells, one-port / dedicated. WL4 gives the server's CPU
+per exchange and its resident memory at the end and at its peak. WL2 gives the time to first byte
+at \PNinetyNine, in C3 only. Each is the median with its \CiPct\% interval. On W the CPU measure is
+the server's processor cycles, read with \texttt{QueryProcessCycleTime}; a ratio of two arms needs no conversion.\label{tab:wl4}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l l X X X X@{}}
+\toprule
+\textbf{Hyp.} & \textbf{Host, backend} & \textbf{Protocol} & \textbf{CPU} & \textbf{Memory, end} &
+\textbf{Memory, peak} & \textbf{TTFB, tail} \\
+\midrule
+\tabinput{../results/tables/wl4}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+\begin{table}[H]
+\caption{The analysis clustered by lab job, which decides nothing: the cost cells that ran in more
+than one job, all on W. Beside each clustered interval is the cell's interval by session.
+\label{tab:byjob}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l l l X X@{}}
+\toprule
+\textbf{Hyp.} & \textbf{Host, backend} & \textbf{Protocol} & \textbf{Median} &
+\textbf{Interval by job} & \textbf{Interval by session} \\
+\midrule
+\tabinput{../results/tables/by-job}
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\caption{The secondary cells with sessions of their own, each with its valid sessions, median and
+\CiPct\% interval, or whether it was not run or has no valid session. Section~\ref{sec:res-secondary}
+gives the reasons.\label{tab:sec}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l X r l l@{}}
+\toprule
+\textbf{Cell} & \textbf{Host, backend} & \textbf{Ratio, metric} & \textbf{Valid} & \textbf{Median} &
+\textbf{\CiPct\% interval} \\
+\midrule
+\tabinput{../results/tables/secondary}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+\begin{table}[H]
+\caption{The secondary cells of the mechanisms and of B3. They give the time to first byte at a
+fixed load for M1 and M3 and the CPU per connection of every mechanism cell. For M2 and M3 that
+CPU is the front's. The last rows give B3 with the server in its other detection
+mode.\label{tab:secmech}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l X r l l@{}}
+\toprule
+\textbf{Cell} & \textbf{Host, backend} & \textbf{Ratio, metric} & \textbf{Valid} & \textbf{Median} &
+\textbf{\CiPct\% interval} \\
+\midrule
+\tabinput{../results/tables/secondary-mech}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+\begin{table}[H]
+\caption{The parts of the competitor's footprint in each B3 cell, as medians over the valid sessions. $W$, $U$, $K_q$ and $K_s - \Kbase$ are in bytes per pending connection. ``Skb caches'' is the growth of the three
+socket-buffer caches subtracted from $K_s$. ``Shared cache'' is the part of it in the merged cache,
+whose co-tenants are \name{pool\_workqueue} and \SgPool. Both are in bytes over the host. $f$ is the
+mean of the \texttt{f} field of \texttt{ss -tm} over the accepted sockets, in bytes, reported and not
+added.\label{tab:b3parts}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l l X X X X X X X@{}}
+\toprule
+\textbf{Case} & \textbf{System} & \textbf{Backend} & $W$ & $U$ & $K_q$ & $K_s - \Kbase$ & \textbf{Skb caches} & \textbf{Shared cache} & $f$ \\
+\midrule
+\tabinput{../results/tables/b3-parts-competitor}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+\begin{table}[H]
+\caption{The parts of the server's footprint in each B3 cell, in the units of Table~\ref{tab:b3parts}.\label{tab:b3partsserver}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l l X X X X X X X@{}}
+\toprule
+\textbf{Case} & \textbf{System} & \textbf{Backend} & $W$ & $U$ & $K_q$ & $K_s - \Kbase$ & \textbf{Skb caches} & \textbf{Shared cache} & $f$ \\
+\midrule
+\tabinput{../results/tables/b3-parts-server}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}

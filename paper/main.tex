@@ -5,7 +5,10 @@
 % ../results/macros.tex (analysis/macros.py, from the frozen analysis). Before the results exist,
 % paper/result-placeholders.tex stands in for the second file in a draft build only. B1's and B2's
 % counts and decisions come from ../results/hardcase-macros.tex (paper/hardcase_macros.py, from the
-% hard-case runners' outputs).
+% hard-case runners' outputs). Counts over the results files and the tables of the results come
+% from ../results/report-macros.tex and ../results/tables/ (paper/report_macros.py); two readings
+% of archived W rows that the revision log and the frozen text promise, from
+% ../results/w-evidence-macros.tex (paper/w_evidence_macros.py).
 \documentclass[futureinternet,article,submit,oneauthor]{Definitions/mdpi}
 
 % MDPI internal commands, as template.tex sets them for a submission.
@@ -43,6 +46,8 @@
 \input{../results/hardcase-macros}
 \IfFileExists{../results/macros.tex}{\input{../results/macros}}{%
   \ifsubmission\PackageError{main}{../results/macros.tex is missing}{}\else\input{result-placeholders}\fi}
+\input{../results/report-macros}
+\input{../results/w-evidence-macros}
 
 % A run-in heading at the start of a paragraph; MDPI's \paragraph sets its heading on a line of
 % its own.
@@ -72,6 +77,14 @@
 \newcommand{\EpollWaitTwo}{\texttt{epoll\_pwait2}}
 \newcommand{\SshLine}{\texttt{SSH-2.0-oneport}}
 \newcommand{\LoopbackNet}{127.0.0.0/8}
+\newcommand{\PNinetyNine}{the 99th percentile}
+% The body of a generated table, read with TeX's own \input: LaTeX's \input starts a cell inside an
+% alignment, so the \bottomrule after it would be misplaced.
+\makeatletter
+\newcommand{\tabinput}[1]{\@@input #1.tex }
+\makeatother
+% The lab job that ran the secondary cells first and was set aside by the B1 change.
+\newcommand{\JobSlOne}{sl1}
 % Formulas of the frozen statistics whose constants are part of their notation.
 \newcommand{\IntervalLevel}{\ensuremath{1-2\alpha}}
 \newcommand{\RerunCap}{\ensuremath{\lceil R/4 \rceil}}
@@ -129,9 +142,22 @@ ul.~Professor Georgi Bradistilov 11, Sofia, Bulgaria; atsvetanov@tu-sofia.bg}
 % the address above as well.
 \corres{Correspondence: atsvetanov@tu-sofia.bg}
 
-\abstract{\Pending{the abstract, written after the results}
+\abstract{Servers usually listen on one port per protocol; one listener can serve every protocol by
+reading each connection's first bytes, at an unmeasured cost. We built \oneport, a minimal
+C++23 server for HTTP/1.1, h2c, TLS, SSH and MQTT on epoll, io\_uring and I/O completion ports. We
+compared one listener with one port per protocol on Linux and Windows. Hypotheses, tests and rules
+were frozen before any server code existed. Tests used bootstrap intervals and exact sign tests
+under Holm's procedure. Under load of one protocol, one-port mode was equivalent
+within \MarginLow{} to \MarginHigh{} in \CostPassed{} of the \CostHolm{} tested cost cells. All three
+cost tests passed for HTTP/1.1, TLS and MQTT on Linux and HTTP/1.1 and TLS on Windows. On Linux,
+h2c's latency at a fixed load was not shown equivalent, once as a measured cost. The detector
+decided all \HardcaseRuns{} hard-case runs as specified. By the frozen footprint test, nginx,
+HAProxy, Envoy and hyper-util held at least \FootprintMargin{} times the server's counted footprint
+per pending connection; sslh-ev held less. A mixed-protocol load starved new connections on the
+io\_uring backend in both modes. So, for this server, one listener served HTTP/1.1, TLS and MQTT
+there at no measurable cost.
 \ForAlex{The title is the working title of bib/own.bib. The frozen text gives no title.
-Confirm it, or choose another once the results are in.}}
+Confirm it, or choose another now that the results are in.}}
 
 \keyword{protocol detection; port unification; first-bytes demultiplexing; TLS; HTTP/2; MQTT;
 PROXY protocol; epoll; io\_uring; I/O completion ports; equivalence testing; benchmarking}
@@ -142,8 +168,8 @@ PROXY protocol; epoll; io\_uring; I/O completion ports; equivalence testing; ben
 \input{sec-related}
 \input{sec-design}
 \input{sec-method}
-\input{sec-threats}
 \input{sec-results}
+\input{sec-deviations}
 \input{sec-discussion}
 \input{sec-conclusions}
 
@@ -190,6 +216,8 @@ of this publication.''}}
 \conflictsofinterest{The author declares no conflicts of interest. The funder had no role in the
 design of the study; in the collection, analyses, or interpretation of data; in the writing of
 the manuscript; or in the decision to publish the results.}
+
+\input{sec-appendix}
 
 \begin{adjustwidth}{-\extralength}{0cm}
 \reftitle{References}

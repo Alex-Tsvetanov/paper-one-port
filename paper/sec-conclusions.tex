@@ -1,3 +1,24 @@
 \section{Conclusions}\label{sec:conclusions}
 
-\Pending{Conclusions. Written after the results, and only from them.}
+A server that reads a connection's first bytes and decides its protocol on one listening socket can
+match the same server with one port per protocol. For \oneport, under load of one protocol at a
+time, one-port mode was equivalent to dedicated mode within \MarginLow{} to \MarginHigh{} in
+\CostPassed{} of the \CostHolm{} tested cost cells. The claim of no measurable cost holds for \CostClaimCount{}
+configurations: HTTP/1.1, TLS and MQTT on both Linux backends, and HTTP/1.1 and TLS on Windows. The
+TLS cells have little power to show the cost of detection, since the handshake dominates. The
+claim does not hold for h2c on L, where equivalence of the time to first byte at a fixed load was not shown. On epoll
+the analysis reports a measured cost there. On W the claim is open for h2c and MQTT.
+
+The detector decided all \HardcaseRuns{} runs of the frozen hard cases as specified, with no timed
+event out of bounds. By B3's test, nginx, HAProxy and Envoy in both cases, and hyper-util in the
+silent case, held at least \FootprintMargin{} times the server's counted footprint per pending
+connection, as configured. Their medians of the difference range from
+\BThreeSilentHyperUtilIouringDMedian{} to \BThreePartialHelloEnvoyEpollDMedian{} bytes, with the
+intervals and exclusions of Section~\ref{sec:res-robust}. sslh-ev held less than the server in
+every cell, as did Netty in the partial-ClientHello case. Replay served more connections per second than peek in every cell but h2c
+on IOCP. In-process dispatch used less CPU than relay for HTTP/1.1. The server's relay served more
+connections per second than four of the five proxies, and sslh-ev could not be tested.
+
+The runs also exposed a limit of the server's io\_uring backend: beside a busy keep-alive background,
+its churn starved in both modes. A larger ring of provided buffers is the first follow-up, labelled
+exploratory, and the cause of h2c's latency at a fixed load is the second.

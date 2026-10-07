@@ -28,10 +28,9 @@ it: on epoll each worker's set holds it with \texttt{EPOLLEXCLUSIVE}, and on io\
 worker's ring holds a multishot accept on it. On IOCP every listener keeps \NAcceptex{}
 \texttt{AcceptEx} requests outstanding, without a receive buffer, in both
 modes~\cite{microsoft2026acceptex}. A group of \texttt{SO\_REUSEPORT} sockets, one per worker, is
-a second layout that the binary also builds.
-\ForAlex{As built, the server on IOCP runs one worker and refuses more (design/status.md, M6a).
-The frozen secondary analyses include a cell with two server cores on IOCP. This draft states the
-frozen text; the choice among the options M6a lists is open.} In dedicated mode a process opens one listening socket per
+a second layout that the binary also builds. On IOCP the server runs one worker and refuses more,
+so the secondary cell with two server cores on IOCP was not run (Section~\ref{sec:res-secondary}).
+In dedicated mode a process opens one listening socket per
 protocol (HTTP/1.1, h2c, TLS, MQTT, SSH and SMTP) on consecutive ports. It has no detection, no
 detection timer and no detection budget. The backend, the workers, the handlers, the buffers and
 the PROXY setting are the same in both modes. That is the whole difference between them, and it
@@ -227,10 +226,11 @@ Three first-party programs drive and observe the server. \opgen{} generates load
 exchanges per protocol, a new connection per exchange or kept-alive connections, closed and open
 loop, and the time to the first response byte. It binds each source address with
 \texttt{IP\_BIND\_ADDRESS\_NO\_PORT}, and each window takes the next unused block of
-\KSrc{} addresses of \LoopbackNet{}, never reused within \TimeWaitS{}~s.
-\ForAlex{On W, opgen sets \texttt{SO\_REUSE\_UNICASTPORT} before the bind instead, since Windows
-has no \texttt{IP\_BIND\_ADDRESS\_NO\_PORT}. That is M6b's reading 3 (design/status-m6b.md), not
-yet in the revision log; this draft states the frozen text.} \opcase{} runs each hard
+\KSrc{} addresses of \LoopbackNet{}, never reused within \TimeWaitS{}~s. Windows has no such
+option, so on W \opgen{} sets \texttt{SO\_REUSE\_UNICASTPORT} before each bind, a reading the
+revision log records. Two facts go with it, both from development runs on W. A port is named right
+after the bind with or without the option, so the port is not shown to be chosen at connect. And
+the generator's churn rate did not change without the option. \opcase{} runs each hard
 case, and the openings of the footprint test, as a script of writes and gaps, one write per chunk
 with \texttt{TCP\_NODELAY}. It records each write's time on the server's clock. \ophold{} accepts
 connections and holds them without reading or polling them. It measures the kernel's memory for a

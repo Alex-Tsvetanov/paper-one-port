@@ -143,31 +143,23 @@ log records with its reason.
 
 \runin{WL8, hard cases.} For each case, the outcome, the transcript and the decision time against
 \opcase's write times. The table holds \HardCases{} cases. They cover whole, split and dripped
-signatures for every protocol, and slow drips still incomplete at \Tdec. They cover silent clients
-with and without a fallback, and a client whose first byte arrives just after or just before
-\Tfb. PROXY headers come whole, split, missing, incomplete, too long and followed by each protocol.
-The rest are bytes that rule out every matcher, half-closes and resets during detection, and a
-Redis inline command, which is classified as HTTP/1.1 and answered with \texttt{400}.
+signatures of every protocol, and slow drips still incomplete at \Tdec. They cover silent clients
+with and without a fallback, and a first byte just after or just before \Tfb. PROXY headers come whole, split, missing,
+incomplete, too long and followed by each protocol. The rest are bytes that rule out every matcher,
+half-closes and resets during detection, and a Redis inline command, answered with \texttt{400}.
 
 \subsubsection{WL7, the Footprint per Pending Connection}\label{sec:footprint}
 
 A connection is pending while the client's bytes are incomplete, whatever the system has decided
 from them so far. Every B3 window lasts \PendWindowS{}~s from the first connect, in phases that
-are design choices.
-\begin{itemize}
-\item Before \Tzero: fresh processes, the probe and a baseline sample.
-\item Opening, from \Tzero{} to at most \PendOpenS{}~s: \opcase{} opens \NPend{} connections in
-batches of \PendBatch, one batch every \PendBatchMs{}~ms. A batch is half of sslh's hard-coded
-listen backlog of \SslhBacklog, the smallest among the systems; the pace opens \PendRate{}
-connections per second. Each connection then sends nothing (the silent case), or the TLS record
-header of the recorded ClientHello, of \HelloLen{} bytes, followed by the first half of it (the
-partial-ClientHello case).
-\item Settling, to $t = \PendSettleS$~s.
-\item The first sample at $t = \SampleOneS$~s and the second at $t = \SampleTwoS$~s; the second
-is the value used.
-\item Closing, to $t = \PendWindowS$~s: every connection is closed by reset, so no socket enters
-TIME-WAIT.
-\end{itemize}
+are design choices. Before \Tzero{} the processes start fresh, pass the probe and take a baseline
+sample. From \Tzero{} to at most \PendOpenS{}~s \opcase{} opens \NPend{} connections in batches
+of \PendBatch, one every \PendBatchMs{}~ms. A batch is half of sslh's hard-coded listen backlog of
+\SslhBacklog, the smallest among the systems. Each connection then sends nothing (the silent case),
+or the record header and the first half of the recorded ClientHello of \HelloLen{} bytes (the
+partial-ClientHello case). After settling to $t = \PendSettleS$~s, samples follow at $t =
+\SampleOneS$~s and $t = \SampleTwoS$~s, and the second is the value used. Every connection is then
+closed by reset, so no socket enters TIME-WAIT.
 Each sample reads three parts, per pending connection. $U$ is the growth over the baseline of the
 summed resident memory of the system's processes; the stub behind a relay holds no pending
 connection and is left out. $K_q$ is the mean receive-queue allocation (the \texttt{r} field of
@@ -178,13 +170,12 @@ holds both loopback ends; the client ends are \opcase's, the same for every syst
 
 A queued socket buffer's header is itself a slab object, so the slab total holds it while $K_q$
 charges it too. In the Linux source at tag \KernelTag~\cite{linux2026v72}, those headers come from
-three caches. The growth of the three is subtracted from the slab's growth, so each queued buffer
-is counted once, in $K_q$. On L one of the three is merged into a shared cache, whose co-tenants
-are \name{pool\_workqueue} and \SgPool, as read on L. The whole growth of the shared cache is
-subtracted. Two residuals remain, and both sit with a system that leaves bytes queued. A header
-too large for its cache is counted twice. Memory of the caches that no receive queue is charged
-for is removed. The first raises that system's $W$ and the second lowers it. In the silent case
-neither applies.
+three caches, whose growth is subtracted from the slab's, so each queued buffer is counted once. On
+L one of the three is merged into a shared cache with \name{pool\_workqueue} and \SgPool, and the
+whole shared cache's growth is subtracted. Two residuals remain, both with a system that leaves
+bytes queued. A header too large for its cache is counted twice, which raises that system's $W$.
+Memory of the caches that no receive queue is charged for is removed, which lowers it. In the
+silent case neither applies.
 
 The holder \ophold{} measures \Kbase: it holds \NPend{} silent connections in the same layout, and
 \Kbase{} is the median of its $K_s$ over \KBaseWindows{} windows, corrected the same way. A
@@ -196,13 +187,9 @@ residual and the co-tenants' growth of a merged cache are outside it too, and th
 can count bytes twice. \Kbase{} cancels from every statistic of B3. It is reported as the share of each footprint
 that every system pays alike.
 
-Every process raises its soft limit of open files to the hard limit. nginx's worker connections
-and open files, and HAProxy's global connection limit, are twice \NPend; sslh's connection limit is
-unset; Envoy and the harnesses set no downstream limit. Listen backlogs are \NPend{} wherever a
-system has a setting, else the kernel's \texttt{net.core.somaxconn}. Runtimes with a collector run
-it before each sample. The JVM systems get a garbage collection through \texttt{jcmd}, and the
-cmux harness frees its heap to the system. caddy-l4 serves a heap profile, which collects first. Each reading,
-the baseline included, follows the same step.
+Every process raises its limit of open files to the hard limit. Connection limits are unset or at
+least \NPend, and listen backlogs are \NPend{} wherever a system has a setting. Runtimes with a
+collector collect before each reading, the baseline included.
 
 \subsection{Competitors and Their Configurations}\label{sec:competitors}
 
@@ -233,34 +220,27 @@ hyper-util~\cite{hyperutil2026} & \HyperUtilVersion, with Rust \RustVersion & B3
 
 Each proxy has three configurations. The \emph{cases} configuration holds every route its features
 cover, the matched timers and the fallback where it has one. The \emph{M3} configuration holds
-exactly M3's two routes. The \emph{B3} configuration adds WL7's limits, the \PendTimerS{}~s timer
-and the buffer settings below to the M3 configuration. Each
-library harness has two, \emph{cases} and \emph{B3}. In M3 every front gets one core; in B3 every
-competitor gets the server's core count. The detection timers of M3 are matched to the server's
-\TimerS{}~s.
+exactly M3's two routes, with timers matched to the server's \TimerS{}~s and one front core. The
+\emph{B3} configuration adds WL7's limits, the \PendTimerS{}~s timer and the buffer settings below,
+and gives the competitor the server's core count. Each library harness has the \emph{cases} and the
+\emph{B3} configurations. caddy-l4 is pinned by its release and its commit,
+\hex{\CaddyLfCommit}.
 
-caddy-l4 is pinned by its release and by its commit, \hex{\CaddyLfCommit}.
+\runin{Proxies.} nginx runs one worker on the front core, with the event method it chooses, which
+on Linux takes its peek path, and routes with \texttt{ssl\_preread}. HAProxy runs in TCP mode with
+one thread, accepts a ClientHello by its hello type and plain HTTP/1.1 at once, and routes by
+server name. Its client, server and connect timeouts stay unset, its default. HAProxy gets
+\texttt{option splice-auto} only where the server's relay in the same cell splices. Envoy follows
+its benchmarking advice: one worker thread, circuit breaking disabled, filter chains only for the
+compared features, and its default statistics on. caddy-l4 runs with one Go processor. sslh runs
+its \texttt{sslh-ev} binary with per-connection logging off.
 
-\runin{Proxies.} nginx runs one worker on the front core. It uses the event method nginx chooses,
-which on Linux is epoll with peer half-close reporting, and so its peek path. It routes with
-\texttt{ssl\_preread} and accepts with \texttt{multi\_accept on}. HAProxy runs in TCP mode with
-one thread, from the affinity set at start. It accepts a ClientHello by its hello type and plain
-HTTP/1.1 at once, and routes by server name. Its client, server and connect timeouts stay unset,
-its default. HAProxy gets \texttt{option splice-auto} only where the server's relay in the same
-cell splices. Envoy follows its benchmarking advice: the release binary, one worker thread,
-circuit breaking disabled and filter chains only for the compared features. Its default
-statistics stay on, as the server's counters do. caddy-l4 runs with one Go processor, from the
-affinity mask. sslh runs its \texttt{sslh-ev} binary with per-connection
-logging off and numeric addresses.
-
-\runin{Libraries.} The Netty harness follows Netty's port unification example with its built-in
-TLS, h2c and PROXY handlers, on the native epoll transport. The Jetty harness uses its detecting
-connection factory with TLS and PROXY, then HTTP/1.1 with the h2c upgrade. Both JVMs run the G1
-collector, selected explicitly, with the JDK guide's default heap bounds written out, on IPv4
-sockets. The cmux harness uses cmux's matchers for HTTP/2, HTTP/1, TLS and \texttt{SSH-}, with a
+\runin{Libraries.} The Netty harness follows Netty's port unification example on the native epoll
+transport. The Jetty harness uses its detecting connection factory with TLS and PROXY, then
+HTTP/1.1 with the h2c upgrade. Both JVMs run the G1 collector with the JDK guide's default heap
+bounds. The cmux harness uses cmux's matchers for HTTP/2, HTTP/1, TLS and \texttt{SSH-}, with a
 match-all last for the fallback. The hyper-util harness serves HTTP/1.1 and h2c on a tokio runtime
-with one worker thread; it has no detection timer. Where a library terminates TLS, the settings of
-Section~\ref{sec:handlers} apply as far as it allows.
+with one worker thread and has no detection timer.
 
 \runin{Buffers in B3.} A default that sizes what a pending connection holds is changed in two cases
 only. Either the project documents a value for deployments that face many untrusted connections,
@@ -268,7 +248,10 @@ or it documents that the buffer grows on demand, so a smaller start refuses noth
 per-connection buffer limit is \EnvoyConnLimit{} bytes on the listener and the cluster, as its edge
 guidance asks of TCP proxies. Its TLS inspector starts with \EnvoyInitialRead{} bytes, the
 smallest value it accepts. HAProxy sets small buffers in its back ends, which a
-pending connection does not use. Every other default is kept.
+pending connection does not use. Every other default is kept. The server's relay copies through
+\RelayBuf{} bytes per direction. Beside it, nginx's \texttt{proxy\_buffer\_size} defaults to
+\NginxProxyBufferK~KiB, HAProxy's \texttt{tune.bufsize} to \HaproxyBufsize{} bytes, and Envoy's
+per-connection buffer limit to \EnvoyBufferDefaultMiB~MiB; caddy-l4 and sslh fix theirs in code.
 
 \subsection{Hosts and Procedures}\label{sec:hosts}
 
@@ -280,34 +263,26 @@ cores and \HostWCpus{} logical CPUs, running \HostWOs{} (build \HostWBuild) and 
 at tag \KernelTag; the revision log checked each cited line against the kernel the runs use and
 found none changed in content.
 
-\runin{Placement.} The hardware sibling of every used core stays idle. On L, CPUs \PlaceSysA{} and
-\PlaceSysB{} run the system and the driver. In in-process cells the server runs on CPU
-\PlaceInprocServer{} and \opgen{} on CPUs \PlaceInprocGenLo{} to \PlaceInprocGenHi. In hand-off
-cells the front runs on CPU \PlaceFront, the back end on CPUs \PlaceBackA{} and \PlaceBackB, and
-\opgen{} on CPUs \PlaceHandGenLo{} to \PlaceHandGenHi. In B3 and the hard cases the system or
-\ophold{} runs on CPU \PlaceCaseSystem, with its back end on CPUs \PlaceCaseBackA{} and
-\PlaceCaseBackB. \opcase{} then runs on CPUs \PlaceCaseLo{} to \PlaceCaseHi. The secondary cells with
-two server cores run the server on CPUs \PlaceTwoA{} and \PlaceTwoB{} and \opgen{} on CPUs
-\PlaceTwoGenLo{} to \PlaceTwoGenHi. On W the server runs on one logical CPU of the last physical
-core, its sibling idle, and \opgen{} on the cores between core zero and the server's. The
-placement follows the earlier study of the same author~\cite{tsvetanov2026routing}.
+\runin{Placement.} The hardware sibling of every used core stays idle, and the server, its back end
+and the generators never share a core. On L, CPUs \PlaceSysA{} and \PlaceSysB{} run the system and
+the driver; in in-process cells the server runs on CPU \PlaceInprocServer{} and \opgen{} on CPUs
+\PlaceInprocGenLo{} to \PlaceInprocGenHi. In hand-off cells the front runs on CPU \PlaceFront{} and
+the back end on CPUs \PlaceBackA{} and \PlaceBackB. On W the server runs on one logical CPU of the
+last physical core and \opgen{} on the cores between core zero and the server's. The placement
+follows the earlier study of the same author~\cite{tsvetanov2026routing}.
 
-\runin{L.} Every run on L is a lab job under a lock. The job fixes the processor's state (boost
-off, the performance governor, mains power) and holds each CPU's minimum frequency at its
-maximum. It sets transparent huge pages to \texttt{madvise}, and it exempts loopback traffic from
-connection tracking. The revision log records the reason for each. It
-restores every setting when it ends, also on a signal. Each session's fingerprint records the
-kernel, the settings before the job and during it.
+\runin{L.} Every run on L is a lab job under a lock. The job turns boost off, sets the performance
+governor, holds each CPU's minimum frequency at its maximum, sets transparent huge pages to
+\texttt{madvise} and exempts loopback traffic from connection tracking. It restores every setting
+when it ends, and each session's fingerprint records them.
 
 \runin{W.} For each session the harness switches to a power plan of its own. It is a copy of
-Windows' High performance plan with boost off, the processor state held at its maximum, and no
-core parking. It switches back when the session ends, also on failure, without
-administrator rights. The timer resolution stays at Windows' default and is recorded per window. A
-quiet check before each job refuses a busy host. The frozen procedure also names a frequency
-counter, tested against a known load. If no counter passes the test, W's windows are validated
-without the frequency rule, and the paper says so (Section~\ref{sec:threats}).
-\ForAlex{Section~9.1 of the frozen text asks for your approval of W's procedure. Record it, and
-the counter's outcome, in the revision log at the code freeze.}
+Windows' High performance plan with boost off, the processor state at its maximum and no core
+parking. The
+timer resolution stays at Windows' default. A quiet check before each job refuses a busy host. The
+frozen procedure also names a frequency counter, tested against a known load; if none passes, W's
+windows are validated without the frequency rule. The author approved W's procedure before the code
+freeze, and Section~\ref{sec:dev-w} gives what followed.
 
 \subsection{Sessions and Validity}\label{sec:sessions}
 
@@ -379,11 +354,8 @@ tests~\cite{schuirmann1987tost}). Before Holm's adjustment, the BCa form passes 
 two-sided \CiPct\% interval lies inside the margin. Each cost cell shows that interval and the
 interval at its Holm level, \HolmLevel, where $j$ is its rank. A noisy cell, or one with too few
 valid sessions, fails: a difference that is merely not significant never counts as equivalence.
-In the cost family the sign test is the binding computation. At Holm's first threshold it allows
-fewer sessions beyond a bound than the BCa needs: \SignAllowedLow{} beyond each bound at $R =
-\CostCandMin$ and \SignAllowedHigh{} at $R = \CostCandMax$. With the acceleration at zero, as for
-a median at an even $R$, a cost cell's BCa can pass $\alpha/\CostCellsMax$ only if
-\ZzeroBound.
+In the cost family the sign test is the binding computation, since at Holm's first threshold it
+allows fewer sessions beyond a bound than the BCa needs.
 
 \runin{Superiority.} Each cell of B3 and of the mechanism family has one null, on the far side of
 its bound from the hypothesis. For B3 the null is that the median $Q$ is at most
@@ -393,47 +365,35 @@ the sessions strictly on the hypothesis side. The BCa $p$-value is the level at 
 end of the interval equals the bound (the upper end for M2).
 
 \runin{Replicates.} An exact paired test must be able to pass the family's first Holm threshold,
-\DnineRule. That needs at least \CostDnineMin{} sessions in the cost family with
-\CostCellsMax{} cells, \FootprintDnineMin{} for B3 and \MechDnineMin{} for the mechanism family.
-B3 and the mechanism
-family run $R_B = R_M = \RepsBM$, the reference count of the earlier
-study~\cite{tsvetanov2026routing}, a design choice between that minimum and \RepsCap. No pilot can
-size a superiority family, since nothing in the design sets its effect size. At that $R$, one
-session on the wrong side of the bound still clears every Holm threshold of both families. Two
-clear $\alpha/k$ only for $k \le \SupTwoK$, and three only for $k \le \SupThreeK$. There is no
-sequential stopping.
+\DnineRule. That needs at least \CostDnineMin{} sessions in the cost family, \FootprintDnineMin{}
+for B3 and \MechDnineMin{} for the mechanism family. B3 and the mechanism family run $R_B = R_M =
+\RepsBM$, the reference count of the earlier study~\cite{tsvetanov2026routing}, a design choice. No
+pilot can size a superiority family, since nothing in the design sets its effect size. At that
+$R$, one session on the wrong side of the bound still clears every Holm threshold of both families.
+There is no sequential stopping.
 
 \subsubsection{Sizing \texorpdfstring{\RC}{R\_C} from an A/A Pilot}\label{sec:pilot}
 
 The pilot sizes $R$ for the cost family; it sets no margin. Every cost cell runs \PilotSessions{}
 sessions with both arms in dedicated mode. The arms are two starts of the same binary and flags,
 the second on a fixed port offset. So every window transition changes port, as in the A/B design.
-The pilot holds no one-port data. For each cell, with \LogRatio{} the log of session $i$'s ratio:
-\begin{enumerate}
-\item the values are centred, $e_i = y_i - \mathrm{median}(y)$, so power is computed at a true
-ratio of one;
-\item $s$ is the standard deviation of the $e_i$. The bandwidth is Silverman's rule of
-thumb~\cite{silverman2018density} divided by $s$: \Bandwidth. The spread used is \UpperSd, the
-one-sided \UpperBoundPct\% upper confidence bound under normality. Here $q$ is the \ChiQuantile{}
-quantile of the chi-square distribution with \PminusOne{} degrees of freedom, so $q = \ChiQ$ and
-$s_U = \SUFactor\, s$;
-\item one simulated run draws $R$ standardised values $e_i/s$ with replacement, adds to each an
-independent normal draw with standard deviation $b$, multiplies by \SimScale{} and takes
-exponentials;
-\item the confirmatory code itself analyses each run, both computations at the margin, and the run
-passes if both $p$-values are at most $\alpha/\CostCellsMax$;
-\item the power at $R$ is the share of \NSim{} runs that pass (its Monte Carlo standard error at
-\PowerTarget{} is \NSimSe).
-\end{enumerate}
-The candidates for $R$ are \CostCandidates: the values at which the sign test's allowed count
-steps.
-Runs share random numbers across candidates, and every stream is seeded from a frozen seed, so no
-result depends on the order of computation. A cell is resolved if it has \PilotSessions{} valid
-pilot sessions and power of at least \PowerTarget{} at $R = \CostCandMax$. \RC{} is the smallest
-candidate at which every resolved cell reaches \PowerTarget. The pilot entry records \RC{} =
-\CostR{} and \mC{} = \CostM. A cell not resolved leaves the confirmatory family, still runs at \RC, and is
-reported as not resolved at $R \le \RunsMax$. For each protocol, backend and host whose C1, C2 and
-C3 cells are all resolved, the product of their three powers is reported, not targeted.
+The pilot holds no one-port data. For each cell, with \LogRatio{} the log of session $i$'s ratio,
+the values are centred, $e_i = y_i - \mathrm{median}(y)$, so power is computed at a true ratio of
+one. With $s$ their standard deviation, the bandwidth is Silverman's rule of
+thumb~\cite{silverman2018density} divided by $s$, \Bandwidth. The spread used is \UpperSd, the
+one-sided \UpperBoundPct\% upper confidence bound under normality, with $q$ the \ChiQuantile{}
+quantile of the chi-square distribution with \PminusOne{} degrees of freedom. One simulated run
+draws $R$ values $e_i/s$ with replacement, adds to each a normal draw with standard deviation $b$,
+multiplies by \SimScale{} and takes exponentials. The confirmatory code analyses each run, and the
+run passes if both $p$-values at the margin are at most $\alpha/\CostCellsMax$. The power at $R$ is
+the share of \NSim{} runs that pass. The candidates for $R$ are \CostCandidates, where the sign
+test's allowed count steps. A cell is resolved if it has
+\PilotSessions{} valid pilot sessions and power of at least \PowerTarget{} at $R = \CostCandMax$.
+\RC{} is the smallest candidate at which every resolved cell reaches \PowerTarget. The pilot entry
+records \RC{} = \CostR{} and \mC{} = \CostM. A cell not resolved leaves the confirmatory family,
+still runs at \RC, and is reported as not resolved at $R \le \RunsMax$. For each protocol, backend
+and host whose C1, C2 and C3 cells are all resolved, the product of their three powers is reported,
+not targeted.
 
 \runin{Orders and seeds.} All sessions of one family's cells on one host run in one shuffled order,
 so that drift spreads over the cells. The \FrozenSeeds{} seeds of the orders, of each family's
@@ -447,8 +407,8 @@ Each step starts only after the one before it is committed.
 \begin{enumerate}
 \item The pre-specification is frozen before any code of the server exists.
 \item Engineering. Before it ends, one revision-log entry fixes every seed, and the analysis code
-that sizes \RC{} is committed with its tests. That commit is \hex{\AnalysisCommit}; it pins numpy
-\NumpyVersion{} on Python \PythonVersion.
+that sizes \RC{} is committed with its tests, pinning numpy \NumpyVersion{} on Python
+\PythonVersion. Section~\ref{sec:dev-analysis} names the commits of that code.
 \item The code freeze: one commit of the server, the generators, the holder, the harnesses, the
 pins and the tests, with green sanitizer records and a passing test suite.
 \item On the frozen binary, in dedicated mode only: the A/A pilot on each host, with its timer and
@@ -461,35 +421,32 @@ every confirmatory, secondary and hard-case run, each family in its own order.
 \end{enumerate}
 
 \runin{The pilot's parts.} The timer part runs \TimerRuns{} single connections per backend whose
-PROXY header stays incomplete, against the dedicated HTTP/1.1 port, and records how late the loop
-handles \Thdr. Per host, $G$ is the smallest whole number of milliseconds above the largest
-lateness. It sets the guard band of the hard case whose first byte arrives just after or just
-before \Tfb. If a host has no valid run, or $G$ is not below \Tfb, that case is not run there, and
-the paper says why. The split part sends an HTTP/1.1 request split after its first byte, with gaps
-of \SplitGaps~ms, \SplitReps{} times each. The smallest gap at which every replicate on every
-backend shows the split read becomes the gap of the split hard cases.
-\TODO{analysis/macros.py emits no macro for $G_L$, $G_W$, the split gap, $\lambda$ per C3 cell,
-M2's rates or rule~E's choices. Add them before the results are written.}
+PROXY header stays incomplete, and records how late the loop handles \Thdr. Per host, $G$ is the
+smallest whole number of milliseconds above the largest lateness. It sets the guard band of the
+hard case whose first byte arrives just after or just before \Tfb, which runs only where $G$ is
+below \Tfb. The split part sends an HTTP/1.1 request split after its first byte, with gaps of
+\SplitGaps~ms, \SplitReps{} times each. The smallest gap at which every replicate on every backend
+shows the split read becomes the gap of the split hard cases. The pilot entry set $G = \GuardL$~ms
+on L and $G = \GuardW$~ms on W, so that case ran on both hosts, and a split gap of \GapSplit~ms.
 
 \runin{Rule~E.} Three choices per backend are fixed by a rule: the default detection mode, the
 receive form on IOCP, and the relay copy. Both options of each are built into the frozen binary as
-flag values, because a change of the binary's layout alone can move timings. An option replaces
-the proposed default (replay, the zero-byte receive, user-space buffers) only under two conditions.
-Every session of at least \RuleESessions{} development sessions of HTTP/1.1 churn must favour it,
-and its operations per connection must not be higher. That count of sessions is the smallest at
-which an exact sign test can reach $p = \RuleEP$, below $\alpha$. The receive form that posts a
-buffer at once breaks B2's memory bound, so rule~E cannot choose it (a decision the revision log
-records), and the zero-byte form stands. The other two choices exist only in one-port mode and are
-made after the pilot entry, before any confirmatory window.
+flag values. The proposed defaults are replay, the zero-byte receive and user-space buffers. An
+option replaces its default only if every one of at least \RuleESessions{} development sessions of
+HTTP/1.1 churn favours it and its operations per connection are not higher. The receive form that posts a buffer
+at once breaks B2's memory bound, so rule~E cannot choose it, and the zero-byte form stands. The
+other two choices are made after the pilot entry, before any confirmatory window. No option
+replaced its default: the detection mode is replay on all three backends and the relay copies
+through user-space buffers. So HAProxy gets no \texttt{option splice-auto} in any cell.
 
-\runin{Development data.} Engineering ran development windows. They are never results; they are
-cited only in the revision log and the lab journal, and disclosed here. Before the code freeze they
+\runin{Development data.} Engineering ran development windows. They are never results. The revision
+log and the lab journal hold them, and this paper cites them only as reasons for decisions and
+readings. Before the code freeze they
 could time dedicated mode against anything, and one-port mode against a competitor or against
 another one-port option. No window, on any code, timed one-port mode against dedicated mode before
 the pilot entry. A dedicated window and a one-port window against the same competitor, at the same
 protocol, backend and host, would still give an indirect ratio of the two modes. The revision log
-lists every such pair when it runs; at the time of writing it lists none, and no rule uses one.
-\ForAlex{Confirm that the revision log still lists no such pair before submission.}
+lists every such pair when it runs. It lists none, and no rule uses one.
 
 \runin{A change once the pilot has started.} Before the simulation starts, a change forced by a
 named failure needs new records and a new pilot, at most once. The named failures are a failing
@@ -506,31 +463,18 @@ sanitizer record covers. On L the records use clang \ClangVersion{} with Address
 UndefinedBehaviorSanitizer together, ThreadSanitizer, and MemorySanitizer with an instrumented C++
 standard library. On W they use MSVC \MsvcVersion{} with AddressSanitizer, one compiler because the
 gate matches the compiler. Each record covers the server, \opgen, \opcase, \ophold{} and the test
-suite by a hash of their inputs. The suite runs the detection table at every split and the whole
-table of hard cases. It runs every mode of the binary, both detection modes with their peek paths,
-and both forms of the check of rule (b). It also runs both dispatch modes, TLS handshakes, h2
-sessions, the MQTT, SSH and SMTP exchanges, the counters and the holder. Under ThreadSanitizer, two
-workers share one listener. On
-L both Linux backends run, on W, IOCP. The gate refuses a measured build unless green records on
-the same host cover every first-party target, with the same compiler, configuration, pins and
-fetched archives. The Go and Rust harnesses get AddressSanitizer and ThreadSanitizer records.
+suite by a hash of their inputs. The suite runs the detection table at every split, the whole table
+of hard cases, every mode of the binary and every backend of its host. Under ThreadSanitizer two
+workers share one listener. The gate refuses a measured build unless green records on the same host
+cover every first-party target, with the same compiler, configuration, pins and fetched archives.
+The Go and Rust harnesses get AddressSanitizer and ThreadSanitizer records.
 
-Declared gaps are listed in the repository's coverage file:
-\begin{itemize}
-\item OpenSSL's assembly, which no sanitizer instruments; its MemorySanitizer build turns assembly
-off, so that sanitizer covers the C fallbacks only;
-\item the function check of UndefinedBehaviorSanitizer, left out of OpenSSL alone, which calls
-typed functions through generic pointer types by design;
-\item the kernel's writes into io\_uring's rings and buffers, which MemorySanitizer cannot see;
-every structure a raw call fills is initialised, and exactly the bytes a completion reports are
-unpoisoned;
-\item the competitors' binaries and runtimes, which are pinned, not instrumented;
-\item the harnesses: no MemorySanitizer for the Go and Rust harnesses, no sanitizer for the Java
-harnesses, and no UndefinedBehaviorSanitizer form for Go or Rust;
-\item on Windows, ThreadSanitizer and MemorySanitizer, which the rule does not require there.
-\end{itemize}
-OpenSSL itself ran under ThreadSanitizer: engineering built it instrumented and the suite passed,
-so that gap was withdrawn, as the revision log records.
+The repository's coverage file declares the gaps; these are the main ones. No sanitizer instruments
+OpenSSL's assembly, and
+MemorySanitizer cannot see the kernel's writes into io\_uring's rings and buffers, so exactly the
+bytes a completion reports are unpoisoned. The competitors' binaries and runtimes are pinned, not
+instrumented, and the Java harnesses have no sanitizer. On Windows the rule does not require
+ThreadSanitizer or MemorySanitizer.
 
 \subsection{Secondary Analyses and Cells Not Run}\label{sec:secondary}
 
@@ -565,12 +509,14 @@ On L, one untimed window per cost cell checks the server's system-call counters 
 kernel's count of the same calls' entry tracepoints, read with \texttt{perf stat}. \texttt{perf
 trace -s} stays beside it as a cross-check, and its shortfall is reported beside the counts.
 
-Two kinds of cell are reported as not run, each with its reason. TLS with session resumption
+Four kinds of cell are reported as not run, each with its reason. TLS with session resumption
 (\ResumptionCells{} cells) is not run. The frozen settings of every endpoint exclude session tickets
 and a session cache, and TLS~1.3 resumes only from a ticket. An M2 cell whose rate its
 rule cannot compute, because an arm has no valid development session, has no rate. It runs no
 window, enters Holm with \PIsOne{}, and keeps the family's size; it is reported as a difference not
-shown.
+shown. Before the code freeze the author decided that M2's two TLS cells are such cells
+(Section~\ref{sec:res-mech}). The churn of h2c and MQTT on W runs in the pilot only, and the
+secondary cell with two server cores on IOCP is not run (Section~\ref{sec:dev-before}).
 
 \subsection{What Counts against the Claims}\label{sec:against}
 
@@ -595,5 +541,5 @@ claims narrow in a fixed order. M3 narrows first, to the proxies and protocols t
 B3 follows, to the competitors and cases it beats. The cost family narrows last, per backend.
 
 \runin{Analysis.} The analysis computes every decision from the archived runs and writes the
-paper's numbers into a generated macro file. Raw outputs are archived with their SHA-256. Nothing
-is run again to change a decision.
+paper's numbers into a generated macro file; Section~\ref{sec:dev-runners} records the one
+departure. Raw outputs are archived with their SHA-256. Nothing is run again to change a decision.

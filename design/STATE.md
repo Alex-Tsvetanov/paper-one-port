@@ -258,12 +258,23 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    `CompCase...` macros per system and timer setting; "equal" and "differs" describe the field
    `reply_as_the_server_table_expects`, never a pass or a failure of the system; no time of the
    table is used. The paper's text about it is not written.
-13. For the coordinator: `paper/design_macros.py` no longer runs (two patterns match
-   `hypotheses.md` twice since later entries; its tests fail 5 of 6, before this refresh too), so
-   `results/design-macros.tex` cannot be made again, and it prints `\AnalysisCommit` 7364fbb, which
-   sec-method states as the commit that sizes R_C (the pilot ran at 9de26d6). Also open: a count
-   the paper prints from `results/not-run.json` needs a macro; `results/provenance.json`'s held-back
-   note is out of date (`macros-provenance.json` follows it).
+13. Done (2026-10-07, the paper's results half): `paper/design_macros.py` runs again (each pattern
+   matches once); it names SizingCommit 9de26d6 (R_C sized), AnalysisRunCommit 7c1310a (the
+   decisions; its `analysis/` tree is 9de26d6's, checked with git in the tests) and AnalysisCommit
+   2045551 (the macros). Counts the paper prints from `results/not-run.json`, `decisions.csv` and
+   `macros-provenance.json` come from `paper/report_macros.py` (`results/report-macros.tex`, and the
+   table bodies `results/tables/*.tex`); two readings of archived W rows (the pilot's CPU shares of
+   W's C1 cells, M1's peek-to-replay counts on IOCP) from `paper/w_evidence_macros.py`
+   (`results/w-evidence-macros.tex`). Still open: `results/provenance.json`'s held-back note is out
+   of date (`macros-provenance.json` follows it).
+14. The draft is complete (Results, Deviations and Reproducibility, Discussion with the threats,
+   Conclusions, Abstract, appendix of per-cell tables); left for Alex: the title, the AI-use
+   wording, Holm (1979), the public links, and how to name "the study's coordinator". The
+   C3.L.io_uring.h2c cell is "equivalence not shown", not a measured cost (its 95% interval's lower
+   end, 1.0197, lies inside the margin); only C3.L.epoll.h2c is a measured cost. The io_uring
+   ring holds 128 free provided buffers per worker and is refilled from a growable pool as each is
+   taken (`worker.hpp`, `uring.cpp`), so "a fixed pool held by busy connections" is not what the
+   code does; the paper states the ring as built and the starvation mechanism as a hypothesis.
 ## 6. Rules every agent keeps
 
 - The no-connection rule for B3's windows ended with bs1 (2026-10-07 01:29:57); connections to L are

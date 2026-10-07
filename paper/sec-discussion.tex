@@ -1,4 +1,134 @@
 \section{Discussion}\label{sec:discussion}
 
-\Pending{Discussion. Written after the results: what the passed and failed cells mean for the
-three questions, the narrowing order where it applied, and the threats that the results reveal.}
+\subsection{What the Results Mean for the Claim}\label{sec:disc-claim}
+
+The question was whether one listener can serve every protocol at no measurable cost. For this
+server, under load of one protocol at a time, the answer is yes in \CostClaimCount{} of the
+configurations tested. In each, churn throughput, keep-alive throughput and the median time to
+first byte stayed within the margin of \MarginLow{} to \MarginHigh{} of dedicated mode. These
+configurations span two hosts, three backends and three protocols, HTTP/1.1, TLS and MQTT, and
+nothing outside them.
+
+Equivalence within the margin is the claim; a cost of zero is not. All C1 and C3 medians on L lie
+on dedicated mode's side of one, and so do the server's CPU ratios of those cells. No test of a
+nonzero cost was planned, and the interval of C1's TLS cell on io\_uring contains one.
+
+The cost claim does not hold for h2c on L, which fails C3 on both backends. On epoll the analysis
+reports a measured cost, which appears as latency at a fixed load, since h2c's churn and keep-alive
+cells pass. On W the claim is open for h2c and MQTT: their churn measured the generator, and their
+open-loop cells were not resolved. Two further results bound what one listener can promise. The
+mixed-protocol cell on io\_uring had no valid session, in both modes. That is a limitation of the
+server's io\_uring backend, not a cost of detection, but the cost claims cannot be extended to mixed
+load on io\_uring. And sslh-ev held a smaller counted footprint per pending connection than the
+server, in both cases and on both backends. So did Netty, a descriptive cell, in the
+partial-ClientHello case.
+
+B1 and B2 hold where they were tested. The detector decided every hard case as the frozen table
+specifies, on every backend and in every mode, and no timed event broke its bounds. B3 holds against
+nginx, HAProxy and Envoy in both cases and hyper-util in the silent case. By B3's test each held at
+least \FootprintMargin{} times the server's counted footprint per pending connection, as
+configured. The differences range from \BThreeSilentHyperUtilIouringDMedian{} to
+\BThreePartialHelloEnvoyEpollDMedian{} bytes, with the exclusions and residuals of WL7
+(Section~\ref{sec:res-robust}). B3 is lost against sslh-ev. The mechanisms mostly behave as
+designed. Replay beat peek in \CountPassMOne{} of \CountHolmMOne{} cells, and in-process dispatch
+used much less CPU than relay for HTTP/1.1. The server's relay beat every proxy it could be tested
+against, which excludes sslh-ev. These are results for this server's design, not for one-port
+listening in general.
+
+\subsection{Hypotheses for Later Work}\label{sec:disc-hyp}
+
+The runs measured where the claim fails but not why. The following are hypotheses only; no run
+of this paper tested them.
+
+\runin{h2c at a fixed load on L.} The extra latency does not track extra work. The CPU ratio of C3's
+h2c cell on epoll, \SecWLFourCThreeLEpollHTwoCCpuMedian, is smaller than HTTP/1.1's,
+\SecWLFourCThreeLEpollHttpCpuMedian, whose C3 cell passes. On io\_uring the two are about equal,
+\SecWLFourCThreeLIouringHTwoCCpuMedian{} and \SecWLFourCThreeLIouringHttpCpuMedian. So we suspect a
+wait rather than work: a step on h2c's path in one-port mode that delays the server's first byte
+without using the CPU. A trace of each connection's events in both modes, at the C3 rate, would
+locate it.
+
+\runin{The mixed cell on io\_uring.} The backend's ring holds \RingBuffers{} free buffers per worker,
+and the cell's background keeps as many keep-alive connections busy. We suspect that the background's
+receives, completing together, empty the ring before the worker gives it new buffers. The churn's
+receives would then fail and be posted again, and its probe would time out. The server counts such
+retries, and this paper reports no value of that counter. The epoll backend, which reads into each
+connection's own buffer, served the same cell. A larger ring is a compiled change after the code
+freeze, so this paper does not make it. It is planned as an exploratory follow-up, labelled as such,
+and the sizing of the ring is later work.
+
+\runin{sslh-ev's memory.} Both systems keep a pending connection near the same cost, so neither can
+reach the margin against the other. Two parts may explain sslh-ev's lead. In the
+partial-ClientHello case its $U$ per pending connection, \BThreePartialHelloSslhEvEpollCompetitorU{}
+bytes on epoll, is below the server's, \BThreePartialHelloSslhEvEpollServerU. We suspect the buffer
+each holds for the bytes received so far. On io\_uring the server's $K_s$ exceeded \Kbase{} in most
+cells, while every competitor's fell below it. In the silent case $K_s - \Kbase$ is
+$\BThreeSilentSslhEvIouringServerKsNet$ bytes for the server against
+$\BThreeSilentSslhEvIouringCompetitorKsNet$ for sslh-ev. We suspect kernel memory that the io\_uring
+backend holds per connection. A server that held a smaller buffer until the first decision, and a
+count of the slab objects per backend, could test both.
+
+\runin{Two listeners on io\_uring.} A \texttt{SO\_REUSEPORT} group served
+\SecTwoCoresSecTwoCoresCOneLIouringReuseportValueMedian{} times the shared listener's connections
+per second on io\_uring, but about the same on epoll. We suspect that the two workers' multishot
+accepts on one shared socket do not spread connections evenly between the workers. Counting each
+worker's accepts would test it. That question belongs to the accept models, outside this paper.
+
+\subsection{Threats to Validity}\label{sec:threats}
+
+\runin{Scope.} Every claim is about one server, as built, on two hosts, over loopback. A network
+between client and server adds latency and interrupt work that loopback lacks, and we expect both to
+dilute the cost of detection further. The cost claims hold for load of one protocol at a time. The
+mixed-protocol cell is secondary, and on io\_uring it had no valid session. Each claim is made per
+protocol, backend and host, never pooled.
+
+\runin{What the cells measure.} The TLS cells of the cost family have little power to show the cost
+of detection, since the handshake dominates each connection. In the SSH cells the two arms exchange
+messages in a different order. M1 on IOCP compares replay with a peek that would switch to replay at
+its first undecided read, because Windows offers no low-water mark; in the runs no peek switched. On
+W the open-loop cells of h2c and MQTT ran at rates taken from generator-bound churn, so they ran at
+a smaller share of the server's capacity than open HTTP/1.1.
+
+\runin{Engineering before the freeze.} The server was engineered until it won where it could, on
+development data, before the code freeze. Those runs could not time one-port mode against dedicated
+mode, and the revision log lists no pair of runs that would give such a ratio indirectly. The A/A
+pilot that sized the cost family held no one-port data. So neither the margin nor \RC{} could be
+tuned to a cost contrast. The relay and the footprint test were informed by development runs
+against the competitors, and a reader should weigh that history.
+
+\runin{The footprint test.} $W$ is the footprint of each system as configured, not of its detection
+design alone. Two residuals of the socket-buffer accounting remain, and both sit with a system that
+leaves bytes queued: nginx and Envoy in the partial-ClientHello case, and the server only in peek.
+The co-tenants of the merged cache on L grow only when the kernel creates workqueue pools or chained
+scatter-gather lists. The merged cache's growth is reported per arm in
+Tables~\ref{tab:b3parts} and~\ref{tab:b3partsserver}, and in the silent case no system leaves a byte
+queued. Against a system whose footprint is near a bare socket's, little room is left for the
+server to reach the margin. sslh-ev is such a system, as development runs before the freeze had
+suggested.
+The
+JVM and Go systems hold memory that their collectors manage, and their cells are descriptive.
+
+\runin{Windows.} W's windows were validated without a frequency rule, since no counter passed its
+test, so a change of clock speed within a W session would go undetected. W cannot count listen
+overflows, so a refused connection shows only as a failed connect, which invalidates its window.
+W's job-start check was lowered, so a job could start on a busier W than first planned; every
+window rule still applied.
+
+\runin{Cells that did not run.} Three outcomes were foreseen before the runs. M2's TLS cells were not
+run, which narrows M2 to HTTP/1.1, and sslh-ev's M3 cells are untested, which narrows M3. TLS with
+session resumption, a secondary cell, was not run and narrows nothing. Decided before the
+confirmatory runs, W's churn of h2c and MQTT ran in the pilot only, and the two-core cell on IOCP
+was not run. Not foreseen were the SSH cells of C2, which could not run, and the mixed cell on
+io\_uring. Section~\ref{sec:dev-not-produced} lists the descriptive outputs this paper does not
+report.
+
+\runin{Competitors and instruments.} Each competitor runs the configuration its project documents
+for the compared feature, and a better one may exist. HAProxy's client, server and connect timeouts
+stay at its default, which is none. The runs use kernel \KernelL, while the pre-specification cites
+the source at tag \KernelTag; each cited line is unchanged there, but the distribution's own patches
+were not compared. A closed-loop cell measures throughput at \ConnSlots{} connections per server
+core only.
+
+\runin{Analysis.} Two hosts with different Python versions computed every decision equal
+(Section~\ref{sec:dev-escaping}). B1's hard cases and B2 were read from the runners' rows rather than
+computed by the analysis code, as a logged reading states (Section~\ref{sec:dev-runners}).

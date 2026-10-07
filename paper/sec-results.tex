@@ -1,8 +1,357 @@
 \section{Results}\label{sec:results}
 
-\Pending{Results. This section is written after the confirmatory runs, from the generated macros
-only. It reports, family by family: the cost family's \CostHolm{} cells in Holm and the \CostPassed{}
-that pass, with the claims \CostClaims; the footprint test's \BThreeHolm{} cells and the
-\BThreePassed{} that pass, with \Kbase{} = \KBase{} bytes per pending connection; the mechanism
-family's \MHolm{} cells and the \MPassed{} that pass; the conformance failures, \BOneFailures; and
-beside every decision the cell's invalid windows per arm, with their reasons.}
+This section reports each family's outputs as the frozen analysis wrote them, with every verdict in
+the analysis's own words. Every value comes from a generated macro file or a generated table.
+Section~\ref{sec:deviations} gives what changed after the freeze and how the analysis was run.
+Table~\ref{tab:invalid} in Appendix~\ref{app:tables} lists every invalid window of a family cell, per
+arm, with its reasons.
+
+\subsection{Cost}\label{sec:res-cost}
+
+Table~\ref{tab:cost} gives every cell of the cost family. Of the \CostHolm{} cells in Holm's
+procedure, \CostPassed{} pass under both computations, and the two computations disagree on
+\CostDisagree{} cells. C1 passes in \CountPassCOne{} of its \CountHolmCOne{} cells in Holm, C2 in
+\CountPassCTwo{} of \CountHolmCTwo, and C3 in \CountPassCThree{} of \CountHolmCThree.
+
+\begin{table}[H]
+\caption{The cost family, one-port / dedicated. C1 and C2 are throughputs, so a ratio below one
+favours dedicated mode; C3 is the median time to first byte, so a ratio above one does. The
+intervals are the \CiPct\% BCa interval and the interval at the cell's Holm level. The verdict is the
+analysis's, cut before its first parenthesis.\label{tab:cost}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l l r l l l X@{}}
+\toprule
+\textbf{Hyp.} & \textbf{Host, backend} & \textbf{Protocol} & \textbf{Valid} & \textbf{Median} &
+\textbf{\CiPct\% interval} & \textbf{Holm interval} & \textbf{Verdict} \\
+\midrule
+\tabinput{../results/tables/cost}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+The two cells in Holm that fail are C3's h2c cells on L. On epoll the median ratio of the time to
+first byte is \CThreeLEpollHTwoCMedian, and its \CiPct\% interval,
+[\CThreeLEpollHTwoCLow, \CThreeLEpollHTwoCHigh], lies wholly above \MarginHigh. So the analysis
+reports a measured cost, against one-port mode. Only \CThreeLEpollHTwoCSignXHigh{} of its
+\CThreeLEpollHTwoCValid{} sessions lie below the upper margin. On io\_uring the median is
+\CThreeLIouringHTwoCMedian, with the interval [\CThreeLIouringHTwoCLow, \CThreeLIouringHTwoCHigh].
+Its lower end lies inside the margin, so the verdict is that equivalence is not shown, and no
+measured cost is claimed there. \CThreeLIouringHTwoCSignXHigh{} of its \CThreeLIouringHTwoCValid{}
+sessions lie below the upper margin. The C1 and C2 cells of h2c pass on both Linux backends. The
+joint power the pilot gave h2c's three cells was \JointPowerLEpollHtwoc{} on epoll and
+\JointPowerLIouringHtwoc{} on io\_uring, so these failures are not a matter of low power.
+
+A claim of no measurable cost needs C1, C2 and C3 to pass for one protocol, backend and host. It
+holds for \CostClaimCount{} configurations. They are \CostClaims. The joint power that the pilot
+gave each of these claims is \LEpollHttpJointPower{} on L, except for MQTT on io\_uring with
+\LIouringMqttJointPower. On W it is \WIocpHttpJointPower{} for HTTP/1.1 and \WIocpTlsJointPower{}
+for TLS. As stated before the run, the TLS cells have little power to show the cost of a check of
+\TlsNeed{} bytes. So their passes are not read as evidence about that check.
+
+On W, h2c and MQTT have no claim. Their C1 cells are outside the confirmatory family, since W's
+churn of these two protocols measures the generator (Section~\ref{sec:dev-before}). The pilot's
+rows are consistent with that. Over the \PilotWWindows{} pilot windows of each cell, the server's CPU was busy for a
+median of \PilotWHtwocServerBusy\% in h2c and \PilotWMqttServerBusy\% in MQTT. It was busy for
+\PilotWHttpServerBusy\% in HTTP/1.1, whose server closes first. The generator's CPUs were
+\PilotWHtwocGenCpusBusy\% and \PilotWMqttGenCpusBusy\% busy, so neither side was saturated.
+Development diagnostics traced the limit to the generator's bind and close, which Windows
+serializes across its threads. Their C3 cells were not resolved by the pilot. They ran at \RC{} sessions and are reported as not resolved, with no
+equivalence claimed. h2c has the median \CThreeWIocpHTwoCMedian{} with the interval
+[\CThreeWIocpHTwoCLow, \CThreeWIocpHTwoCHigh], and MQTT \CThreeWIocpMqttMedian{} with
+[\CThreeWIocpMqttLow, \CThreeWIocpMqttHigh]. Their open-loop rates, \RateFrac{} times W's
+generator-bound churn medians, were \LambdaWHtwoc{} exchanges per second for h2c and
+\LambdaWMqtt{} for MQTT, against \LambdaWHttp{} for HTTP/1.1. So on W they ran at a smaller share of the server's capacity than open
+HTTP/1.1. Their C2 cells pass.
+
+No cost window on L was invalid. On W the C3 cells of HTTP/1.1, h2c and MQTT have
+\CThreeWIocpHttpInvalidWindows, \CThreeWIocpHTwoCInvalidWindows{} and
+\CThreeWIocpMqttInvalidWindows{} invalid windows; Table~\ref{tab:invalid} gives their arms and
+reasons. The analysis clustered by lab job decides nothing. Only W's cost cells ran in more than one
+job, and their clustered intervals are in Table~\ref{tab:byjob}. With two jobs such an interval
+spans little more than the two jobs' medians, so it carries little information.
+
+The secondary metrics of WL4 are in Table~\ref{tab:wl4}. In every C1 and C3 cell on L, one-port
+mode's median server CPU per exchange was above dedicated mode's. In C1's HTTP/1.1 cell on epoll,
+for example, it was \SecWLFourCOneLEpollHttpCpuMedian{} times, with the interval
+[\SecWLFourCOneLEpollHttpCpuLow, \SecWLFourCOneLEpollHttpCpuHigh]. In C2 the medians lie on both
+sides of one. The tail of the time to first byte follows the median in C3's h2c cells on L: the
+ratio of \PNinetyNine{} is \SecWLFourCThreeLEpollHTwoCTtfbPNinetyNineMedian{} on epoll and
+\SecWLFourCThreeLIouringHTwoCTtfbPNinetyNineMedian{} on io\_uring.
+
+\subsection{Robustness}\label{sec:res-robust}
+
+\runin{B1 and B2.} The hard-case runners ran every case of the frozen table, \CaseReps{} times, on
+each entry of backend, detection mode and dispatch: \HardcaseLEntries{} entries on L and
+\HardcaseWEntries{} on W. That is \HardcaseLRuns{} runs on L and \HardcaseWRuns{} on W, and all
+\HardcasePassed{} of the \HardcaseRuns{} runs passed. They hold \HardcaseBOneDeviations{}
+deviations from the frozen table and \HardcaseBTwoFailures{} failed checks of B2. Every server check
+at the end of an entry was in order: \HardcaseLServerChecksOk{} of \HardcaseLServerChecks{} on L
+and \HardcaseWServerChecksOk{} of \HardcaseWServerChecks{} on W. The analysis lists \BOneFailures{}
+measured windows that counted a connection classified other than as its script's protocol. Its
+count covers the windows that record one, the one-port windows with in-process dispatch. In the
+other measured windows, a check of the server's counters per class after the analysis found only
+each script's protocol and the probe. So B1 \BOneVerdict{} and B2 \BTwoVerdict. In
+\HardcaseLWokeMoreThanOnce{} runs on L and \HardcaseWWokeMoreThanOnce{} on W the detection woke
+more than once before it decided. B2's distributions of lateness and decision latency, which the
+frozen text reports and does not test, are in no generated results file, and this paper does not
+report them.
+
+\runin{B3.} Table~\ref{tab:b3} gives every cell. Of the \BThreeHolm{} cells in Holm, \BThreePassed{}
+pass under both computations, which disagree on \BThreeDisagree{} cells. In each pass the
+competitor held at least \FootprintMargin{} times the server's counted footprint per pending
+connection, by B3's test. The passes are nginx, HAProxy and Envoy in both cases, and hyper-util in
+the silent case, each on epoll and on io\_uring. Each comes with its difference $D$, the
+competitor's $W$ less the server's, in bytes per pending connection. The passes' medians of $D$
+range from \BThreeSilentHyperUtilIouringDMedian{} bytes against hyper-util on io\_uring to
+\BThreePartialHelloEnvoyEpollDMedian{} against Envoy in the partial-ClientHello case on epoll. The
+server's own bounds for a pending connection are those of Section~\ref{sec:modes}. It holds no data
+buffer before the first byte, the handler's buffer in replay, and at most \Bch{} of a ClientHello in
+pass-through.
+
+\begin{table}[H]
+\caption{B3, competitor / server, on L. $Q$ is the ratio of counted footprints, with its median,
+\CiPct\% interval and interval at Holm's level; $X$ counts the sessions with $Q$ above
+\FootprintMargin. $D$ is the difference in bytes per pending connection, with its \CiPct\%
+interval. ``Shown'' stands for the analysis's verdict that the competitor held at least
+\FootprintMargin{} times the server's counted footprint per pending connection, by B3's
+test.\label{tab:b3}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l l r l l l r l l X@{}}
+\toprule
+\textbf{Case} & \textbf{System} & \textbf{Backend} & \textbf{Valid} & \textbf{$Q$} &
+\textbf{\CiPct\% interval} & \textbf{Holm interval} & \textbf{$X$} & \textbf{$D$} &
+\textbf{\CiPct\% interval} & \textbf{Verdict} \\
+\midrule
+\tabinput{../results/tables/b3}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+Every pass holds for $W$ as configured and with WL7's exclusions. Outside $W$ are the reserved but
+unused part of each socket's receive memory and kernel memory outside the slab that no receive
+queue is charged for. The co-tenants' growth of the merged cache is outside it too. In the
+partial-ClientHello case nginx and Envoy left bytes queued, with $K_q$ of
+\BThreePartialHelloNginxEpollCompetitorKq{} and \BThreePartialHelloEnvoyEpollCompetitorKq{} bytes
+per pending connection on epoll and the same on io\_uring. So the two residuals of Section~\ref{sec:footprint} apply to their
+passes. The server, in replay, left none queued. Tables~\ref{tab:b3parts} and~\ref{tab:b3partsserver}
+give the parts of every $W$, the caches' growth and the field $f$.
+
+The \CountLossBThree{} other cells in Holm are sslh-ev's, and each is a loss: the \CiPct\% interval
+of $Q$ lies wholly below one. sslh-ev's counted footprint per pending connection was smaller than
+the server's. In
+the silent case $D$ is $\BThreeSilentSslhEvEpollDMedian$ bytes on epoll, with the interval
+[$\BThreeSilentSslhEvEpollDLow$, $\BThreeSilentSslhEvEpollDHigh$], and
+$\BThreeSilentSslhEvIouringDMedian$ on io\_uring, with
+[$\BThreeSilentSslhEvIouringDLow$, $\BThreeSilentSslhEvIouringDHigh$]. On epoll the upper end of
+$Q$'s interval prints as \BThreeSilentSslhEvEpollHigh{} at four places, below one before rounding.
+At Holm's level that cell's interval, [\BThreeSilentSslhEvEpollHolmLow, \BThreeSilentSslhEvEpollHolmHigh],
+contains one; the frozen definition of a loss reads the \CiPct\% interval.
+In the partial-ClientHello case $D$ is $\BThreePartialHelloSslhEvEpollDMedian$ on epoll, with
+[$\BThreePartialHelloSslhEvEpollDLow$, $\BThreePartialHelloSslhEvEpollDHigh$], and
+$\BThreePartialHelloSslhEvIouringDMedian$ on io\_uring, with
+[$\BThreePartialHelloSslhEvIouringDLow$, $\BThreePartialHelloSslhEvIouringDHigh$].
+
+\Kbase{} is \KBase{} bytes per pending connection: the median of \ophold's $K_s$ over its valid
+windows. Every system pays it alike, and it is most of the server's $W$, which is
+\BThreeSilentNginxEpollServerW{} bytes in the silent case against nginx on epoll. There the server's
+$U$ is \BThreeSilentNginxEpollServerU{} bytes, and its $K_s - \Kbase$ is
+$\BThreeSilentNginxEpollServerKsNet$ bytes. $K_s$ falls below \Kbase{} in many arms,
+every arm on epoll among them, so \Kbase{} is a shared reference, not a floor.
+
+B3's \CountDescBThree{} descriptive cells are reported against the same bound and decide nothing.
+Netty held less than the server in the partial-ClientHello case, with $Q$ of
+\BThreePartialHelloNettyEpollMedian{} on epoll and \BThreePartialHelloNettyIouringMedian{} on
+io\_uring and $D$ of $\BThreePartialHelloNettyEpollDMedian$ and $\BThreePartialHelloNettyIouringDMedian$
+bytes. Every other descriptive cell with an interval lies above the bound. One cell,
+cmux's partial-ClientHello cell on epoll, ended with \BThreePartialHelloCmuxEpollValid{} valid
+sessions after its reruns, short of $R$, and so has no interval. Its
+\BThreePartialHelloCmuxEpollInvalidWindows{} invalid windows each found the host's count of
+TIME-WAIT sockets changed at a sample.
+
+By the narrowing order, the B3 claim is narrowed to the competitors and cases it beats. These are
+nginx, HAProxy and Envoy in both cases and hyper-util in the silent case, on both Linux backends.
+
+\subsection{Mechanisms}\label{sec:res-mech}
+
+Table~\ref{tab:mech} gives every cell. Of the \MHolm{} cells, \MPassed{} pass under both
+computations, which disagree on \MDisagree{} cells.
+
+\begin{table}[H]
+\caption{The mechanism family. M1 is default / other detection mode in connections per second. M2
+is in-process / relay in CPU per connection (WL6). M3 is the server's relay / the proxy in
+connections per second.\label{tab:mech}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l l r l l X@{}}
+\toprule
+\textbf{Hyp.} & \textbf{Host} & \textbf{Backend, protocol, system} & \textbf{Valid} & \textbf{Median} &
+\textbf{\CiPct\% interval} & \textbf{Verdict} \\
+\midrule
+\tabinput{../results/tables/mechanism}
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\runin{M1.} M1 passes in \CountPassMOne{} of its \CountHolmMOne{} cells. Replay, the default on
+every backend, served more connections per second than peek for HTTP/1.1 on all three backends
+and for h2c on epoll and io\_uring. For h2c on IOCP a difference was not shown: the median is
+\MOneWIocpHTwoCMedian, with the interval [\MOneWIocpHTwoCLow, \MOneWIocpHTwoCHigh]. On IOCP, peek
+is a zero-byte receive followed by a synchronous peek. An undecided peek would switch to replay,
+since Windows has no low-water mark. None did: the counters show \SwitchIocpHttpPeekSwitches{}
+switches in \SwitchIocpHttpPeekAccepted{} connections of the valid peek windows for HTTP/1.1, and
+\SwitchIocpHtwocPeekSwitches{} in \SwitchIocpHtwocPeekAccepted{} for h2c. So the IOCP cells compare
+replay with that two-step peek, and measure the interface as much as the idea.
+
+\runin{M2.} M2 passes in \CountPassMTwo{} of its \CountHolmMTwo{} cells, the two cells of HTTP/1.1.
+In-process dispatch used \MTwoLEpollHttpMedian{} times the CPU per connection of relay on epoll and
+\MTwoLIouringHttpMedian{} times on io\_uring, at the rates \RateMtwoEpoll{} and \RateMtwoIouring{}
+exchanges per second. The two TLS cells were not run. In closed loop the back end that terminates
+TLS limits the relay arm, so its relay windows broke the rule for back-end cores. Development runs
+showed this before the freeze, and the author decided then not to run the two cells. The rate
+sessions after the pilot entry ended the same way, so the frozen rule computes no rate for them.
+Each cell enters Holm with \PIsOne, and a difference was not shown. M2's claim narrows to
+HTTP/1.1.
+
+\runin{M3.} M3 passes in \CountPassMThree{} of its \CountHolmMThree{} cells. The server's relay
+served more connections per second than nginx, HAProxy, Envoy and caddy-l4, for TLS routed by its
+server name and for HTTP/1.1. The medians range from \MThreeLEpollHttpNginxMedian{} against
+nginx for HTTP/1.1 to \MThreeLEpollTlsSniEnvoyMedian{} against Envoy for TLS. The two cells of
+sslh-ev are untested. Every one of their sslh-ev windows broke the error rule, as the defect that
+the revision log records before the freeze predicts, and some also had failed connects. In
+development the defect showed no failed connect and no listen overflow, and the cause of these is
+not established. sslh-ev's listen
+overflow counter rose by a total of \MThreeLEpollTlsSniSslhEvProxyListenOverflows{} and
+\MThreeLEpollHttpSslhEvProxyListenOverflows{} in the two cells; no other proxy's rose. By the
+narrowing order, M3 is narrowed to the four proxies it beats.
+
+\runin{Secondary mechanism cells.} At a fixed load, replay's median time to first byte was below
+peek's in every M1 cell (Table~\ref{tab:secmech}). The interval lies wholly below one in all but
+the h2c cell on IOCP. Against the proxies the server's relay used less CPU per connection
+in every cell, with medians from \SecMTtfbCpuMThreeLEpollHttpNginxCpuMedian{} against nginx to
+\SecMTtfbCpuMThreeLEpollTlsSniEnvoyCpuMedian{} against Envoy. Its median time to first byte at a
+fixed load was higher than nginx's, \SecMTtfbCpuSecMTtfbMThreeLEpollHttpNginxValueMedian{} times
+for HTTP/1.1 and \SecMTtfbCpuSecMTtfbMThreeLEpollTlsSniNginxValueMedian{} for TLS, and lower than
+the other three proxies'.
+
+\subsection{The Secondary Cells}\label{sec:res-secondary}
+
+Section~\ref{sec:secondary} lists the secondary cells; Tables~\ref{tab:sec} and~\ref{tab:secmech}
+give each, and none decides anything. The results files list \CountNotRunList{} cells of any kind
+short of their $R$, each with its logged reason: \CountNotRunNotRun{} were not run, and
+\CountNotRunShort{} ran without reaching $R$. Section~\ref{sec:deviations} states why the secondary
+cells ran again on L.
+
+\runin{SSH.} Under churn the one-port arm served \SecSshSecSshCOneLEpollValueMedian{} and
+\SecSshSecSshCOneLIouringValueMedian{} times the dedicated arm's connections per second on L, and
+\SecSshSecSshCOneWIocpValueMedian{} on W. At a fixed load its median time to first byte was
+\SecSshSecSshCThreeLEpollValueMedian, \SecSshSecSshCThreeLIouringValueMedian{} and
+\SecSshSecSshCThreeWIocpValueMedian{} times dedicated mode's. The message order differs by mode, as
+stated before the run: in one-port mode the server's identification line waits for the client's.
+The \CountSshCtwoCells{} SSH cells of C2 could not run. The generator has no keep-alive form of SSH,
+and the server's SSH handler closes after one line. Each cell ran its sessions and its reruns, and
+all \CountSshCtwoWindows{} of its windows were invalid. On L the archived job \JobSlOne{} had shown
+the same (Section~\ref{sec:dev-b1}).
+
+\runin{The mixed-protocol cell.} On epoll the one-port arm served \SecMixedSecMixedCOneLEpollValueMedian{}
+times the dedicated arm's connections per second, with the interval
+[\SecMixedSecMixedCOneLEpollValueLow, \SecMixedSecMixedCOneLEpollValueHigh]. On IOCP it served
+\SecMixedSecMixedCOneWIocpValueMedian{} times, with [\SecMixedSecMixedCOneWIocpValueLow,
+\SecMixedSecMixedCOneWIocpValueHigh]. By design the background's silent connections live
+differently in the two modes. In one-port mode the listener has no fallback, so the server closes
+each at \Tdec{} and the holder opens it again at once. In dedicated mode they are held for the whole
+window. The archived job \JobSlOne{} showed this in its counters. So the background's make-up is the
+same in both modes, and its connections' lives are not.
+
+On io\_uring the cell has no valid session. It ran \CountMixedIouringSessions{} sessions and
+\CountMixedIouringWindows{} windows, of which \CountMixedIouringValid{} were valid, in both arms
+alike. The probe of HTTP/1.1 timed out in \CountMixedIouringProbe{} windows, and the share of failed
+exchanges exceeded its bound in \CountMixedIouringErrors. The churn starved beside its keep-alive
+background in both modes, as \JobSlOne{} had shown, so this is not a cost of detection. We report it
+as a measured limitation of the server's io\_uring backend. That backend's receives take buffers
+that the kernel selects from a ring, which holds \RingBuffers{} free buffers per worker and gets a
+new one each time the worker takes one. A receive that finds the ring empty fails and is posted
+again. The cell's background keeps \NBg{} TLS and \NBg{} MQTT connections busy. How these might
+starve the churn is a hypothesis, stated in Section~\ref{sec:disc-hyp}.
+
+\runin{TLS variants.} With ALPN \texttt{h2}, the one-port arm served \SecTlsVariantsSecTlsVariantsCOneLEpollAlpnHTwoValueMedian,
+\SecTlsVariantsSecTlsVariantsCOneLIouringAlpnHTwoValueMedian{} and
+\SecTlsVariantsSecTlsVariantsCOneWIocpAlpnHTwoValueMedian{} times the dedicated arm's connections per
+second on epoll, io\_uring and IOCP. TLS with session resumption was not run, for the reason given in
+Section~\ref{sec:secondary}.
+
+\runin{Two server cores.} With two cores the one-port arm served \SecTwoCoresSecTwoCoresCOneLEpollTwoCoresValueMedian{}
+and \SecTwoCoresSecTwoCoresCOneLIouringTwoCoresValueMedian{} times the dedicated arm's connections
+per second on epoll and io\_uring. The cell on IOCP was not run: the server serves one worker on
+IOCP, and more would be a different threading model, outside this paper. A
+\texttt{SO\_REUSEPORT} group of two listeners served \SecTwoCoresSecTwoCoresCOneLEpollReuseportValueMedian{}
+times the shared listener's connections per second on epoll, with the interval
+[\SecTwoCoresSecTwoCoresCOneLEpollReuseportValueLow, \SecTwoCoresSecTwoCoresCOneLEpollReuseportValueHigh].
+On io\_uring it served \SecTwoCoresSecTwoCoresCOneLIouringReuseportValueMedian{} times, with
+[\SecTwoCoresSecTwoCoresCOneLIouringReuseportValueLow, \SecTwoCoresSecTwoCoresCOneLIouringReuseportValueHigh].
+
+\runin{The relay on io\_uring.} Against the four proxies with valid sessions, the server's relay on
+io\_uring served from \SecRelayIouringSecRelayIouringLIouringHttpNginxValueMedian{} times nginx's
+connections per second, for HTTP/1.1, to \SecRelayIouringSecRelayIouringLIouringTlsSniEnvoyValueMedian{}
+times Envoy's, for TLS. sslh-ev's \CountSecSslh{} secondary cells ended with no valid session, as
+its M3 cells did and as the follow-up of \JobSlOne{} expected. Its two cells of the time to first byte at a fixed
+load ran closed-loop windows instead, since M3 gave them no rate.
+
+\runin{IOCP's forms.} AcceptEx with a receive buffer served
+\SecIocpFormsSecIocpFormsWIocpAcceptexBufferValueMedian{} times the default form's connections per
+second, with [\SecIocpFormsSecIocpFormsWIocpAcceptexBufferValueLow,
+\SecIocpFormsSecIocpFormsWIocpAcceptexBufferValueHigh]. The posted receive buffer served
+\SecIocpFormsSecIocpFormsWIocpReceiveFormValueMedian{} times, with
+[\SecIocpFormsSecIocpFormsWIocpReceiveFormValueLow, \SecIocpFormsSecIocpFormsWIocpReceiveFormValueHigh].
+The posted form holds a buffer for a connection that has received no byte, so it breaks B2's memory
+bound.
+
+\runin{B3 in the other detection mode.} With the server in peek, its $W$ was
+\SecBThreeOtherModeSecBThreeOtherModeEpollSilentValueMedian{} and
+\SecBThreeOtherModeSecBThreeOtherModeIouringSilentValueMedian{} times its $W$ in replay in the silent
+case, on epoll and io\_uring. In the partial-ClientHello case it was
+\SecBThreeOtherModeSecBThreeOtherModeEpollPartialHelloValueMedian{} and
+\SecBThreeOtherModeSecBThreeOtherModeIouringPartialHelloValueMedian{} times. Peek leaves the received
+bytes queued in the kernel, where $K_q$ counts them.
+
+\runin{Not reported.} The frozen text also lists operations and copies per connection, the system
+calls of the proxies, and the check of the server's system-call counters. None of them is in a
+generated results file, so this paper reports no value for them (Section~\ref{sec:dev-not-produced}).
+
+\subsection{The Competitors' Hard Cases}\label{sec:res-comp}
+
+The competitors' table runs every hard case that a system's listener setup covers, at matched
+timers and at the system's defaults, \CompReps{} replicates each. It is descriptive and decides
+nothing, and no time from it is reported. Each row records whether the reply equals what the
+server's frozen table expects. That field is neither a pass nor a failure of the system, whose own
+specification may differ from the server's table.
+
+The table holds \CompCaseRows{} rows from \CompCaseSystems{} systems, over \CompCaseVariants{}
+variants of \CompCaseCases{} cases. Of the \CompCaseRowsObserved{} rows observed, the reply of
+\CompCaseRowsAsExpected{} equals what the server's frozen table expects, and the reply of
+\CompCaseRowsDiffer{} does not. \CompCaseRowsNotObserved{} rows were not observed, since the case
+generator did not end. \CompCaseRowsNoDecision{} observed rows reached no decision within \TObsS~s
+and are counted by their reply. The replicates agreed within every variant: \CompCaseUnitsMixed{} variants are mixed.
+Table~\ref{tab:comp} gives the counts per system.
+
+\begin{table}[H]
+\caption{The competitors' hard cases, per system, on L. A variant is one case's form at one timer
+setting with its replicates; it counts as equal or differing only when every replicate does.
+``Equal'' means the reply equals what the server's frozen table expects.\label{tab:comp}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l r r r r r r r r r X@{}}
+\toprule
+& \multicolumn{4}{c}{\textbf{Rows}} & & \multicolumn{2}{c}{\textbf{Matched timers}} &
+\multicolumn{2}{c}{\textbf{Default timers}} & \\
+\textbf{System} & \textbf{All} & \textbf{Equal} & \textbf{Differ} & \textbf{Not obs.} &
+\textbf{Variants} & \textbf{Equal} & \textbf{Differ} & \textbf{Equal} & \textbf{Differ} &
+\textbf{Cases not covered} \\
+\midrule
+\tabinput{../results/tables/competitors}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
