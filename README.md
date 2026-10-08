@@ -18,10 +18,9 @@ Status: design. The repository is private until the paper is submitted.
 
 Copyright 2026 Alex I. Tsvetanov.
 
-The code in this repository (`CMakeLists.txt`, `.clangd`, `bench/`, `tests/`, `analysis/` and
-the Python programs in `paper/`) is licensed under the Apache License, Version 2.0. The full
-text is in `LICENSE`. The grant covers the code only. It does not cover the manuscript (the
-LaTeX sources in `paper/` and every PDF or Word copy built from them) or the MDPI template
-files in `paper/Definitions/`, which are kept in this repository only to build the
-manuscript. `NOTICE` lists what the grant covers and what it does not, and gives the
-attribution for the code adapted from Netty.
+This repository is licensed under the Apache License, Version 2.0. The full text is in
+`LICENSE`. The licence covers every file except the manuscript (the LaTeX and BibTeX sources
+in `paper/` and every PDF or Word copy built from them) and the MDPI template files in
+`paper/Definitions/`, which are kept in this repository only to build the manuscript.
+`NOTICE` lists what the licence covers and what it does not, and gives the attribution for
+the code adapted from Netty.

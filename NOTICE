@@ -1,14 +1,16 @@
 paper-one-port
 Copyright 2026 Alex I. Tsvetanov
 
-The code in this repository is licensed under the Apache License, Version 2.0 (see LICENSE).
-The grant covers the code only. The code is:
+This repository is licensed under the Apache License, Version 2.0 (see LICENSE). The licence
+covers every file in the repository except the manuscript (section 2) and the third-party files
+of section 3. That includes:
 
-  CMakeLists.txt, .clangd, bench/, tests/ and analysis/, and the Python programs in paper/
-  (paper/*.py).
-
-The grant does not cover any other file, in particular the manuscript (section 2) and the
-third-party files of section 3.
+  the code: CMakeLists.txt, .clangd, bench/, tests/ and analysis/, and the Python programs in
+  paper/ (paper/*.py);
+  the data and notes: results/ (the tables, macros and JSON files made by the analysis and the
+  paper/*.py programs; the .tex files in results/ are generated data and are covered),
+  design/, hypotheses.md and the README files, including paper/README.md and
+  paper/TEMPLATE.md.
 
 1. Code adapted from Netty (Apache License, Version 2.0)
 
