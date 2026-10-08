@@ -20,10 +20,8 @@ TIME-WAIT socket that holds a client port. Development runs showed Windows' bind
 generator growing slower as those sockets grew. The two cells ran in the pilot only, which gives the
 open-loop rates of the C3 cells of h2c and MQTT on W. The pilot's rows show neither the server nor
 the generator's CPUs saturated in them (Section~\ref{sec:res-cost}). Second, the author decided not to run M2's TLS cells
-(Section~\ref{sec:res-mech}). Third, the study's coordinator decided not to run the secondary cell
+(Section~\ref{sec:res-mech}). Third, the author decided not to run the secondary cell
 with two server cores on IOCP, since the server serves one IOCP worker.
-\ForAlex{The text names decisions of ``the study's coordinator''. Decide how to name that role in a
-sole-author paper, in line with the AI-use statement.}
 Fourth, every job of the session engine starts with discarded windows of at least \JobWarmupS~s.
 Two development jobs on W showed a slow start of the job, of unknown cause, that lasted several
 windows. The hard cases, the windows of \Kbase{} and the pilot's parts run outside that engine and

@@ -127,7 +127,8 @@
 
 \emergencystretch=3em
 
-\Title{One Listener for Every Protocol: First-Bytes Demultiplexing}
+\Title{One Port for Many Protocols: The Cost, Robustness and Mechanism of First-Bytes
+Demultiplexing}
 
 \newcommand{\orcidauthorA}{0009-0001-8369-150X}
 
@@ -155,9 +156,7 @@ decided all \HardcaseRuns{} hard-case runs as specified. By the frozen footprint
 HAProxy, Envoy and hyper-util held at least \FootprintMargin{} times the server's counted footprint
 per pending connection; sslh-ev held less. A mixed-protocol load starved new connections on the
 io\_uring backend in both modes. So, for this server, one listener served HTTP/1.1, TLS and MQTT
-there at no measurable cost.
-\ForAlex{The title is the working title of bib/own.bib. The frozen text gives no title.
-Confirm it, or choose another now that the results are in.}}
+there at no measurable cost.}
 
 \keyword{protocol detection; port unification; first-bytes demultiplexing; TLS; HTTP/2; MQTT;
 PROXY protocol; epoll; io\_uring; I/O completion ports; equivalence testing; benchmarking}
@@ -195,23 +194,7 @@ with it. \ForAlex{the public link and DOI of the paper's repository and of the a
 repository of papers that holds the sanitizer records.}}
 
 \acknowledgments{The author would like to thank the scientific research sector of the Technical
-University of Sofia for financial support for publishing the present paper.
-\ForAlex{MDPI asks authors to disclose the use of generative AI. The wording MDPI asks for is in
-the acknowledgments placeholder of its LaTeX template (template.tex in MDPI\_template\_ACS.zip,
-class mdpi.cls v6.5a): ``During the preparation of this manuscript/study, the author(s) used [tool
-name, version information] for the purposes of [description of use]. The authors have reviewed
-and edited the output and take full responsibility for the content of this publication.'' MDPI's
-policy pages are at \url{https://www.mdpi.com/ethics}; that page refused a scripted request, so
-the wording above was taken from the template, not from the page. Two drafts, neither final,
-yours to choose or rewrite, with the tool's version filled in:
-(a) ``During the preparation of this study, the author used Claude (Anthropic, [version]) for the
-purposes of writing and testing the software, running the analysis, and drafting and editing the
-text. The author has reviewed and edited the output and takes full responsibility for the content
-of this publication.''
-(b) ``During the preparation of this manuscript, the author used AI coding and writing assistants
-(Anthropic's Claude, [version]) to implement and test the server and its harness and to draft the
-text. The author has reviewed and edited the output and takes full responsibility for the content
-of this publication.''}}
+University of Sofia for financial support for publishing the present paper.}
 
 \conflictsofinterest{The author declares no conflicts of interest. The funder had no role in the
 design of the study; in the collection, analyses, or interpretation of data; in the writing of

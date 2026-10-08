@@ -5,7 +5,8 @@ Target: MDPI Future Internet, on MDPI's class (`TEMPLATE.md`).
 State: the whole draft is written. The method half was written before the data; the Results,
 Deviations and Reproducibility, Discussion (with the threats to validity), Conclusions, the
 Abstract and the appendix of per-cell tables were written from the generated macro files and the
-results files after the confirmatory analysis. What is left for Alex is marked `\ForAlex`.
+results files after the confirmatory analysis. What is left for Alex is marked `\ForAlex`: the
+reference for Holm (1979) and the public links.
 
 ## Files
 
@@ -70,5 +71,5 @@ A draft build prints notes for Alex in blue (`\ForAlex`), open items in red (`\T
 not yet computed as `[pending: ...]`. Set `\submissiontrue` in `main.tex` for a submission build:
 it then stops on any pending result or a missing `../results/macros.tex`.
 
-The Acknowledgments carry a note for the author: MDPI asks for a statement on the use of
-generative AI, and its wording is the author's to decide.
+The paper carries no statement on the use of generative AI: that is the author's decision of
+2026-10-08.

@@ -8,9 +8,7 @@
   `62744425fbcec9cd3e58147cbee65bdec2e2ff0440f29792c26edc97a11b6c70`, checked again on
   2026-10-04 before use.
 - Class version: `mdpi.cls` declares `\mdpidate` 2026-09-11 and `\mdpiversion` v6.5a.
-- `template.tex` and `template.pdf` are not copied here. The acknowledgments placeholder of
-  `template.tex` holds the wording MDPI asks for on the use of generative AI; `main.tex` quotes it
-  in a note for Alex.
+- `template.tex` and `template.pdf` are not copied here.
 
 ## Files copied into `paper/Definitions/`
 
