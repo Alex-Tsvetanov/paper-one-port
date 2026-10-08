@@ -12,7 +12,9 @@ Status: the paper is written and not yet submitted (`paper/`).
 - `bench/`: the paper's own server, the competitor recipes and the load and case generators.
 - `results/`: curated results with provenance; the raw data are never in git (below).
 - `analysis/`: scripts that turn results into `results/macros.tex`. The paper never types a number.
-- `paper/`: the manuscript (MDPI Future Internet).
+- `paper/`: the manuscript (MDPI Future Internet). `paper/main.pdf` is its PDF, the submission
+  build (`\submissiontrue` in `paper/main.tex`; the notes for the author are not printed in it),
+  rebuilt from the sources with `cd paper && latexmk -pdf main.tex` and committed with them.
 - `lab/`: the laboratory files the results rest on, copied: the sanitizer records, the gates and
   the analysis's other inputs; and two lists written for this repository: what the measured
   builds compiled, and the raw archives (`lab/README.md`).

@@ -17,4 +17,5 @@ results/raw/
 *.out
 *.synctex.gz
 paper/*.pdf
+!paper/main.pdf
 paper/Definitions/*-eps-converted-to.pdf
