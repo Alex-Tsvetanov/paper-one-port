@@ -6,7 +6,16 @@ State: the whole draft is written. The method half was written before the data; 
 Deviations and Reproducibility, Discussion (with the threats to validity), Conclusions, the
 Abstract and the appendix of per-cell tables were written from the generated macro files and the
 results files after the confirmatory analysis. What is left for Alex is marked `\ForAlex`: the
-reference for Holm (1979) and the public links.
+DOIs of the repository and of its release `data-2026-10`.
+
+The archived rows that the generators below read are the assets of the release `data-2026-10`.
+The commands name them as they lie when each asset is unpacked under
+`~/lab/p3/confirm1/unpacked/`, into a directory named by the part of its name between the date and
+`ff2679cc8` (`../lab/README.md`); W's pilot rows are in the asset
+`pilot`, at `pilot-W/windows.jsonl`, and M1's rows on W in `wm1`, at `m-W/windows.jsonl`. The
+tests that check the committed files against those rows read them at these paths (W's two at
+`~/lab/p3/pilot-W/` and `~/lab/p3/m-W/`), or at the paths given in the environment variables each
+test names.
 
 ## Files
 

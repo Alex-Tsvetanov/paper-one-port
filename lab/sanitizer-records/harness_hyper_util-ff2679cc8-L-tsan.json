@@ -1,0 +1,49 @@
+{
+ "repo": "https://github.com/Alex-Tsvetanov/paper-one-port.git",
+ "commit": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "repo_head": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "date": "2026-10-05T01:37:09+03:00",
+ "host": "alex-laptop",
+ "host_tag": "L",
+ "green": true,
+ "tool": "harness",
+ "harness": "hyper-util",
+ "sanitizer": "tsan",
+ "flavour": "tsan",
+ "compiler": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-1) binary: rustc commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985 commit-date: 2026-09-01 host: x86_64-unknown-linux-gnu release: 1.98.1 LLVM version: 22.1.8 cargo 1.98.1 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.1-1)",
+ "config": {},
+ "inputs_hash": {
+  "harness_hyper_util": "854dab5e53570287c5667486e3d0d7fbe57fd3f9e55db50478fc2378da206e9b"
+ },
+ "inputs_files": {
+  "harness_hyper_util": 4
+ },
+ "inputs": [
+  "bench/competitors/hyper-util/Cargo.lock\t079a9322a4abbd4903715705201059b108ad241f7ecca3c00d838f65c4ca1249",
+  "bench/competitors/hyper-util/Cargo.toml\tfcc9e54995b11713f47c250e9bc189072b3a0342a98277ba6bfcddcec155dcd2",
+  "bench/competitors/hyper-util/src/main.rs\tb9302ed6882711db9ea64cd3fcb761b192ac468e818d77d4ffe0862fbb6cc7cf",
+  "bench/competitors/hyper-util/tsan.supp\td9e800197ecbcbfa56f2191d5db8a763a1520b50ac8dce2f12ea0f1cd9842098"
+ ],
+ "run_env": {
+  "TSAN_OPTIONS": "suppressions=/home/alex/lab/p3/m7g/rec-src-ff2679c/bench/competitors/hyper-util/tsan.supp"
+ },
+ "build_command": "RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Zsanitizer=thread cargo build --release --locked --target x86_64-unknown-linux-gnu -Zbuild-std",
+ "output_sha256": "e0bb0658111ef16e293991af2a2c6c6e94b8eaf60eba07e0e43f659e156025e7",
+ "third_party": {
+  "fetched": {}
+ },
+ "pins_sha256": "2d49d03bacf8518c1647734889b84c67ffe9db001d954d9f1d52e1770809e15e",
+ "pins_file": "bench/cmake/pins.cmake",
+ "build_exit": 0,
+ "check_exit": 0,
+ "seconds": 51,
+ "problems": [],
+ "sanitizer_reports": 0,
+ "report_blocks": [],
+ "harness_runs": 5,
+ "harness_runs_without_exit_check": 0,
+ "logs_archive": "/home/alex/lab/records-logs/harness_hyper_util-ff2679cc8-L-tsan.tar.gz",
+ "logs_archive_sha256": "fdfa883ab18e024cac40fa24a27af14fbcca0fd1e9ffc52be422c51a040422e4",
+ "dry_run": false,
+ "note": "The harness built in its sanitizer flavour (bench/competitors/build_harnesses.sh), then its probe in its cases kinds and its route checks at both timer settings (bench/competitors/probe.py, cases_check.py), as M4b-2's development checks ran (hypotheses.md, section 11). Each run ended through the harness's SIGTERM handler, a normal exit, so the sanitizers' exit checks ran (LeakSanitizer's at exit; the race detector's exit status)."
+}

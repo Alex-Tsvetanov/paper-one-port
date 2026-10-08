@@ -97,6 +97,12 @@
 \newcommand{\JobSlOne}{sl1}
 % The untimed lab job of the system-call counts, after the analysis (Section~\ref{sec:dev-not-produced}).
 \newcommand{\JobSt}{st1}
+% The paper's public repository, and the release whose assets are the raw outputs of the pilot and
+% of every job of windows or hard cases after the pilot entry, each with its SHA-256 in a file
+% beside it and in lab/archives.sha256.
+\newcommand{\PaperRepoURL}{\url{https://github.com/Alex-Tsvetanov/paper-one-port}}
+\newcommand{\DataRelease}{\texttt{data-2026-10}}
+\newcommand{\DataReleaseURL}{\url{https://github.com/Alex-Tsvetanov/paper-one-port/releases/tag/data-2026-10}}
 % Formulas of the frozen statistics whose constants are part of their notation.
 \newcommand{\IntervalLevel}{\ensuremath{1-2\alpha}}
 \newcommand{\RerunCap}{\ensuremath{\lceil R/4 \rceil}}
@@ -199,11 +205,18 @@ sector of the Technical University of Sofia.}
 
 \informedconsent{Not applicable.}
 
-\dataavailability{The pre-specification with its revision log, the server, the generators, the
-competitors' configurations, the analysis and the generated macro files will be made available
-in the paper's repository. Raw outputs are archived with their SHA-256 and will be made available
-with it. \ForAlex{the public link and DOI of the paper's repository and of the archives; the
-repository of papers that holds the sanitizer records.}}
+\dataavailability{The paper's repository, \PaperRepoURL, holds the pre-specification with its
+revision log, the server, the generators, the competitors' configurations and the analysis. It also
+holds the generated macro files and the programs that write this paper's tables. The code freeze is
+its commit \hex{\CodeFreeze}. The raw outputs of the pilot and of every job of windows or hard cases
+after the pilot entry are the assets of its release \DataRelease{} (\DataReleaseURL). Each has its
+SHA-256 in a file beside it, and \texttt{lab/archives.sha256} lists them. The revision log and the
+design notes describe the development runs before the pilot entry, whose raw outputs are not
+published. The repository's \texttt{lab/} directory holds the sanitizer records that cover the
+measured builds and the two hosts' gates. It also holds the simulation's output behind the pilot
+entry and rule~E's file, which the analysis read. Each record names the SHA-256 of an archive of its
+logs, which are not published. \ForAlex{the DOIs of the paper's repository and of its release \DataRelease, which need
+Alex's account (for example a Zenodo archive of the release).}}
 
 \acknowledgments{The author would like to thank the scientific research sector of the Technical
 University of Sofia for financial support for publishing the present paper.}

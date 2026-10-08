@@ -1,0 +1,257 @@
+{
+ "host": "L",
+ "pins_sha256": "2d49d03bacf8518c1647734889b84c67ffe9db001d954d9f1d52e1770809e15e",
+ "passed": true,
+ "dry_run": false,
+ "citable": true,
+ "records_dir": "/home/alex/lab/p3/m7g/records-ff2679c/records",
+ "oneport": {
+  "compiler": "Clang 22.1.8",
+  "fetched": {},
+  "inputs_hash": {
+   "oneport": "b8a16b030a5bbee58d03880cae66f191a2d44cf4e248328100cd31ce07556d2c",
+   "oneport_server": "3b8586eb362145ae4392718ac909a514f05379c46496df5f0003ce8708ef48af",
+   "oneport_config": "ebc8b771e44b014b46915db29421421956dde0174aa875e8d2b380e85b777f5a",
+   "oneport_loop": "9441bfdfa7733e1cbad594c9f09265bf52d5ffa6fe604661b686e580e6e9bf06",
+   "oneport_tls": "2dcf2c28d610a6301ae1730b74ffd785a616795543260c44b3b9aeceab053535",
+   "opcase": "05dea0105c261f80cf0c1df1e959e4a7aa8cd2854d25ca742e7771e6dcff97d9",
+   "opcase_bin": "3bde00c45a9e0c28ed3ca617df50d629ede7591e4fad59b49b6fa68ae74d501f",
+   "opgen": "032e9fd0db4c926c0d694e7a95c18e1162b897ca1642352088e0f01ce5c5fc70",
+   "opgen_core": "ae932e60234416ab3d7e3524724f210c1ffb1e0ee8b3ba4aa343f478cbf42fee",
+   "oneport_tests": "4c5c9714b6e45ece65643ad102a14db84d47f530ace1bb099df665391828f614",
+   "ophold": "075292309cf741768d61d2d7a56d29081cfc779b27618d079f7b538ae4617302",
+   "record_clienthello": "1a4667e919e43398a60a9225e5ce47c0a32899794bb08ecbbe2a378c55c036b5"
+  },
+  "config": {
+   "CMAKE_BUILD_TYPE": "Release",
+   "ONEPORT_BACKENDS": "epoll;io_uring"
+  },
+  "coverage": {
+   "oneport": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "oneport_server": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "oneport_config": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "oneport_loop": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "oneport_tls": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "opcase": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "opcase_bin": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "opgen": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "opgen_core": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "oneport_tests": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "ophold": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "record_clienthello": {
+    "asan": [
+     "oneport-ff2679cc8-L-asan.json"
+    ],
+    "msan": [
+     "oneport-ff2679cc8-L-msan.json"
+    ],
+    "tsan": [
+     "oneport-ff2679cc8-L-tsan.json"
+    ]
+   }
+  },
+  "partial": {},
+  "records": [
+   "oneport-ff2679cc8-L-asan.json",
+   "oneport-ff2679cc8-L-msan.json",
+   "oneport-ff2679cc8-L-tsan.json"
+  ],
+  "binaries": {
+   "oneport": "4c64edc25f7689dab95c90218ae50d3d7e92960d3e4e08bb826b1239e252b179",
+   "opgen": "a25faa11e47f89502ae4750d3325789f59fa97f73cf8f9d715daa7f7d749140a",
+   "opcase": "49cb3c049250d827a961f46498365f1ca9dddc2451a3e7f8e2aed267c706c0eb",
+   "ophold": "3f405ac29c6293090f84f1acbe85879a37c32b2379a5a802762d0536938d8e2b"
+  },
+  "binaries_missing": []
+ },
+ "harnesses": {
+  "inputs_hash": {
+   "harness_cmux": "85d43fe725217c19407130c96bddf838812c59f65d6e1fde3d2598d82e981fb4",
+   "harness_hyper_util": "854dab5e53570287c5667486e3d0d7fbe57fd3f9e55db50478fc2378da206e9b",
+   "harness_jetty": "cc34ae2933440100e5b14331b0aeed332915faf29a9ea83219abba1f8ef259d5",
+   "harness_netty": "560f825c599c74bc389590faa34872de933a445e72d8a6ed993e19bae4694b41"
+  },
+  "compiler": {
+   "harness_cmux": "go version go1.27.1-X:nodwarf5 linux/amd64 clang version 22.1.8",
+   "harness_hyper_util": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-1) binary: rustc commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985 commit-date: 2026-09-01 host: x86_64-unknown-linux-gnu release: 1.98.1 LLVM version: 22.1.8 cargo 1.98.1 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.1-1)",
+   "harness_jetty": "javac 25.0.4.1",
+   "harness_netty": "javac 25.0.4.1"
+  },
+  "coverage": {
+   "harness_cmux": {
+    "asan": [
+     "harness_cmux-ff2679cc8-L-asan.json"
+    ],
+    "tsan": [
+     "harness_cmux-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "harness_hyper_util": {
+    "asan": [
+     "harness_hyper_util-ff2679cc8-L-asan.json"
+    ],
+    "tsan": [
+     "harness_hyper_util-ff2679cc8-L-tsan.json"
+    ]
+   },
+   "harness_jetty": {},
+   "harness_netty": {}
+  },
+  "partial": {
+   "harness_cmux": {
+    "covered_by": [
+     "asan",
+     "tsan"
+    ],
+    "reason": "Section 11 declares the Go harness's MSan gap; its ASan record is built with go build -asan and its TSan record with go build -race (Go's race detector is ThreadSanitizer), as P2's records built its Go arms. go build -msan exists, but it only lets Go code interoperate with C code built with MemorySanitizer (go help build: 'enable interoperation with memory sanitizer'); the harness has no C code of its own, and Go gives every variable it allocates its zero value, so such a record would check nothing first-party."
+   },
+   "harness_hyper_util": {
+    "covered_by": [
+     "asan",
+     "tsan"
+    ],
+    "reason": "Section 11 declares the Rust harness's MSan gap, as P2's records left MSan out of its Rust arms. Its ASan and TSan records are built with rustc's -Zsanitizer=address and -Zsanitizer=thread on L's stable rustc 1.98.1 (RUSTC_BOOTSTRAP=1, as P2's records did) with the standard library rebuilt with the same sanitizer (-Zbuild-std, rust-src 1.98.1). rustc's -Zsanitizer=memory also exists, unstable, and needs every crate and the standard library built with it; it was not attempted, since the frozen text declares the gap."
+   },
+   "harness_jetty": {
+    "covered_by": [],
+    "reason": "No sanitizer applies to the Java harnesses (hypotheses.md, section 11: 'that gap is declared whole'): ASan, TSan and MSan instrument native code at compile time, and the harness is Java bytecode run by the JVM, which is pinned, not instrumented (the declared gap 'Competitor binaries and runtimes')."
+   },
+   "harness_netty": {
+    "covered_by": [],
+    "reason": "No sanitizer applies to the Java harnesses (hypotheses.md, section 11: 'that gap is declared whole'): ASan, TSan and MSan instrument native code at compile time, and the harness is Java bytecode run by the JVM, which is pinned, not instrumented (the declared gap 'Competitor binaries and runtimes')."
+   }
+  },
+  "records": [
+   "harness_cmux-ff2679cc8-L-asan.json",
+   "harness_cmux-ff2679cc8-L-tsan.json",
+   "harness_hyper_util-ff2679cc8-L-asan.json",
+   "harness_hyper_util-ff2679cc8-L-tsan.json"
+  ],
+  "binaries": {
+   "harness_cmux": "b05a347ea07f26d573e3f3a3f88b468b6b969f99f48f4338dffac55a12fca9d6",
+   "harness_hyper_util": "d6e52b94e88cc0ffe37957cb08c637fa3f9f1c6642554b734574eb4340d224e7",
+   "harness_jetty": "cc18b8b77732a5ce545a8844ba97c27287d3c0a4e97ee3f990e4fc90caa79c2d",
+   "harness_netty": "3a0c848b6a897e19b3091a569bb3a35e121a916118ea3278847cdbc99f1a36d3"
+  }
+ },
+ "binaries": {
+  "oneport": "4c64edc25f7689dab95c90218ae50d3d7e92960d3e4e08bb826b1239e252b179",
+  "opgen": "a25faa11e47f89502ae4750d3325789f59fa97f73cf8f9d715daa7f7d749140a",
+  "opcase": "49cb3c049250d827a961f46498365f1ca9dddc2451a3e7f8e2aed267c706c0eb",
+  "ophold": "3f405ac29c6293090f84f1acbe85879a37c32b2379a5a802762d0536938d8e2b",
+  "harness_cmux": "b05a347ea07f26d573e3f3a3f88b468b6b969f99f48f4338dffac55a12fca9d6",
+  "harness_hyper_util": "d6e52b94e88cc0ffe37957cb08c637fa3f9f1c6642554b734574eb4340d224e7",
+  "harness_jetty": "cc18b8b77732a5ce545a8844ba97c27287d3c0a4e97ee3f990e4fc90caa79c2d",
+  "harness_netty": "3a0c848b6a897e19b3091a569bb3a35e121a916118ea3278847cdbc99f1a36d3"
+ }
+}

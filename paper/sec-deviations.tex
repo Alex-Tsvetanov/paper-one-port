@@ -162,8 +162,9 @@ untimed windows that no job had run on the frozen build. They are the proxies' s
 counter check, and the relay in peek, which no measured window runs, beside the relay in replay
 under the same load. They ran as one lab job, \JobSt, on L after the analysis, with the frozen build and the
 frozen tool written for these windows. That tool predates
-the freeze guard and calls none. A wrapper outside the repository ran the guard first, and the
-job's clearance names the code freeze and the later change of Section~\ref{sec:dev-b1}. The tool
+the freeze guard and calls none. A wrapper outside the repository's tree, kept in the job's
+archive, ran the guard first. The job's clearance names the code freeze and the later change of
+Section~\ref{sec:dev-b1}. The tool
 also marks every row as development data, a constant it has carried since engineering. The reading
 records that this field does not make the job's rows development data, since they come from the
 frozen build after the pilot entry. A few descriptions were added after the values were seen: B2's
@@ -175,7 +176,9 @@ decision moved.
 
 The code freeze is the commit \hex{\CodeFreeze}. Every measured build compiled inputs that green
 sanitizer records of that commit cover, on the host that ran it, and every row is bound to its
-host's gate. Raw outputs are archived with their SHA-256. The results files name every input they
-read by its SHA-256, and the generators of this paper's macros and tables check that their outputs
-match the committed files. The pre-specification, with its revision log, is in the paper's
-repository.
+host's gate. The records and the gates are in the paper's repository. The raw outputs of the pilot
+and of every job of windows or hard cases after the pilot entry are the assets of the repository's
+release \DataRelease. Each is archived with its SHA-256. The results files name every input they
+read by its SHA-256, and the generators of this paper's macros and tables check that
+their outputs match the committed files. The pre-specification, with its revision log, is in the
+paper's repository.

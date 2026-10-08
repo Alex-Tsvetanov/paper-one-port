@@ -1,0 +1,46 @@
+{
+ "repo": "https://github.com/Alex-Tsvetanov/paper-one-port.git",
+ "commit": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "repo_head": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "date": "2026-10-05T01:34:40+03:00",
+ "host": "alex-laptop",
+ "host_tag": "L",
+ "green": true,
+ "tool": "harness",
+ "harness": "cmux",
+ "sanitizer": "asan",
+ "flavour": "asan",
+ "compiler": "go version go1.27.1-X:nodwarf5 linux/amd64 clang version 22.1.8",
+ "config": {},
+ "inputs_hash": {
+  "harness_cmux": "85d43fe725217c19407130c96bddf838812c59f65d6e1fde3d2598d82e981fb4"
+ },
+ "inputs_files": {
+  "harness_cmux": 3
+ },
+ "inputs": [
+  "bench/competitors/cmux/go.mod\t1fd80cb7c86bbc95f15e112d85edfa590cc6c2fb0c7b6abcc7f0e326c261fa1d",
+  "bench/competitors/cmux/go.sum\t2c00de0e1c6c86b5a165ca5ca13a7495902aa7a30aa6ab6419319a3787733c56",
+  "bench/competitors/cmux/main.go\tf1c3f4d4bef18915a79be4450e6d42f754f529aa465fe9d845ddf736e2a5866b"
+ ],
+ "run_env": {},
+ "build_command": "GOTOOLCHAIN=local GOFLAGS=-mod=readonly CGO_ENABLED=1 CC=clang go build -trimpath -asan",
+ "output_sha256": "b6d61ce0c6292e53a010504a33ce21c1fe879ab2f93b049607ef94ce9bba70e7",
+ "third_party": {
+  "fetched": {}
+ },
+ "pins_sha256": "2d49d03bacf8518c1647734889b84c67ffe9db001d954d9f1d52e1770809e15e",
+ "pins_file": "bench/cmake/pins.cmake",
+ "build_exit": 0,
+ "check_exit": 0,
+ "seconds": 36,
+ "problems": [],
+ "sanitizer_reports": 0,
+ "report_blocks": [],
+ "harness_runs": 10,
+ "harness_runs_without_exit_check": 0,
+ "logs_archive": "/home/alex/lab/records-logs/harness_cmux-ff2679cc8-L-asan.tar.gz",
+ "logs_archive_sha256": "6a7cc30c1fad4fb139736a9202e26b460836861c4101dd7e5d8820594a33e66c",
+ "dry_run": false,
+ "note": "The harness built in its sanitizer flavour (bench/competitors/build_harnesses.sh), then its probe in its cases kinds and its route checks at both timer settings (bench/competitors/probe.py, cases_check.py), as M4b-2's development checks ran (hypotheses.md, section 11). Each run ended through the harness's SIGTERM handler, a normal exit, so the sanitizers' exit checks ran (LeakSanitizer's at exit; the race detector's exit status)."
+}

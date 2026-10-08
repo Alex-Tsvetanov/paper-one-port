@@ -339,11 +339,9 @@ it.
 \item \textbf{Exact sign test.} $X$ counts the sessions whose value lies strictly on the
 hypothesis side of the bound; a tie, or a session without a value, counts against. At the null's
 boundary \SignNull, and $p = P(X \ge x)$ is computed exactly.
-\item \textbf{Holm's step-down procedure} per family at family-wise $\alpha = \FwAlpha$,
+\item \textbf{Holm's step-down procedure}~\cite{holm1979simple} per family at family-wise $\alpha = \FwAlpha$,
 one-sided, run once for each computation. A cell that cannot be tested enters with \PIsOne{}.
 \end{itemize}
-\ForAlex{Holm (1979) is not cited: no DOI is registered for it, and JSTOR refused a scripted
-request, so its metadata could not be verified. Add the reference from your own copy.}
 
 \runin{Equivalence in the cost family.} The author fixed the margin before any code existed. The
 widest difference still called ``no measurable cost'' is a ratio between \MarginLow{} and
@@ -399,7 +397,8 @@ not targeted.
 so that drift spreads over the cells. The \FrozenSeeds{} seeds of the orders, of each family's
 resamples and of the pilot were drawn once on L, in one revision-log entry before the code
 freeze. Every integer that the lab journal or the engineering notes named was excluded, so no
-seed of a development run could recur.
+seed of a development run could recur. The notes, as they stood at that entry's commit, are in the
+paper's repository. The journal also covers the author's other work and is not published.
 
 \subsection{Order of Freezes and Runs}\label{sec:order}
 
@@ -440,8 +439,8 @@ replaced its default: the detection mode is replay on all three backends and the
 through user-space buffers. So HAProxy gets no \texttt{option splice-auto} in any cell.
 
 \runin{Development data.} Engineering ran development windows. They are never results. The revision
-log and the lab journal hold them, and this paper cites them only as reasons for decisions and
-readings. Before the code freeze they
+log and the unpublished lab journal hold them, and this paper cites them only as reasons for
+decisions and readings. Before the code freeze they
 could time dedicated mode against anything, and one-port mode against a competitor or against
 another one-port option. No window, on any code, timed one-port mode against dedicated mode before
 the pilot entry. A dedicated window and a one-port window against the same competitor, at the same
@@ -462,8 +461,8 @@ A number is citable only if every measured build compiled first-party inputs tha
 sanitizer record covers. On L the records use clang \ClangVersion{} with AddressSanitizer and
 UndefinedBehaviorSanitizer together, ThreadSanitizer, and MemorySanitizer with an instrumented C++
 standard library. On W they use MSVC \MsvcVersion{} with AddressSanitizer, one compiler because the
-gate matches the compiler. Each record covers the server, \opgen, \opcase, \ophold{} and the test
-suite by a hash of their inputs. The suite runs the detection table at every split, the whole table
+gate matches the compiler. Each record of the server covers the server, \opgen, \opcase, the test
+suite and, on L, \ophold{}, by a hash of their inputs. The suite runs the detection table at every split, the whole table
 of hard cases, every mode of the binary and every backend of its host. Under ThreadSanitizer two
 workers share one listener. The gate refuses a measured build unless green records on the same host
 cover every first-party target, with the same compiler, configuration, pins and fetched archives.
@@ -544,4 +543,5 @@ B3 follows, to the competitors and cases it beats. The cost family narrows last,
 
 \runin{Analysis.} The analysis computes every decision from the archived runs and writes the
 paper's numbers into a generated macro file; Section~\ref{sec:dev-runners} records the one
-departure. Raw outputs are archived with their SHA-256. Nothing is run again to change a decision.
+departure. Raw outputs are archived with their SHA-256 (Section~\ref{sec:dev-repro}). Nothing is
+run again to change a decision.

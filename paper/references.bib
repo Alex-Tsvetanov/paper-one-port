@@ -11,9 +11,9 @@
 %     named in hypotheses.md, fetched (HTTP 200); for the three tarballs nginx, HAProxy and sslh,
 %     the downloaded archive's sha256 equals the one pins.cmake records. Release dates from the
 %     project's release page, CHANGES file or release history.
-% Left out because they could not be verified: Holm (1979), "A simple sequentially rejective
-% multiple test procedure" (doi.org has no DOI for it and the JSTOR page answered a bot
-% challenge).
+% Holm (1979) was added after that date, and not by the requests above. It has no DOI that doi.org
+% resolves: its entry comes from the page metadata and JSON-LD of JSTOR's own page of the article,
+% as its comment says.
 %
 % Titles are as their source gives them, except where a source title holds a dash: the dash is
 % then a colon, noted at the entry. Page ranges are written as 1\bibhyph{,}4 (paper/TEMPLATE.md
@@ -295,6 +295,20 @@
   publisher = {Springer US},
   year      = {1993},
   doi       = {10.1007/978-1-4899-4541-9}
+}
+
+% From JSTOR's own page of the article (its page metadata and JSON-LD).
+% JSTOR shows the DOI 10.2307/4615733, but doi.org answers "DOI Not Found" for it, so the entry
+% gives JSTOR's stable URL and no DOI.
+@article{holm1979simple,
+  author    = {Holm, Sture},
+  title     = {A Simple Sequentially Rejective Multiple Test Procedure},
+  journal   = {Scandinavian Journal of Statistics},
+  volume    = {6},
+  number    = {2},
+  pages     = {65\bibhyph{,}70},
+  year      = {1979},
+  url       = {https://www.jstor.org/stable/4615733}
 }
 
 @article{schuirmann1987tost,

@@ -1,0 +1,30 @@
+{
+ "commit": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "host": "W",
+ "dry_run": false,
+ "citable": true,
+ "inputs_hash": {
+  "oneport": "b8a16b030a5bbee58d03880cae66f191a2d44cf4e248328100cd31ce07556d2c",
+  "oneport_server": "491d01ed6b7adf6e92e6a42113df547e7d7e5135ee50ce215ce38ef06eb56740",
+  "oneport_config": "ebc8b771e44b014b46915db29421421956dde0174aa875e8d2b380e85b777f5a",
+  "oneport_loop": "fb99df37fca622050a209fcd5d09079d41f46f674bf74447226d18f92f40b9c0",
+  "oneport_tls": "2dcf2c28d610a6301ae1730b74ffd785a616795543260c44b3b9aeceab053535",
+  "opcase": "05dea0105c261f80cf0c1df1e959e4a7aa8cd2854d25ca742e7771e6dcff97d9",
+  "opcase_bin": "3bde00c45a9e0c28ed3ca617df50d629ede7591e4fad59b49b6fa68ae74d501f",
+  "opgen": "032e9fd0db4c926c0d694e7a95c18e1162b897ca1642352088e0f01ce5c5fc70",
+  "opgen_core": "4d1937f676762b9e2673edfbd2724e512aab4bc641ea6618f18a3b82b933495e",
+  "oneport_tests": "cd6dc973a076e305d7a1ff0ee26bef22648f3e8e78398423d8435bb9cb02fc0b"
+ },
+ "config": {
+  "CMAKE_BUILD_TYPE": "Release",
+  "ONEPORT_BACKENDS": "IOCP"
+ },
+ "binaries": {
+  "oneport": "749d0209c112fb8fa2689b632f635f32364d46827de243c28398ab647adf328c",
+  "opgen": "b1e608dd6203abc34faef7dc94aa25fbee85a25a42ebf7ba555d74be281e6678",
+  "opcase": "40ca5aad0c965b769f21355c5362d15aca71ba98f6ba7e825deda752dd0e2a83"
+ },
+ "records": [
+  "oneport-ff2679cc8-W-asan.json"
+ ]
+}

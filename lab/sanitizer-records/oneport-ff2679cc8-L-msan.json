@@ -1,0 +1,76 @@
+{
+ "repo": "https://github.com/Alex-Tsvetanov/paper-one-port.git",
+ "commit": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "repo_head": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "date": "2026-10-05T01:34:04+03:00",
+ "host": "alex-laptop",
+ "host_tag": "L",
+ "green": true,
+ "compiler": "Clang 22.1.8",
+ "inputs_hash": {
+  "oneport": "b8a16b030a5bbee58d03880cae66f191a2d44cf4e248328100cd31ce07556d2c",
+  "oneport_server": "3b8586eb362145ae4392718ac909a514f05379c46496df5f0003ce8708ef48af",
+  "oneport_config": "ebc8b771e44b014b46915db29421421956dde0174aa875e8d2b380e85b777f5a",
+  "oneport_loop": "9441bfdfa7733e1cbad594c9f09265bf52d5ffa6fe604661b686e580e6e9bf06",
+  "oneport_tls": "2dcf2c28d610a6301ae1730b74ffd785a616795543260c44b3b9aeceab053535",
+  "opcase": "05dea0105c261f80cf0c1df1e959e4a7aa8cd2854d25ca742e7771e6dcff97d9",
+  "opcase_bin": "3bde00c45a9e0c28ed3ca617df50d629ede7591e4fad59b49b6fa68ae74d501f",
+  "opgen": "032e9fd0db4c926c0d694e7a95c18e1162b897ca1642352088e0f01ce5c5fc70",
+  "opgen_core": "ae932e60234416ab3d7e3524724f210c1ffb1e0ee8b3ba4aa343f478cbf42fee",
+  "oneport_tests": "4c5c9714b6e45ece65643ad102a14db84d47f530ace1bb099df665391828f614",
+  "ophold": "075292309cf741768d61d2d7a56d29081cfc779b27618d079f7b538ae4617302",
+  "record_clienthello": "1a4667e919e43398a60a9225e5ce47c0a32899794bb08ecbbe2a378c55c036b5"
+ },
+ "inputs_files": {
+  "oneport": 5,
+  "oneport_server": 23,
+  "oneport_config": 2,
+  "oneport_loop": 6,
+  "oneport_tls": 3,
+  "opcase": 17,
+  "opcase_bin": 7,
+  "opgen": 2,
+  "opgen_core": 13,
+  "oneport_tests": 28,
+  "ophold": 1,
+  "record_clienthello": 2
+ },
+ "config": {
+  "CMAKE_BUILD_TYPE": "Release",
+  "ONEPORT_BACKENDS": "epoll;io_uring"
+ },
+ "third_party": {
+  "fetched": {},
+  "found": {}
+ },
+ "pins_sha256": "2d49d03bacf8518c1647734889b84c67ffe9db001d954d9f1d52e1770809e15e",
+ "pins_file": "bench/cmake/pins.cmake",
+ "presets": [
+  {
+   "preset": "build",
+   "status": "green",
+   "detail": "exit 0",
+   "compiler": "Clang 22.1.8"
+  },
+  {
+   "preset": "ctest",
+   "status": "green",
+   "detail": "exit 0, 399 tests, 0 failed"
+  }
+ ],
+ "tool": "oneport",
+ "sanitizer": "msan",
+ "cmake_args": "-G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=memory -DONEPORT_MSAN_LIBCXX=/home/alex/opt/libcxx-msan-gcc",
+ "sanitizer_options": "the runtime defaults",
+ "build_exit": 0,
+ "ctest_exit": 0,
+ "tests_total": 399,
+ "tests_failed": 0,
+ "seconds": 149,
+ "sanitizer_reports": 0,
+ "report_blocks": [],
+ "logs_archive": "/home/alex/lab/records-logs/oneport-ff2679cc8-L-msan.tar.gz",
+ "logs_archive_sha256": "e13a6dc5eb14405ba199c885b3e036f711a2d445aaed886a797f8d5473b2abc3",
+ "dry_run": false,
+ "note": "oneport's CMake project built under the sanitizer, then its whole CTest suite (hypotheses.md, section 11)."
+}

@@ -9,8 +9,11 @@ of section 3. That includes:
   paper/ (paper/*.py);
   the data and notes: results/ (the tables, macros and JSON files made by the analysis and the
   paper/*.py programs; the .tex files in results/ are generated data and are covered),
-  design/, hypotheses.md and the README files, including paper/README.md and
-  paper/TEMPLATE.md.
+  lab/ (the author's laboratory files, copied: the sanitizer records, the gates with the files
+  of the measured builds, the pilot entry's and rule E's files; and lists written from them:
+  the compiled files and the archives),
+  design/, hypotheses.md and the README files, including paper/README.md,
+  paper/TEMPLATE.md and lab/README.md.
 
 1. Code adapted from Netty (Apache License, Version 2.0)
 

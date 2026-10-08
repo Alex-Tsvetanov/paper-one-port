@@ -1,0 +1,72 @@
+{
+ "repo": "https://github.com/Alex-Tsvetanov/paper-one-port.git",
+ "commit": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "repo_head": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+ "date": "2026-10-05T01:51:40+03:00",
+ "host": "ALEX-PC",
+ "host_tag": "W",
+ "green": true,
+ "compiler": "MSVC 19.51.36246.0",
+ "inputs_hash": {
+  "oneport": "b8a16b030a5bbee58d03880cae66f191a2d44cf4e248328100cd31ce07556d2c",
+  "oneport_server": "491d01ed6b7adf6e92e6a42113df547e7d7e5135ee50ce215ce38ef06eb56740",
+  "oneport_config": "ebc8b771e44b014b46915db29421421956dde0174aa875e8d2b380e85b777f5a",
+  "oneport_loop": "fb99df37fca622050a209fcd5d09079d41f46f674bf74447226d18f92f40b9c0",
+  "oneport_tls": "2dcf2c28d610a6301ae1730b74ffd785a616795543260c44b3b9aeceab053535",
+  "opcase": "05dea0105c261f80cf0c1df1e959e4a7aa8cd2854d25ca742e7771e6dcff97d9",
+  "opcase_bin": "3bde00c45a9e0c28ed3ca617df50d629ede7591e4fad59b49b6fa68ae74d501f",
+  "opgen": "032e9fd0db4c926c0d694e7a95c18e1162b897ca1642352088e0f01ce5c5fc70",
+  "opgen_core": "4d1937f676762b9e2673edfbd2724e512aab4bc641ea6618f18a3b82b933495e",
+  "oneport_tests": "cd6dc973a076e305d7a1ff0ee26bef22648f3e8e78398423d8435bb9cb02fc0b"
+ },
+ "inputs_files": {
+  "oneport": 5,
+  "oneport_server": 25,
+  "oneport_config": 2,
+  "oneport_loop": 4,
+  "oneport_tls": 3,
+  "opcase": 17,
+  "opcase_bin": 7,
+  "opgen": 2,
+  "opgen_core": 14,
+  "oneport_tests": 28
+ },
+ "config": {
+  "CMAKE_BUILD_TYPE": "Release",
+  "ONEPORT_BACKENDS": "IOCP"
+ },
+ "third_party": {
+  "fetched": {},
+  "found": {}
+ },
+ "pins_sha256": "2d49d03bacf8518c1647734889b84c67ffe9db001d954d9f1d52e1770809e15e",
+ "pins_file": "bench/cmake/pins.cmake",
+ "presets": [
+  {
+   "preset": "build",
+   "status": "green",
+   "detail": "exit 0",
+   "compiler": "MSVC 19.51.36246.0"
+  },
+  {
+   "preset": "ctest",
+   "status": "green",
+   "detail": "exit 0, 165 tests, 0 failed"
+  }
+ ],
+ "tool": "oneport",
+ "sanitizer": "asan",
+ "cmake_args": "-G Ninja -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -DONEPORT_SANITIZER=address",
+ "sanitizer_options": "ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:symbolize=1",
+ "build_exit": 0,
+ "ctest_exit": 0,
+ "tests_total": 165,
+ "tests_failed": 0,
+ "seconds": 95,
+ "sanitizer_reports": 0,
+ "report_blocks": [],
+ "logs_archive": "C:\\Users\\alext\\lab\\records-logs\\oneport-ff2679cc8-W-asan.tar.gz",
+ "logs_archive_sha256": "6ee9a92543c72323028566056658e474e0c436b3ca4660847944ae5135ba452b",
+ "dry_run": false,
+ "note": "oneport's CMake project built under the sanitizer, then its whole CTest suite (hypotheses.md, section 11)."
+}
