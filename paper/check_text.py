@@ -7,9 +7,8 @@ Adapted from the previous paper's paper/check_text.py (papers/typed-routing, sam
 
 1. No en dash, em dash or other dash character, and no "--" or "---" (which LaTeX sets as
    dashes), in any .tex file of paper/, in references.bib, in paper/*.py, or in the generated
-   macro files results/design-macros.tex, results/hardcase-macros.tex, results/macros.tex and
-   results/report-macros.tex (if they exist) and the generated tables results/tables/*.tex,
-   comments included.
+   macro files results/*macros.tex (results/design-macros.tex always, the others as they exist)
+   and the generated tables results/tables/*.tex, comments included.
 2. No digit in the prose of paper/*.tex: every number comes from the macro files. The arguments
    of \\ForAlex, \\TODO and \\Pending are notes, not prose, and are left out. Commands whose
    arguments are not prose (cite, ref, label, input, url, lengths) are removed first, and a short
@@ -157,9 +156,7 @@ def check_sentences(path: Path) -> tuple[list[str], list[str]]:
 def main() -> int:
     tex = sorted(HERE.glob("*.tex"))
     dash_files = tex + [HERE / "references.bib"] + sorted(HERE.glob("*.py")) + [RESULTS / "design-macros.tex"]
-    for name in ("hardcase-macros.tex", "macros.tex", "report-macros.tex", "w-evidence-macros.tex"):
-        if (RESULTS / name).exists():
-            dash_files.append(RESULTS / name)
+    dash_files += [p for p in sorted(RESULTS.glob("*macros.tex")) if p.name != "design-macros.tex"]
     dash_files += sorted((RESULTS / "tables").glob("*.tex"))
     bad, notes = [], []
     for p in dash_files:
