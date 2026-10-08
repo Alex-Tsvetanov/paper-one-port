@@ -281,7 +281,8 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    Conclusions, Abstract, appendix of per-cell tables). Decided by Alex on 2026-10-08 (a00e7e0):
    the title "One Port for Many Protocols: The Cost, Robustness and Mechanism of First-Bytes
    Demultiplexing"; no AI-use statement; every decision written as the author's (no "study's
-   coordinator"). Still left for Alex: Holm (1979) and the public links. The
+   coordinator"). Holm (1979) is cited and the public links are in (item 16); the DOIs are left for
+   Alex. The
    C3.L.io_uring.h2c cell is "equivalence not shown", not a measured cost (its 95% interval's lower
    end, 1.0197, lies inside the margin); only C3.L.epoll.h2c is a measured cost. The io_uring
    ring holds 128 free provided buffers per worker and is refilled from a growable pool as each is
@@ -293,6 +294,12 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    `results/ops-macros.tex`, `results/trace-macros.tex` and six table bodies; the paper reports the
    four (Results, Appendix, and 6.7 "Outputs Produced after the Analysis"); one adversarial review
    before the commit, every finding fixed. Open for Alex: agreement with the entry's item 5 (ii).
+16. The public material (2026-10-08, status.md "Publication: the public material"): `lab/` holds
+   the eight records, the gates, the measured-build files, the compiled-file lists, `pilot.json`,
+   `rule_e.json` and `archives.sha256`; 15 archives (the 14 of status.md and rule E's `re1-wre1`) staged as
+   the assets of the release `data-2026-10`; the paper's links filled, the DOIs a `\ForAlex` note.
+   Not yet public: W's process names and Defender state in W's archives and notes are held for
+   Alex's decision before the visibility change, the release and the Papers bump.
 ## 6. Rules every agent keeps
 
 - The no-connection rule for B3's windows ended with bs1 (2026-10-07 01:29:57); connections to L are

@@ -8313,6 +8313,73 @@ the entry's item 5 (ii) (the `development` field), which is left for Alex.
    under the guard's clearance.
 2. STATE.md section 5's items 8, 9 and 13 are unchanged.
 
+## Publication: the public material, 2026-10-08
+
+Alex: "Make it public", with his rule that a paper rests on no private commit and no private
+material. The history is published as it is (its scan of 2026-10-08 found no name of the private
+library in files, paths, messages or refs). Nothing here changes a number: every file under
+`results/` is byte-identical before and after (31 files, sha256 compared).
+
+### 1. Private material the paper, its macros, READMEs and NOTICE relied on, and what was done
+
+1. The sanitizer records (the Papers repo's `lab/sanitizer-records/*-ff2679cc8-*`, the eight the two
+   gates name): copied byte for byte to `lab/sanitizer-records/`. They equal the copies in each
+   gate's records directory on L and W. `bench/check_records.py --records` on copies of them wrote
+   gates equal to `gate-L.json` (on L, with the harnesses' `build.json`) and `gate-W.json` (on W) in
+   every field except `records_dir`.
+2. The raw archives on L and W: the 14 archives of status.md, each checked against its `.sha256` and
+   the value status.md prints, become the assets of the release `data-2026-10` with their
+   `.sha256` files; `lab/archives.sha256` lists them. sl1's archive is among them, since the paper
+   cites it as the B1 defect's evidence (Deviations, "The evidence"). bf1 and mr1 are development data.
+3. Files the analysis read that no archive held (`results/provenance.json`, "files"): `gate-L.json`,
+   `gate-W.json`, `pilot.json` and `rule_e.json` copied to `lab/gates/` and `lab/analysis-inputs/`,
+   with `measured-L.json` and `measured-W.json` (the code freeze entry, item 5); each sha256 equals
+   the logged one.
+4. Rule E's evidence (the entry "Rule E's choices", item 3, names its four files by sha256; no
+   archive held them): packed as a 15th asset, `p3-raw-2026-10-05-re1-wre1-ff2679cc8.tar.gz`, sha256
+   8f9a93b45a860154c2402eba38ab623595f3b39f70be920b8aec75a5db3ec812, from L's `~/lab/p3/rule-e-L/`
+   and `m7g/re1.*`, `m7g/rule_e*` and W's `C:\Users\alext\lab\p3\rule-e-W\` and `m7g\wrule\`. The
+   four evidence files have the logged sha256 values.
+5. `lab/bin/inputs_hash.py` names the private library and stays private. `lab/README.md` states its
+   rule; `lab/gates/compiled-L.tsv` and `compiled-W.tsv`, written by it from the measured builds,
+   list every file each target compiled, and the rule applied to them, with every `oneport/` file's
+   sha256 taken from ff2679c, gives the recorded hash of all 12 targets on L and 10 on W.
+6. The lab journal (the paper's seed exclusion and "development data" sentences): not published (its
+   P2 lines name the private library). The two sentences now say it is unpublished; the README says
+   so.
+7. The st1 wrapper "outside the repository": it is in st1's asset; the sentence says so.
+8. Data availability ("will be made available", the note for the links), Reproducibility, README
+   ("private until submitted"), `paper/README.md`, NOTICE: filled with the repository and release
+   links and scoped to what the release holds. The DOIs stay a `\ForAlex` note.
+9. Also: Holm (1979) cited from JSTOR's page as the coordinator verified it (no DOI that doi.org
+   resolves, stable URL); `paper/Definitions/mdpi_chicago.bst` removed (unused); the sentence of
+   the Method's "Sanitizer Gate and Declared Gaps" on what a record covers corrected, since W's
+   record has no `ophold` (Linux only).
+
+### 2. Scans
+
+- Archives (each unpacked in its own directory) and `lab/`: no name of the private library, no
+  token, key, password assignment, credential URL or environment dump; e-mail-like strings only in
+  binary TLS bytes of hc1's rows and log. W's job files and rows hold W's state for the quiet gate:
+  the names of busy processes (among them a remote-desktop host, a game's anti-cheat tray, a screen
+  capture tool) in 23 files of `preflight` and warm-up, and Defender's state in every W row. Held
+  for Alex before anything is public (the history already names some of these processes in
+  `design/w-procedure.md`, `design/status.md` and `bench/run/wsys.py`).
+- History (284 commits, 954 blobs, every ref, both branches on origin): no name of the private
+  library; no blob over 1 MB; one author and committer, the noreply address; the only key is
+  `tests/fixtures/tls/test-key.pem` (labelled test material; GitHub may raise a secret-scanning
+  alert); the Jetty harness's `STORE_PASSWORD` is the test store's; e-mails only in the author
+  block, the MDPI class and binary EPS bytes.
+
+### 3. Checks
+
+Against the unpacked assets: `design_macros.py --check-code` and a rewrite equal to the committed
+file; `report_macros.py`, `b2_macros.py`, `ops_macros.py`, `trace_macros.py` `--check`; rewrites of
+`hardcase-macros.tex` and `w-evidence-macros.tex` and `analysis/macros.py` from `summary.json` equal
+to the committed files; `check_text.py` 0 problems; paper tests 129 passed, none skipped. Draft and
+submission builds of the PDF (42 pages; the submission build warns only on the DOI note). One
+adversarial review before the commit; every finding fixed or listed for Alex.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
