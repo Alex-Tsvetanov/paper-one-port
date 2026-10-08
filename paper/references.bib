@@ -299,7 +299,8 @@
 
 % From JSTOR's own page of the article (its page metadata and JSON-LD).
 % JSTOR shows the DOI 10.2307/4615733, but doi.org answers "DOI Not Found" for it, so the entry
-% gives JSTOR's stable URL and no DOI.
+% gives JSTOR's stable URL and no DOI. mdpi.bst prints no url field for a journal article, so the same
+% URL is also in note, which it prints (the style of the OASIS entries).
 @article{holm1979simple,
   author    = {Holm, Sture},
   title     = {A Simple Sequentially Rejective Multiple Test Procedure},
@@ -308,7 +309,8 @@
   number    = {2},
   pages     = {65\bibhyph{,}70},
   year      = {1979},
-  url       = {https://www.jstor.org/stable/4615733}
+  url       = {https://www.jstor.org/stable/4615733},
+  note      = {Available online: \url{https://www.jstor.org/stable/4615733}}
 }
 
 @article{schuirmann1987tost,
@@ -540,13 +542,13 @@
 @unpublished{tsvetanov2026wake,
   author = {Tsvetanov, Alex I.},
   title  = {Bounded-Wait Wake Defects in Portable Event Loops},
-  note   = {In preparation},
+  note   = {In preparation. Available online: \url{https://github.com/Alex-Tsvetanov/paper-wake-defect}},
   year   = {2026}
 }
 
 @unpublished{tsvetanov2026routing,
   author = {Tsvetanov, Alex I.},
   title  = {A Fast {HTTP} Route Matcher with Compile-Time Checks: {RegexMatcher}~v2 Measured Against Sixteen Routers in {C}, {C++}, {Rust} and {Go}},
-  note   = {In preparation},
+  note   = {In preparation. Available online: \url{https://github.com/Alex-Tsvetanov/paper-typed-routing}},
   year   = {2026}
 }
