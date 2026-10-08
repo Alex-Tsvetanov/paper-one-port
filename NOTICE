@@ -44,9 +44,11 @@ of section 3. That includes:
    - mdpi_apacite.sty, mdpi_apacite.bst: derived from the apacite package ("Copyright (C)
      1994-2013 Erik Meijer and any individual authors listed elsewhere in this file"),
      modified by MDPI.
-   - mdpi_chicago.bst: the chicago.bst style by Glenn Paulley (version 4, 1992, as its header
-     states).
    - logo-mdpi.eps, logo-updates.eps, logo-orcid.pdf: logo files supplied with the template.
+
+   Earlier commits also hold paper/Definitions/mdpi_chicago.bst, the chicago.bst
+   style by Glenn Paulley (version 4, 1992, as its header states), supplied with the template.
+   The manuscript never used it, and it was removed from the tree.
 
 4. Programs and libraries that are not in this repository
 

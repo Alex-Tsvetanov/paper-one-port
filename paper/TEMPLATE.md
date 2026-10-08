@@ -2,8 +2,8 @@
 
 ## Source
 
-- The same template as the previous paper (`papers/typed-routing/paper/TEMPLATE.md`), downloaded
-  by Alex from mdpi.com on 2026-09-28.
+- The same template as the previous paper (`paper/TEMPLATE.md` of https://github.com/Alex-Tsvetanov/paper-typed-routing),
+  downloaded by Alex from mdpi.com on 2026-09-28.
 - File: `C:\Users\alext\Downloads\MDPI_template_ACS.zip`, sha256
   `62744425fbcec9cd3e58147cbee65bdec2e2ff0440f29792c26edc97a11b6c70`, checked again on
   2026-10-04 before use.
@@ -12,7 +12,7 @@
 
 ## Files copied into `paper/Definitions/`
 
-Copied from `papers/typed-routing/paper/Definitions/` on 2026-10-04, and each compared with the
+Copied from the previous paper's `paper/Definitions/` on 2026-10-04, and each compared with the
 zip's file: every file is byte for byte as in the zip, `journalnames.tex` included (CRLF line
 endings, as in the zip; this repository has no `.gitattributes` and `core.autocrlf` is false).
 
@@ -26,13 +26,16 @@ endings, as in the zip; this repository has no `.gitattributes` and `core.autocr
 | mdpi.cls | 658dbb5b2db2f6560bf3de3ecff7efac310a5817721eebd7539c1990b5345f01 |
 | mdpi_apacite.bst | c7fffe0231922e5521dc360889fafe941ee26d154c1ce4e167e4ec9f2d13498f |
 | mdpi_apacite.sty | a77a994f978c1860ff14dbcae74631f3ed835b418adbdcf84de2f06d98c34599 |
-| mdpi_chicago.bst | 4a73faf6e0cf1a225d1b9a41a6955d3cc29a55c5fdce662177d00eee3946ce36 |
 | unicode.tex | 1a41f6c85db06401a4582008e6b8933c7212d17541497701797a55fe473d19e0 |
 
 The paper uses `\documentclass[futureinternet,article,submit,oneauthor]`, and the class selects
 the numbered style `mdpi.bst` itself for Future Internet; the Chicago and APA variants are not used.
-The licence terms found in the files are those `papers/typed-routing/paper/TEMPLATE.md` lists; Alex
-decides whether the template files stay in a public repository.
+`mdpi_chicago.bst` (sha256
+`4a73faf6e0cf1a225d1b9a41a6955d3cc29a55c5fdce662177d00eee3946ce36`) was copied with the others and
+removed on 2026-10-08, since the paper does not use it; the class loads it only for a journal of
+the Chicago style. Earlier commits of this repository still hold it.
+The licence terms found in the files are those the previous paper's `paper/TEMPLATE.md` lists.
+`NOTICE`, section 3, states the terms under which the files are kept here.
 
 ## Page ranges and citation ranges without a range dash
 
