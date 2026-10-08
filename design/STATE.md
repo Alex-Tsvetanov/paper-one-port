@@ -268,8 +268,10 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    (`results/w-evidence-macros.tex`). Still open: `results/provenance.json`'s held-back note is out
    of date (`macros-provenance.json` follows it).
 14. The draft is complete (Results, Deviations and Reproducibility, Discussion with the threats,
-   Conclusions, Abstract, appendix of per-cell tables); left for Alex: the title, the AI-use
-   wording, Holm (1979), the public links, and how to name "the study's coordinator". The
+   Conclusions, Abstract, appendix of per-cell tables). Decided by Alex on 2026-10-08 (a00e7e0):
+   the title "One Port for Many Protocols: The Cost, Robustness and Mechanism of First-Bytes
+   Demultiplexing"; no AI-use statement; every decision written as the author's (no "study's
+   coordinator"). Still left for Alex: Holm (1979) and the public links. The
    C3.L.io_uring.h2c cell is "equivalence not shown", not a measured cost (its 95% interval's lower
    end, 1.0197, lies inside the margin); only C3.L.epoll.h2c is a measured cost. The io_uring
    ring holds 128 free provided buffers per worker and is refilled from a growable pool as each is
