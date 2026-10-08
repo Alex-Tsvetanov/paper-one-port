@@ -14,7 +14,8 @@
 
 Copied from the previous paper's `paper/Definitions/` on 2026-10-04, and each compared with the
 zip's file: every file is byte for byte as in the zip, `journalnames.tex` included (CRLF line
-endings, as in the zip; this repository has no `.gitattributes` and `core.autocrlf` is false).
+endings, as in the zip; this repository's `.gitattributes` names only PDF files, so it converts no
+text file, and `core.autocrlf` is false).
 
 | file | sha256 |
 |---|---|
