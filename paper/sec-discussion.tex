@@ -119,8 +119,8 @@ run, which narrows M2 to HTTP/1.1, and sslh-ev's M3 cells are untested, which na
 session resumption, a secondary cell, was not run and narrows nothing. Decided before the
 confirmatory runs, W's churn of h2c and MQTT ran in the pilot only, and the two-core cell on IOCP
 was not run. Not foreseen were the SSH cells of C2, which could not run, and the mixed cell on
-io\_uring. Section~\ref{sec:dev-not-produced} lists the descriptive outputs this paper does not
-report.
+io\_uring. Four descriptive outputs were produced after the analysis, and the system-call counts
+and the relay's operations came from an untimed job run then (Section~\ref{sec:dev-not-produced}).
 
 \runin{Competitors and instruments.} Each competitor runs the configuration its project documents
 for the compared feature, and a better one may exist. HAProxy's client, server and connect timeouts

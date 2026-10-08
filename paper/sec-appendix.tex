@@ -119,3 +119,77 @@ added.\label{tab:b3parts}}
 \end{tabularx}
 \end{adjustwidth}
 \end{table}
+
+\begin{table}[H]
+\caption{Operations and copies of the cost cells, per connection in C1 and C3 and per request in C2,
+from the valid windows (WL5). Each value is the mean over an arm's valid windows; ``Windows'' gives
+them as one-port/dedicated. Operations are the system calls and ring submissions the counters name.
+The bytes are payload bytes, copied in user space by the server's own code or received and sent
+across the boundary. Both arms run replay and in-process dispatch. No byte was peeked in any
+arm.\label{tab:ops-cost}}
+\begin{adjustwidth}{-\extralength}{0cm}
+\centering\scriptsize
+\begin{tabularx}{\fulllength}{@{}l l l X r r r r r r r r@{}}
+\toprule
+& & & & \multicolumn{2}{c}{\textbf{Operations}} & \multicolumn{2}{c}{\textbf{Copied}} &
+\multicolumn{2}{c}{\textbf{Received}} & \multicolumn{2}{c}{\textbf{Sent}} \\
+\textbf{Hyp.} & \textbf{Host, backend} & \textbf{Protocol} & \textbf{Windows} & \textbf{One-port} &
+\textbf{Ded.} & \textbf{One-port} & \textbf{Ded.} & \textbf{One-port} & \textbf{Ded.} &
+\textbf{One-port} & \textbf{Ded.} \\
+\midrule
+\tabinput{../results/tables/ops-cost}
+\bottomrule
+\end{tabularx}
+\end{adjustwidth}
+\end{table}
+
+\begin{table}[H]
+\caption{Operations and copies per connection of M1's cells, one-port mode with in-process dispatch
+in each detection mode, as means over the valid windows, in the units of
+Table~\ref{tab:ops-cost}. ``Wakeups'' counts the wakeups during detection.\label{tab:ops-m1}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l l r r r r r r X@{}}
+\toprule
+\textbf{Host, backend} & \textbf{Protocol} & \textbf{Mode} & \textbf{Windows} & \textbf{Operations} &
+\textbf{Copied} & \textbf{Received} & \textbf{Sent} & \textbf{Peeked} & \textbf{Wakeups} \\
+\midrule
+\tabinput{../results/tables/ops-m1}
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\caption{Operations and copies per relayed connection of the server's relay on L, from \JobSt's
+untimed windows, in front of the stub as in M3. The load is open-loop churn at \TraceRate{}
+exchanges per second. Each value is the front's count over its process divided by the connections it relayed, in
+the units of Table~\ref{tab:ops-cost}. The loop's waits and the accepts that find no connection
+depend on the load.\label{tab:ops-relay}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l l r r r r r r X@{}}
+\toprule
+\textbf{Backend} & \textbf{Protocol} & \textbf{Mode} & \textbf{Relayed} & \textbf{Operations} &
+\textbf{Copied} & \textbf{Received} & \textbf{Sent} & \textbf{Peeked} & \textbf{Wakeups} \\
+\midrule
+\tabinput{../results/tables/ops-relay}
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\caption{The check of the server's system-call counters, one untimed window per cost cell of L in
+each mode, from \JobSt. Each entry gives the row's checks that equal the count of the same calls,
+by \texttt{perf stat} (the check) and by \texttt{perf trace -s} (its cross-check), over the row's
+checks. The shortfall is \texttt{perf trace -s}'s largest, as a percentage of \texttt{perf stat}'s
+count of a call, over the cell's two rows. C1 and C3 share one untimed load, open-loop churn, and
+C2 runs keep-alive.\label{tab:counter-check}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l l r r r r X@{}}
+\toprule
+& & & \multicolumn{2}{c}{\textbf{Dedicated}} & \multicolumn{2}{c}{\textbf{One-port}} & \\
+\textbf{Hyp.} & \textbf{Backend} & \textbf{Protocol} & \textbf{Stat} & \textbf{Trace} & \textbf{Stat} &
+\textbf{Trace} & \textbf{Shortfall \%} \\
+\midrule
+\tabinput{../results/tables/counter-check}
+\bottomrule
+\end{tabularx}
+\end{table}

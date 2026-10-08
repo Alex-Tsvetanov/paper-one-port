@@ -8,7 +8,11 @@
 % hard-case runners' outputs). Counts over the results files and the tables of the results come
 % from ../results/report-macros.tex and ../results/tables/ (paper/report_macros.py); two readings
 % of archived W rows that the revision log and the frozen text promise, from
-% ../results/w-evidence-macros.tex (paper/w_evidence_macros.py).
+% ../results/w-evidence-macros.tex (paper/w_evidence_macros.py). Section 10's four descriptive
+% outputs come from ../results/b2-macros.tex (paper/b2_macros.py, B2's distributions),
+% ../results/ops-macros.tex (paper/ops_macros.py, operations and copies per connection from the
+% windows) and ../results/trace-macros.tex (paper/trace_macros.py, the untimed job st1), with their
+% tables in ../results/tables/.
 \documentclass[futureinternet,article,submit,oneauthor]{Definitions/mdpi}
 
 % MDPI internal commands, as template.tex sets them for a submission.
@@ -48,6 +52,9 @@
   \ifsubmission\PackageError{main}{../results/macros.tex is missing}{}\else\input{result-placeholders}\fi}
 \input{../results/report-macros}
 \input{../results/w-evidence-macros}
+\input{../results/b2-macros}
+\input{../results/ops-macros}
+\input{../results/trace-macros}
 
 % A run-in heading at the start of a paragraph; MDPI's \paragraph sets its heading on a line of
 % its own.
@@ -78,6 +85,9 @@
 \newcommand{\SshLine}{\texttt{SSH-2.0-oneport}}
 \newcommand{\LoopbackNet}{127.0.0.0/8}
 \newcommand{\PNinetyNine}{the 99th percentile}
+% B2's table: its column head, and the nearest rank that gives the 99th percentile.
+\newcommand{\PNinetyNineHead}{99th pct.}
+\newcommand{\NearestRankNinetyNine}{\ensuremath{\lceil 0.99\,n \rceil}}
 % The body of a generated table, read with TeX's own \input: LaTeX's \input starts a cell inside an
 % alignment, so the \bottomrule after it would be misplaced.
 \makeatletter
@@ -85,6 +95,8 @@
 \makeatother
 % The lab job that ran the secondary cells first and was set aside by the B1 change.
 \newcommand{\JobSlOne}{sl1}
+% The untimed lab job of the system-call counts, after the analysis (Section~\ref{sec:dev-not-produced}).
+\newcommand{\JobSt}{st1}
 % Formulas of the frozen statistics whose constants are part of their notation.
 \newcommand{\IntervalLevel}{\ensuremath{1-2\alpha}}
 \newcommand{\RerunCap}{\ensuremath{\lceil R/4 \rceil}}

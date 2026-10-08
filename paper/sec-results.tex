@@ -94,9 +94,48 @@ count covers the windows that record one, the one-port windows with in-process d
 other measured windows, a check of the server's counters per class after the analysis found only
 each script's protocol and the probe. So B1 \BOneVerdict{} and B2 \BTwoVerdict. In
 \HardcaseLWokeMoreThanOnce{} runs on L and \HardcaseWWokeMoreThanOnce{} on W the detection woke
-more than once before it decided. B2's distributions of lateness and decision latency, which the
-frozen text reports and does not test, are in no generated results file, and this paper does not
-report them.
+more than once before it decided.
+
+\runin{B2's distributions.} Table~\ref{tab:b2} gives the lateness of timed events and the decision
+latency per backend, which the frozen text reports and does not test. They come from the same runs,
+and every run of a backend that holds a value counts, whatever its case, detection mode or
+dispatch. The lateness is the time from a timed event's deadline to the return of the wait that
+the loop handled it after. Its median was \BTwoDistEpollLatenessMedian~ms on epoll,
+\BTwoDistIouringLatenessMedian~ms on io\_uring and \BTwoDistIocpLatenessMedian~ms on IOCP. The
+largest lateness, \BTwoDistEpollLatenessMax, \BTwoDistIouringLatenessMax{} and
+\BTwoDistIocpLatenessMax~ms, lies below the guard band $G$ of each host, \GuardL~ms on L and
+\GuardW~ms on W. The decision latency runs from the client's last write before the end of detection
+to that end, on one clock. In the runs no timer ended, its median was
+\BTwoDistEpollDecisionBytesMedian~$\mu$s on epoll, \BTwoDistIouringDecisionBytesMedian~$\mu$s on
+io\_uring and \BTwoDistIocpDecisionBytesMedian~$\mu$s on IOCP. These runs include HC21 and HC22 with
+a partial signature, whose detection ends on the client's half-close or reset, a pause after its
+last write. There are \BTwoDistEpollDecisionBytesShutN{} such runs on each Linux backend and
+\BTwoDistIocpDecisionBytesShutN{} on IOCP. Their latency holds that pause: at least
+\BTwoDistEpollDecisionBytesShutMin~$\mu$s on epoll, \BTwoDistIouringDecisionBytesShutMin~$\mu$s on
+io\_uring and \BTwoDistIocpDecisionBytesShutMin~$\mu$s on IOCP. On the Linux backends they form
+the upper tail: every other run took at most \BTwoDistEpollDecisionBytesOtherMax~$\mu$s on epoll and
+\BTwoDistIouringDecisionBytesOtherMax~$\mu$s on io\_uring. On IOCP \BTwoDistIocpDecisionBytesOtherAboveN{}
+other runs took longer than any of them, in \BTwoDistIocpDecisionBytesOtherAboveCases, the longest
+\BTwoDistIocpDecisionBytesOtherMax~$\mu$s. In the runs a timer ended, detection ends when the loop
+handles the timer, so the latency holds the time from the client's last write to that handling.
+
+\begin{table}[H]
+\caption{B2's distributions per backend, over the hard-case runs: L's \BTwoDistEpollRuns{} runs on
+each Linux backend and W's \BTwoDistIocpRuns{} on IOCP. The lateness is that of each timed event
+past its deadline, in the runs a timer ended. The decision latency runs from the client's last write
+before the end of detection to that end. A run with no such write has none: \BTwoDistEpollNoWriteN{}
+per backend on L and \BTwoDistIocpNoWriteN{} on W. Its column gives \PNinetyNine, the value at
+rank \NearestRankNinetyNine{} of the sorted values.\label{tab:b2}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l X r r r r r@{}}
+\toprule
+\textbf{Backend} & \textbf{Distribution (unit)} & \textbf{Runs} & \textbf{Min} & \textbf{Median} &
+\textbf{\PNinetyNineHead} & \textbf{Max} \\
+\midrule
+\tabinput{../results/tables/b2}
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \runin{B3.} Table~\ref{tab:b3} gives every cell. Of the \BThreeHolm{} cells in Holm, \BThreePassed{}
 pass under both computations, which disagree on \BThreeDisagree{} cells. In each pass the
@@ -316,9 +355,83 @@ case, on epoll and io\_uring. In the partial-ClientHello case it was
 \SecBThreeOtherModeSecBThreeOtherModeIouringPartialHelloValueMedian{} times. Peek leaves the received
 bytes queued in the kernel, where $K_q$ counts them.
 
-\runin{Not reported.} The frozen text also lists operations and copies per connection, the system
-calls of the proxies, and the check of the server's system-call counters. None of them is in a
-generated results file, so this paper reports no value for them (Section~\ref{sec:dev-not-produced}).
+\runin{Counts.} The operations and copies per connection, the system calls of the proxies and the
+check of the server's system-call counters are in Section~\ref{sec:res-ops}.
+
+\subsection{Operations, Copies and System Calls}\label{sec:res-ops}
+
+These outputs are counts. None is timed and none decides anything. Two sources hold them. The
+measured windows hold the server's counters over each window's process, and Section~\ref{sec:counters}
+defines them. An untimed lab job, \JobSt, ran after the analysis on L's measured build. It ran the
+frozen tool for these windows, after the freeze guard, and holds counts only
+(Section~\ref{sec:dev-not-produced}). Its churn is open loop at \TraceRate{} exchanges per second for
+\TraceSeconds~s after \TraceWarmSeconds~s, and its keep-alive uses \TraceKaConns{} connections for
+\TraceKaSeconds~s. C1 and C3 share that churn, so their untimed windows differ only in name.
+
+The copy counters count bytes, not buffers. ``Copied in user space'' counts each move of a payload
+byte by the server's own code from one user-space place to another. The bytes that a system call
+moves count as received, sent or peeked. Producing a byte, as a handler, OpenSSL or nghttp2 does,
+is not a copy.
+
+\runin{Operations and copies, in-process.} Appendix Tables~\ref{tab:ops-cost} and~\ref{tab:ops-m1}
+give, per arm, the means over the valid windows of each window's counts, per connection, and per
+request in C2. Table~\ref{tab:ops-cost} gives operations, bytes copied in user space and bytes
+received and sent; Table~\ref{tab:ops-m1} adds bytes peeked and wakeups during detection.
+Operations are the system calls and ring submissions the counters name. In replay the counter of
+bytes copied in user space recorded none in any arm of the \WlFiveCostCells{} cost cells, and none
+was peeked. The largest means are \WlFiveCostCopiedMax{} and \WlFiveCostPeekedMax{} bytes. One-port
+mode's operations differed from dedicated mode's by at most \WlFiveCostOpsMaxDiffConn{} per
+connection in C1 and C3 and \WlFiveCostOpsMaxDiffReq{} per request in C2. In M1, peek copied
+\WlFiveMOneLEpollHttpPeekPeeked{} bytes per connection with \texttt{MSG\_PEEK}, which stay queued in
+the kernel, on every backend.
+
+\runin{Operations and copies, relay.} No measured window runs the relay in peek. So both detection
+modes of the relay come from \JobSt, under one load, per relayed connection (Appendix
+Table~\ref{tab:ops-relay}). Relay dispatch has no counterpart in dedicated mode, so peek is read
+against replay. These counts depend on the load. At a low rate each step waits on its own, so the
+loop's waits and the accepts that find no connection are more per connection. They are
+therefore not those of M2's and M3's relay windows, which ran at other loads. The relay reads into its buffers and sends from them, so each relayed byte
+counts once as received and once as sent. Its counter of bytes copied in user space recorded none
+in either mode on either backend: the largest mean is \TraceRelayCopiedMax. In peek it peeked
+\TraceRelayEpollHttpPeekPeeked{} bytes per relayed connection for HTTP/1.1 and
+\TraceRelayEpollTlsSniPeekPeeked{} for TLS on epoll. Its operations per relayed connection for
+HTTP/1.1 were \TraceRelayEpollHttpReplayOps{} in replay and \TraceRelayEpollHttpPeekOps{} in peek on
+epoll, and \TraceRelayIouringHttpReplayOps{} and \TraceRelayIouringHttpPeekOps{} on io\_uring.
+
+\runin{System calls of the proxies.} Table~\ref{tab:syscalls} gives each proxy's system calls per
+connection, from \texttt{perf trace -s}, in front of the stub as in M3, with the server's relay
+beside them. For HTTP/1.1 nginx made \TraceSysNginxHttpCalls{} calls per connection, HAProxy
+\TraceSysHaproxyHttpCalls, Envoy \TraceSysEnvoyHttpCalls, caddy-l4 \TraceSysCaddyLFourHttpCalls{}
+and sslh-ev \TraceSysSslhEvHttpCalls. The server's relay made \TraceSysRelayHttpCalls. For the calls
+that the server's checks name, \texttt{perf stat}'s count stands beside that of \texttt{perf trace
+-s}. In every row \texttt{perf trace -s} counted fewer of them, by \TraceSysShortfallMinPct\% to
+\TraceSysShortfallMaxPct\%, and reported \TraceSysLost{} events lost.
+
+\runin{The counter check.} The untimed windows cover the \TraceCostCells{} cost cells of L in both
+modes. In them, \TraceCostChecksStatAgree{} of the \TraceCostChecks{} checks of the server's counters
+equal \texttt{perf stat}'s count of the same calls. Appendix Table~\ref{tab:counter-check} gives them per
+cell. That is the check the frozen text asks for, read before the freeze as a comparison with
+\texttt{perf stat}. \texttt{perf trace -s} agreed in \TraceCostChecksTraceAgree, short of
+\texttt{perf stat} by at most \TraceCostShortfallMaxPct\% of a call's count, with \TraceCostLost{}
+events reported lost. In the relay's \TraceRelayRows{} rows, \TraceRelayChecksStatAgree{} of
+\TraceRelayChecks{} checks equal \texttt{perf stat}'s count.
+
+\begin{table}[H]
+\caption{The proxies' system calls per connection on L, from \JobSt's untimed windows: open-loop
+churn at \TraceRate{} exchanges per second, in M3's arrangement with the stub. ``All'' counts every call that
+\texttt{perf trace -s} saw, over the connections the stub accepted. ``Checked'' counts only the
+calls the server's checks name, by \texttt{perf trace -s} and by \texttt{perf stat}; the shortfall
+is their difference over \texttt{perf stat}'s count.\label{tab:syscalls}}
+\centering\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l r r r r r X@{}}
+\toprule
+\textbf{System} & \textbf{Protocol} & \textbf{Conns.} & \textbf{All} & \textbf{Checked, trace} &
+\textbf{Checked, stat} & \textbf{Shortfall \%} & \textbf{Load ended ok} \\
+\midrule
+\tabinput{../results/tables/syscalls}
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \subsection{The Competitors' Hard Cases}\label{sec:res-comp}
 

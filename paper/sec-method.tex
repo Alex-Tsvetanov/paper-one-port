@@ -507,7 +507,9 @@ defaults, \CompReps{} replicates each. A system with no timer is observed for at
 
 On L, one untimed window per cost cell checks the server's system-call counters against the
 kernel's count of the same calls' entry tracepoints, read with \texttt{perf stat}. \texttt{perf
-trace -s} stays beside it as a cross-check, and its shortfall is reported beside the counts.
+trace -s} stays beside it as a cross-check, and its shortfall is reported beside the counts. The
+proxies' system calls per connection come from \texttt{perf trace -s} over untimed windows of the
+same kind. An untimed window holds counts only, and is not a window of any cell.
 
 Four kinds of cell are reported as not run, each with its reason. TLS with session resumption
 (\ResumptionCells{} cells) is not run. The frozen settings of every endpoint exclude session tickets

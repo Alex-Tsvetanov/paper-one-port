@@ -1,9 +1,9 @@
 \section{Deviations and Reproducibility}\label{sec:deviations}
 
 Every change after the hypotheses freeze is in the revision log, with its reason. Each change to
-the frozen code or rules was logged before any data it governs. Two entries came after the data
+the frozen code or rules was logged before any data it governs. Three entries came after the data
 they concern: the escaping of Section~\ref{sec:dev-escaping}, which changes no decision, and the
-reading of Section~\ref{sec:dev-runners}. This section lists the changes and records that bear on
+readings of Sections~\ref{sec:dev-runners} and~\ref{sec:dev-not-produced}. This section lists the changes and records that bear on
 the results, in the order they were made.
 
 \subsection{Decisions Made before the Data}\label{sec:dev-before}
@@ -146,14 +146,30 @@ floating-point noise it is not zero in M2's HTTP/1.1 cell on epoll, nor in some 
 In that cell the two middle values differ by the smallest step of a floating-point number, and it
 passes either way.
 
-\subsection{Outputs Not Produced}\label{sec:dev-not-produced}
+\subsection{Outputs Produced after the Analysis}\label{sec:dev-not-produced}
 
-The frozen text lists four descriptive outputs that no generated results file holds. They are B2's
-distributions of lateness and decision latency, the operations and copies per connection, the
-system calls of the proxies, and the check of the server's system-call counters. The rows hold the
-server's counters and the hard cases' times, but no analysis of them was made for this paper. No
-results file holds the untimed windows of the two system-call outputs. This paper reports none of
-the four, which departs from the frozen list of secondary analyses.
+The frozen text lists four descriptive outputs that the analysis code does not compute. They are
+B2's distributions of lateness and decision latency, the operations and copies per connection, the
+system calls of the proxies, and the check of the server's system-call counters. The first draft of
+these results reported none of them. A reading in the revision log says how each is produced. It
+was made after the confirmatory analysis, before any generator wrote their values and before the
+untimed job below ran. Generators outside the analysis code write them, each input named by its
+SHA-256.
+
+Two come from archived rows. B2's distributions come from the hard-case runs, and the operations
+and copies of in-process dispatch from the counters of the measured windows. The rest needed
+untimed windows that no job had run on the frozen build. They are the proxies' system calls, the
+counter check, and the relay in peek, which no measured window runs, beside the relay in replay
+under the same load. They ran as one lab job, \JobSt, on L after the analysis, with the frozen build and the
+frozen tool written for these windows. That tool predates
+the freeze guard and calls none. A wrapper outside the repository ran the guard first, and the
+job's clearance names the code freeze and the later change of Section~\ref{sec:dev-b1}. The tool
+also marks every row as development data, a constant it has carried since engineering. The reading
+records that this field does not make the job's rows development data, since they come from the
+frozen build after the pilot entry. A few descriptions were added after the values were seen: B2's
+runs of HC21 and HC22 counted apart, and the largest values over some tables. They describe the
+reported values and are listed in the revision log. None of the four decides anything, and no
+decision moved.
 
 \subsection{Reproducibility}\label{sec:dev-repro}
 
