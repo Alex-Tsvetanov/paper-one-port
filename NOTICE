@@ -1,8 +1,14 @@
 paper-one-port
 Copyright 2026 Alex I. Tsvetanov
 
-This repository is licensed under the Apache License, Version 2.0 (see LICENSE), except for
-the third-party files named in section 2 below.
+The code in this repository is licensed under the Apache License, Version 2.0 (see LICENSE).
+The grant covers the code only. The code is:
+
+  CMakeLists.txt, .clangd, bench/, tests/ and analysis/, and the Python programs in paper/
+  (paper/*.py).
+
+The grant does not cover any other file, in particular the manuscript (section 2) and the
+third-party files of section 3.
 
 1. Code adapted from Netty (Apache License, Version 2.0)
 
@@ -17,7 +23,13 @@ the third-party files named in section 2 below.
    Version 2.0. Netty's NOTICE.txt refers to the licences of the components that Netty depends
    on; none of them is part of this repository.
 
-2. Third-party files not covered by the Apache-2.0 grant
+2. The manuscript, not covered by the Apache-2.0 grant
+
+   The manuscript sources (paper/main.tex, the paper/sec-*.tex files,
+   paper/result-placeholders.tex and paper/references.bib) and every PDF or Word copy built
+   from them are not covered by the Apache-2.0 grant. No licence is granted for them.
+
+3. Third-party files not covered by the Apache-2.0 grant
 
    paper/Definitions/ holds the MDPI LaTeX template (MDPI_template_ACS.zip, downloaded by the
    author from mdpi.com on 2026-09-28; mdpi.cls declares version v6.5a dated 2026-09-11;
@@ -34,7 +46,7 @@ the third-party files named in section 2 below.
      states).
    - logo-mdpi.eps, logo-updates.eps, logo-orcid.pdf: logo files supplied with the template.
 
-3. Programs and libraries that are not in this repository
+4. Programs and libraries that are not in this repository
 
    The systems and libraries that the benchmarks run against (OpenSSL, nghttp2, nginx, HAProxy,
    Envoy, Caddy with caddy-l4, sslh, Netty, Jetty, cmux and hyper-util) are downloaded from the
