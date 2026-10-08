@@ -8132,6 +8132,66 @@ decision within T_OBS are also counted by their reply.
    wording of section 4.
 2. The items of STATE.md section 5 (8, 9 and 13) are unchanged.
 
+## Section 10's four descriptive outputs and lab job st1, 2026-10-08
+
+The paper's results half reported none of four outputs that section 10 and section 5.2 promise: B2's
+distributions, the operations and copies per connection, the proxies' system calls, and the check of
+the server's system-call counters (its section "Outputs Not Produced"). The revision log's entry
+"Section 10's four descriptive outputs not yet reported, and their untimed windows on the frozen
+build (a reading)" (bd9a720) says how each is produced. Sections 1 and 2 were written before lab job
+st1 started; its follow-up is appended after it ends. All four are descriptive and decide nothing.
+Nothing here is a result.
+
+### 1. From archived rows, with no run
+
+- B2's distributions (the entry, item 3): `paper/b2_macros.py --l HL1 --w WH1` writes
+  `results/b2-macros.tex` and `results/tables/b2.tex` from hl1's `hardcases.jsonl` (661f1cf9...) and
+  wh1's (e67b3ab9...), the files `results/hardcase-macros.tex` names, read from W's unpacked copies of
+  the pc1 and wh1 archives (`C:\Users\alext\lab\p3\confirm1\unpacked\`; each archive's sha256 checked
+  again on 2026-10-08: d18221a5... and 46df3e6e..., as STATE.md and its `.sha256` give them).
+- Operations and copies per connection from the windows (the entry, item 4 (i) and (ii)):
+  `paper/ops_macros.py` writes `results/ops-macros.tex`, `results/tables/ops-cost.tex` and
+  `results/tables/ops-m1.tex` from the window rows of pc1's cost-L (ee257a16...), wc1 and wc2's
+  cost-W (9707e942...), ml1's m-L (26b971a6...) and wm1's m-W (f296229a...), each a file
+  `results/summary.json` names. The archives of all ten jobs in `confirm1\archives\` match their
+  `.sha256` files and STATE.md.
+
+### 2. st1, the plan
+
+- What it runs (the entry, item 5 (iii)): 33 calls of `bench/run/systrace.py` as frozen (the same
+  file at CODE_FREEZE, CHANGE_COMMIT and this commit): 24 cost calls, one per cost cell of L (C1
+  `churn`, C2 `keepalive`, C3 `open`; epoll then io_uring; HTTP/1.1, h2c, TLS, MQTT), each with a
+  dedicated then a one-port row (48 rows); 6 proxy calls, nginx, HAProxy, Envoy, caddy-l4, sslh-ev and
+  the server's relay, each with a `tls-stub` and an `http1` row (12 rows); and 3 relay calls (replay
+  on io_uring; peek on epoll; peek on io_uring), 2 rows each (6 rows). 66 rows expected in
+  `trace.jsonl`. Each cost row holds an idle pass and the load; each relay row an idle pass too.
+- Build: `~/lab/p3/m7g/records-ff2679c/build-release`, `gate-L.json` (c6517177...).
+- Clone: `~/lab/p3/m7g/st-src1`, a fresh clone of the lab remote at the commit that adds this
+  section (it holds the entry, bd9a720, before it). Out: `~/lab/p3/st-L`, new and empty.
+- Wrapper, outside the repository, in `~/lab/p3/m7g/`: `st_run.sh` (sha256
+  c65dae5bcc1618b016e769e49291d5b72e4a9d74a9987c74b5cceddc85f04cc7) runs `st_guard.py` (sha256
+  34b41ce7796b825507cb57932fb5a8e0aa46cc17555d2ff8ef241cc1f7afc65f) and then the 33 calls, each
+  call's exit status and row count into `st-L/calls-st1.jsonl`. `st_guard.py` writes the job's
+  provenance (`runlib.job_provenance`: commit, build, binaries, `runner_commit`) and calls the
+  clone's `freeze_guard.check` with CODE_FREEZE ff2679c, the clone's seeds file, `gate-L.json`, the
+  pilot entry's output, rule E's file, `oneport` and `opgen` by sha256, and the four entries the job
+  applies; it writes `provenance-st1.json` and `clearance-st1.json` and exits 0 only if the guard
+  cleared the run and the clone's `bench` and `analysis` are clean. `st_run.sh` refuses an output
+  directory that already holds `trace.jsonl`.
+- Launch, from bash at nice 0:
+  `bash -c '(setsid nohup bash ~/lab/p3/m7g/st-src1/bench/run/lab_job.sh ~/lab/p3/m7g st1 bash ~/lab/p3/m7g/st_run.sh ~/lab/p3/m7g/st-src1 ~/lab/p3/st-L st1 > /dev/null 2>&1 &)'`;
+  watch `~/lab/p3/m7g/st1.pid` and `st1.done`, never `pgrep -f`.
+- Follow-up, after `st1.done`: the clearance names `change_commit` 9cae2de; per call its exit and
+  rows; per row `untimed` true, `development` true (the runner's constant, the entry's item 5 (ii)),
+  the server's or front's exit, opgen's counts, `perf_lost`, the checks; `paper/trace_macros.py`
+  writes the macros of (c), (d) and item 4 (iii); the archive
+  `~/lab/p3-raw-2026-10-08-st1-ff2679cc8.tar.gz` (with `st-L`, the job files of st1 and the two
+  wrapper files) and its `.sha256`, a copy on W in `C:\Users\alext\lab\`; a line in Papers
+  `lab/journal.jsonl`.
+- Failures (the entry, item 5 (v)): a row whose check does not agree, or whose server, front, stub or
+  opgen failed, is reported as it is; a call that ends without rows is listed with its exit and log.
+  Nothing runs again. Nothing runs on W.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
