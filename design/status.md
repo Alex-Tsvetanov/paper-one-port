@@ -8379,6 +8379,17 @@ file; `report_macros.py`, `b2_macros.py`, `ops_macros.py`, `trace_macros.py` `--
 to the committed files; `check_text.py` 0 problems; paper tests 129 passed, none skipped. Draft and
 submission builds of the PDF (42 pages; the submission build warns only on the DOI note). One
 adversarial review before the commit; every finding fixed or listed for Alex.
+`bench/check_rows.py` with the two gates of `lab/gates/` binds all 48,117 rows of the assets'
+`windows.jsonl`, `hardcases.jsonl` and `competitor_cases.jsonl` (rule E's included), none refused;
+st1's 66 rows name no binary and are bound through its clearance (the section above).
+
+### 4. What waits
+
+The 15 assets with their `.sha256` files, the release notes and `finish.sh` (the visibility change,
+the release, the anonymous download check of every asset and the Papers bump) are in
+`C:\Users\alext\lab\p3\publish\` on W; `re1-wre1` is also beside the other archives on L
+(`~/lab/`) and W (`C:\Users\alext\lab\`). They run once Alex clears W's process names and
+Defender state (section 2).
 
 ## M7 checklist
 
