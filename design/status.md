@@ -8192,6 +8192,127 @@ Nothing here is a result.
   opgen failed, is reported as it is; a call that ends without rows is listed with its exit and log.
   Nothing runs again. Nothing runs on W.
 
+### 3. st1, the job and its rows
+
+- st1 ran as planned: clone `m7g/st-src1` at fe65818 (this section's first commit), launched from
+  bash, `lab_job.sh` at nice 0 (lab lock, clock floor, THP madvise, NOTRACK), 2026-10-08 06:02:43
+  to 06:14:09 +0300, `st1.done` exit 0 (`st1.log`, 148 lines). `st_guard.py` cleared the run before
+  any call: `clearance-st1.json` names code_freeze ff2679c, head fe65818 and `change_commit`
+  9cae2deff2b01896bfab25c5af4c610381dc3c1d, the four entries, the seeds file (3a2dd436...),
+  `pilot.json` (bc48a736..., logged in 7455e28), `rule_e.json` (fb50302a..., logged in 77cedae),
+  the gate `gate-L.json` and the binaries oneport 4c64edc25f76 and opgen a25faa11e47f;
+  `provenance-st1.json` names commit ff2679c, `runner_commit` fe65818, `runner_dirty` false.
+- Calls: 33, each exit 0, each 2 rows (`calls-st1.jsonl`). Rows: 66 in `trace.jsonl`, 48 cost and 18
+  proxy, each planned row once. Every row `untimed` true and `development` true (the runner's
+  constant; the entry's item 5 (ii)); `load` probe exit 0 and opgen exit 0 in all 66; opgen ok, no
+  error and no failed connect in all 66; `perf_lost` 0 in all 66; `perf_exit` trace 0 and stat -2 in
+  all 66 (perf stat stopped by SIGINT through sudo, as systrace.py stops it; its counts were read
+  in every row). The 48 cost rows: server exit 0 in all. The 18 proxy rows: the stub accepted 5,002
+  connections in each; the front's exit 0 in 14, -15 in
+  HAProxy's two and 15 in sslh-ev's two (each stopped by SIGTERM, as in hc1).
+- Section 10's check: `agrees_with_perf_stat` true in all 48 cost rows and in all 8 rows of the
+  server's relay (360 of 360 cost checks, 60 of 60 relay checks); the cross-check `agrees` true in
+  17 of the 48 cost rows (297 of the 360 cost checks), every disagreement a shortfall of `perf
+  trace -s` against `perf stat`: perf trace counted fewer calls than perf stat in 64 cost checks
+  (one of them within the waits' slack) and 23 relay checks, and more in none; no row has any other
+  problem. The 10 proxy rows
+  of the five proxies have no counter check (`agrees_with_perf_stat` null) and `agrees` true. Every
+  row's fingerprint: host alex-laptop, kernel 7.2.6-arch2-1, governor performance, boost 0, pinned,
+  NOTRACK active, the clock floor and THP set by the job.
+- Files, by sha256 (`st-L/` on L, and out of the archive on W):
+  st1's `trace.jsonl` sha256 9b0d1d0e8eb8ed9559454255ab264deadd408adacb2061420487bf52eba13200
+  st1's `calls-st1.jsonl` sha256 62f4d34d724a8b38b2d948e94fcf65fc01e7d02a945203f8c51c6ffafb9feff6
+  st1's `clearance-st1.json` sha256 567fd2b973c51a8658be0a4ce4134255e4cad508d7f62446639c77e246bdfdce
+  `provenance-st1.json` 230ac2dac3401c45ce503097c21e7b2c37887cda5350cda85037642ea7805646,
+  `st1.inputs.json` 68aa7da6d7090265facabe7b7cfd1886eaf289f17822870217eae292213bed15 (the same as
+  sl3's and hc1's), `st1.log` 9946723e48a5cab6b6a2d155d5f636f366e255583a72fdc7bbab5d44351e020a;
+  `raw/` holds 718 files (the servers', fronts', stubs' and opgen's outputs and perf's; opgen's
+  report files hold times, which nothing reads).
+
+### 4. Archive and journal
+
+- Archive `~/lab/p3-raw-2026-10-08-st1-ff2679cc8.tar.gz` on L (113,604 bytes, 784 paths: `st-L`, the
+  job files `st1.pid`, `st1.start`, `st1.done`, `st1.log`, `st1.clock.json`, `st1.thp.json`,
+  `st1.notrack.json`, and `st_run.sh` and `st_guard.py`), sha256
+  6aadecd3bd4a0f44930f3d924fbf953250d7b885690db3e2a4fc0d15f61806a1, with its `.sha256` in `sha256sum`
+  form (`sha256sum -c` OK on L). Copy on W in `C:\Users\alext\lab\` (`sha256sum -c` OK there),
+  unpacked into `C:\Users\alext\lab\p3\confirm1\unpacked\st1\`, where the three files above have
+  the sha256 given. Raw data stays out of git. The clone `st-src1` is left as it is.
+- Lab journal (Papers `lab/journal.jsonl`, line 167): st1, worded "frozen, untimed", host
+  alex-laptop, `code_commit` fe65818.
+
+### 5. The macros and the paper
+
+- `paper/b2_macros.py` writes `results/b2-macros.tex` (69 macros, sha256
+  efa39518d32cf3435f0dc1a80bc97fdaec5ba01e53eabc9305961d79f01c073c) and `results/tables/b2.tex`: per
+  backend the runs (10,496 on each Linux backend, 5,248 on IOCP), the runs with no write before the
+  end of detection (384, 384, 192), and count, minimum, median, 99th percentile by the nearest rank
+  and maximum of the lateness (704, 704, 352 runs), of the decision latency of the runs no timer
+  ended (9,600, 9,600, 4,800) and of the runs a timer ended (512, 512, 256). Added after the values
+  were seen (the entry's item 7 (a)): within the runs no timer ended, HC21's and HC22's runs apart
+  (192, 192, 96; at least 5,057.8, 5,050.9 and 5,081.8 us), the other runs' largest (902.6 and 943.4
+  us on L; on IOCP 151,299.7 us) and the other runs above the largest of HC21 and HC22 (0, 0 and 5 on
+  IOCP, in HC2, HC9, HC10 and HC23). The generator refuses a row of another job, a development row,
+  a backend outside its host's, a run whose lateness and timed event disagree, and L's two backends
+  differing in the counts the paper gives once for both.
+- `paper/ops_macros.py` writes `results/ops-macros.tex` (565 macros, sha256
+  7c682e7a3abdcd5876336cec61dc48f90181a024f570bed99b18c1b6de21c669), `results/tables/ops-cost.tex` and
+  `results/tables/ops-m1.tex`: per cost cell and arm (34 cells) and per M1 cell and detection mode (6
+  cells), the valid windows and the means of operations, bytes copied in user space, received, sent
+  and peeked, and wakeups during detection; per request in C2. Item 7 (b)'s maxima: the arms'
+  operations differ by at most 0.077 per connection (C3.L.epoll.tls) and 0.001 per request; copied
+  and peeked 0.0 in every cost arm.
+- `paper/trace_macros.py` writes `results/trace-macros.tex` (335 macros, sha256
+  eda07772f5bf090e7dc78b07504dc5d69544b01d9bc97c72682e885934b09a38) and `results/tables/counter-check.tex`,
+  `syscalls.tex` and `ops-relay.tex`: the counter check (360 of 360 cost checks equal to perf stat,
+  297 to perf trace, largest shortfall 0.42%, 0 lost; relay 60 of 60), the system calls per
+  connection of the five proxies and the relay (perf trace shortfall 0.02% to 0.12% on the checked
+  calls, 0 lost) and the relay's operations per relayed connection in both modes on both backends
+  (no byte copied in user space). It checks the three inputs against section 3's sha256, the
+  clearance's commits and binaries (among `summary.json`'s gate-covered binaries), the 66 planned
+  rows each once, `untimed` and `development` true in each; the untimed load's constants are read
+  from `bench/run/systrace.py`.
+- Tests: `paper/test_b2_macros.py` 14, `test_ops_macros.py` 11, `test_trace_macros.py` 10; the whole
+  `paper/` suite 129 passed; each generator's `--check` and `report_macros.py --check` exit 0;
+  `paper/check_text.py` (now scanning every `results/*macros.tex`) 0 problems.
+- The paper: Results (B2's distributions and Table b2 in the robustness subsection; a subsection
+  "Operations, Copies and System Calls" with Table syscalls), Deviations (subsection 6.7, "Outputs
+  Produced after the Analysis", replaces "Outputs Not Produced"; the section's opening counts three
+  entries after their data), Discussion and Method (one sentence each), Appendix (Tables ops-cost,
+  ops-m1, ops-relay, counter-check). The draft build and the submission build (`\submissiontrue`)
+  from scratch copies end with no error, no undefined reference and no overfull box, 41 pages; the
+  submission build warns only on the two notes for Alex (Holm, the public links).
+
+### 6. The review
+
+One adversarial reviewer (foreground) before the commit recomputed every generator's values from
+the raw rows with its own code (all equal) and checked the frozen files, the times and the archive.
+It found one HIGH: the relay "copied no payload byte in user space" read as a zero-copy claim, while
+the relay copies through user-space buffers and the counter counts only the server's own moves
+between user-space places (the M2b entry's item 7). Five MEDIUM: the latency of timer-ended runs
+described as the timer's rest plus the lateness, false for 54 IOCP drip runs; "the runs that the
+bytes decided" for a group that holds HC21's and HC22's undecided runs; the HC21 and HC22 split not
+in the entry and made after the values were seen; "the upper tail belongs to HC21 and HC22", false
+on IOCP; and the relay's operations depending on the untimed load without the paper saying so, with
+6.7 wrongly saying no frozen-build job had run the relay in replay. LOW: C1 and C3 sharing one
+untimed load not stated in the paper, a caption starting in lower case, "handled" for the wait's
+return, "peek moved" for a copy that leaves the bytes queued, a table that lacks columns the text
+named, epoll's counts given for both Linux backends without a check, README placeholders, and
+`trace_macros.py` checking neither `development` nor the binaries' sha256. All fixed: the copy
+counters are defined in the text, the relay counts once as received and once as sent, the load is
+stated with its constants, the split and the maxima are item 7 of the entry and named in 6.7, the
+IOCP tail is stated with its cases, and the generators gained the checks and tests above. The
+reviewer judged that no item needed a stop: section 8 defines development data by when it ran, the
+wrapper is archived by sha256 and the clone was clean. It suggested recording Alex's agreement with
+the entry's item 5 (ii) (the `development` field), which is left for Alex.
+
+### 7. Open
+
+1. For Alex: agreement with the entry's item 5 (ii), that st1's rows, which the frozen `systrace.py`
+   marks `development` true, are section 10's outputs because they ran at step 7 on the frozen build
+   under the guard's clearance.
+2. STATE.md section 5's items 8, 9 and 13 are unchanged.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator

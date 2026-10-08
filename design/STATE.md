@@ -2,14 +2,13 @@
 
 A digest for orientation, refreshed at each milestone. It is not a record: it holds no result and
 compares no arms. `design/status.md` and the revision log at the end of `hypotheses.md` stay
-authoritative; open them only at the section named here, by grep or line range. As of 2026-10-07
-(night), one-port fc81372 (the macros, the B1 and B2 macros, the not-run list, the docs of their
-refresh) plus the commits of this refresh: the competitors' macros and the follow-up of hc1
-(status.md, "The competitors' table hc1, 2026-10-07"; "The macros' TeX escaping and B1's and B2's
-macros, 2026-10-07", "The confirmatory analysis on W, 2026-10-07", "L's section 10 job sl3,
-2026-10-07", "W's section 10 job ws1, 2026-10-07" and "L after bs1, 2026-10-07" before it), plus
-facts from the coordinator not yet in the repo, marked "(coord.)". All confirmatory and descriptive
-data are in; no job is open on L or W.
+authoritative; open them only at the section named here, by grep or line range. As of 2026-10-08
+(morning): the commits of this refresh add section 10's four descriptive outputs (status.md,
+"Section 10's four descriptive outputs and lab job st1, 2026-10-08"; revision-log entry of
+2026-10-08, bd9a720, item 7 appended with them); before them, the competitors' macros and the
+follow-up of hc1 (status.md, "The competitors' table hc1, 2026-10-07", and the sections before it),
+plus facts from the coordinator not yet in the repo, marked "(coord.)". All confirmatory and
+descriptive data are in; no job is open on L or W.
 
 ## 1. Where P3 stands
 
@@ -38,7 +37,11 @@ from every confirmatory row file (status.md "The confirmatory analysis on W, 202
 escaping of `analysis/macros.py` (a later change, ANALYSIS_COMMIT 2045551) `results/macros.tex` is
 committed (f4ad14e); B1's and B2's macros (`results/hardcase-macros.tex`) and the cells not run or
 short of R (`results/not-run.json`) are committed (5cc0cb2); the competitors' counts joined
-`results/hardcase-macros.tex` after hc1's follow-up. Then the paper.
+`results/hardcase-macros.tex` after hc1's follow-up. Then the paper. On 2026-10-08 the four
+descriptive outputs the results half lacked (B2's distributions, operations and copies per
+connection, the proxies' system calls, the counter check) were produced: two from archived rows,
+the rest from the untimed lab job st1 on L (06:02:43 to 06:14:09, exit 0, 66 rows), under the
+revision-log reading of that date.
 
 ## 2. Fixed points
 
@@ -78,6 +81,11 @@ short of R (`results/not-run.json`) are committed (5cc0cb2); the competitors' co
   descriptive table, from `competitor_cases.jsonl` c13b5fd21e0d1d34a69c3927b4a1a2e25cecfb52cde17859c164db6aeeb02f92);
   `results/not-run.json`
   04683cff7002d57117cc417b6e9e418d45625a84bb10e40e8b7dbe8a5f8c1bb6 (`paper/not_run.py`, 19 cells).
+- Section 10's four descriptive outputs (2026-10-08; status.md, that section, item 5):
+  `results/b2-macros.tex` efa39518d32cf3435f0dc1a80bc97fdaec5ba01e53eabc9305961d79f01c073c,
+  `results/ops-macros.tex` 7c682e7a3abdcd5876336cec61dc48f90181a024f570bed99b18c1b6de21c669,
+  `results/trace-macros.tex` eda07772f5bf090e7dc78b07504dc5d69544b01d9bc97c72682e885934b09a38; st1's
+  `trace.jsonl` 9b0d1d0e8eb8ed9559454255ab264deadd408adacb2061420487bf52eba13200.
 - Pilot entry (7455e28): R_C = 28 (rerun cap 7 per cell); m_C = 32 (32 of 36 cost cells resolved).
   Not resolved: cells 34 (C3.W.IOCP.h2c) and 36 (C3.W.IOCP.mqtt), Power_c(31) 0.000; they run at
   R_C and are reported as not resolved, no equivalence claimed. Outside the family: cells 10
@@ -138,6 +146,7 @@ sslh-ev's stalled exchanges, section 10's syscall check (2026-10-02 and 03; `git
 | 10-06 | The B1 count of the mixed cell (a later change under section 8) | 9830457 | fix 9cae2de (CHANGE_COMMIT); section 8 read part by part; records and gates of CODE_FREEZE still cover the build; sl1 archived as evidence and section 10 again, as Alex's decision (not compelled by the archive clause) |
 | 10-07 | The macros' TeX escaping (a later change under section 8) | 90e5138, 0126ca2 | entry before the fix 2045551, item 6 after it: ANALYSIS_COMMIT 2045551; text values TeX-escaped; no decision moves; checks on W and L defined before they ran |
 | 10-07 | B1's and B2's decisions from the hard-case runners' outputs (a reading) | 18f97a8, 4ca64bb | B1's hard-case part and B2 read from the runners' rows and tables (not `analysis/`); `paper/hardcase_macros.py` writes them; item 6 after its review |
+| 10-08 | Section 10's four descriptive outputs not yet reported, and their untimed windows on the frozen build (a reading) | bd9a720 (item 7 with the outputs' commit) | B2's distributions from hl1 and wh1; WL5 from the cost and M1 windows; the relay's two detection modes, the proxies' system calls and the counter check from st1 (frozen `systrace.py` after the guard, called by a wrapper outside the repo); its rows' `development` true is the runner's constant (item 5 (ii), for Alex to confirm); item 7 lists the descriptions added after the values were seen |
 
 Alex's decisions:
 - 2026-10-03: L kernel 7.2.6 by kexec, for NOTRACK (7001e91); THP at madvise for every lab job
@@ -180,6 +189,7 @@ from its section "W's confirmatory jobs, 2026-10-05/06" (validity read, no arm c
 | B3 feasibility (development) | L | bf1 | `b3feas-L` | done: 21 windows, 20 valid; archived (`p3-raw-2026-10-05-bf1-ff2679cc8.tar.gz`, sha256 d7c25c16a849f53ffe9ea76c49aad14a111eeaf20e1620bf5c4a8cce752fe0bd); journaled |
 | K_BASE | L | bk1 | `b3-L` | done: 17 windows, 16 valid (window 1 TIME-WAIT); archived with bs1; journaled |
 | B3 sessions | L | bs1 | `b3-L` | done 2026-10-07 01:29:57, exit 0: 2,628 windows in 657 sessions (49 reruns), 2,578 valid, 50 invalid (44 TIME-WAIT at both samples, 5 at sample 2 only, 1 not settled); 37 of 38 cells reached R = 16; B3.partial-hello.cmux.epoll ended at 15 valid after its 4 reruns (the cap), no treatment proposed; archived with bk1 (`p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz`, sha256 3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8); journaled; rows carry no `change_commit` (ran from d29968b) |
+| Section 10's untimed windows | L | st1 | `st-L` | done: 2026-10-08 06:02:43 to 06:14:09, exit 0 (`st1.done`); clone `m7g/st-src1` at fe65818; `st_guard.py` cleared it (change_commit 9cae2de); 33 `systrace.py` calls, each exit 0, 66 rows (48 cost rows: the 24 cost cells of L in both modes; 12 rows of the five proxies and the relay on epoll; 6 rows of the relay on io_uring and in peek); perf stat equals the counters in all 360 cost checks and 60 relay checks; archived (`~/lab/p3-raw-2026-10-08-st1-ff2679cc8.tar.gz`, sha256 6aadecd3bd4a0f44930f3d924fbf953250d7b885690db3e2a4fc0d15f61806a1; copy on W in `C:\Users\alext\lab\`, unpacked in `confirm1\unpacked\st1`); journaled (line 167) |
 | Competitors' table | L | hc1 | `hardcomp-L` | done: second step of pc2, clone `m7g/post-src9` at 29ae2b6; 2026-10-07 11:23:38 to 18:47:42, exit 0 (`== hc1 exit 0, 26644 s` in `pc2.log`; `pc2.done` exit 0 at 18:47:43); 8,078 lines in `competitor_cases.jsonl` (sha256 c13b5fd2...): 8,052 case rows, 7,977 observed, 75 not observed (opcase did not end), 26 start rows all ok; of the observed rows 3,327 have a reply equal to what the server's frozen table expects and 4,650 do not, a descriptive field that decides nothing; 9 systems, 164 variants, 25 cases; every row names `change_commit` 9cae2de and `check_rows.py` binds all 8,078 to `gate-L.json`; archived (`~/lab/p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz`, sha256 7df1d9af5396f8d24d0fc5edb93f438054a3670f25250b38cb851d0f93120629, with the whole `pc2.log`; copy on W in `C:\Users\alext\lab\`, checked there); journaled (line 166); its counts are in `results/hardcase-macros.tex` (209 `CompCase...` macros) |
 
 sl3 ended 2026-10-07 11:23:38 (16,091 s, 2,548 windows with its 29 reruns). hc1 ended 18:47:42
@@ -277,6 +287,12 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
    ring holds 128 free provided buffers per worker and is refilled from a growable pool as each is
    taken (`worker.hpp`, `uring.cpp`), so "a fixed pool held by busy connections" is not what the
    code does; the paper states the ring as built and the starvation mechanism as a hypothesis.
+15. Done (2026-10-08, status.md "Section 10's four descriptive outputs and lab job st1"): the entry
+   (bd9a720) before any generator and before st1; st1 on L; `paper/b2_macros.py`,
+   `paper/ops_macros.py`, `paper/trace_macros.py` with their tests write `results/b2-macros.tex`,
+   `results/ops-macros.tex`, `results/trace-macros.tex` and six table bodies; the paper reports the
+   four (Results, Appendix, and 6.7 "Outputs Produced after the Analysis"); one adversarial review
+   before the commit, every finding fixed. Open for Alex: agreement with the entry's item 5 (ii).
 ## 6. Rules every agent keeps
 
 - The no-connection rule for B3's windows ended with bs1 (2026-10-07 01:29:57); connections to L are
@@ -306,6 +322,7 @@ job ws1", section 3); L's mixed cell on epoll is valid too, 16 of 16.
 | L job dir | `~/lab/p3/m7g/`: `NAME.pid`, `NAME.done`, `NAME.log`; `l_run.sh`, `l_check.py`, `post_chain.sh`, `post_chain2.sh` (sha256 2ccdb16a8e1abbe1620ad840048b222acec5de513f3a8896eaebfdb2c169f2e1; sl3 then hc1, lab job `pc2`), `b1chk.sh`, `b3feas.sh` |
 | L clones | `m7g/post-src2` 77cedae, `post-src3` 86c0283, `post-src4` 7a63a08, `post-src5..7` d29968b, `ana-src` 9de26d6; `post-src8` (sl3, left as it is) and `post-src9` (hc1), both at 29ae2b6 (made 2026-10-07) |
 | L evidence | `~/lab/p3/evidence/s-L-sl1-b1count` (sl1's output, moved there 2026-10-07; never analysed) |
+| st1 | out `~/lab/p3/st-L`; clone `m7g/st-src1` (fe65818); wrapper `m7g/st_run.sh` (c65dae5b...) and `m7g/st_guard.py` (34b41ce7...); job files `m7g/st1.*` |
 | L frozen build | `~/lab/p3/m7g/records-ff2679c/build-release`, `gate-L.json`; pilot output `m7g/pilot-entry/pilot.json` |
 | L archives, logs | `~/lab/p3-raw-2026-10-05-<job>-ff2679cc8.tar.gz` (+ `.sha256`; `bk1-bs1` is one archive for both jobs); `~/lab/p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz` (+ `.sha256`; sl3, with `pc2.log`'s sl3 part as a snapshot, staged in `~/lab/stage-sl3/`; copies on W in `C:\Users\alext\lab\`); `~/lab/p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz` (+ `.sha256`; hc1 with `hardcomp-L`, the job files of pc2 and the whole `pc2.log`; copy on W in `C:\Users\alext\lab\`); `~/lab/records-logs/<record>/`; the check of the B1 change `m7g/b1fix-L-test_*.log` |
 | L launch | `bash -c '(setsid nohup bash SRC/bench/run/lab_job.sh ~/lab/p3/m7g NAME bash ~/lab/p3/m7g/l_run.sh SRC STEP JOB > /dev/null 2>&1 &)'`; the chain pc2: the same with `NAME` pc2 and `bash ~/lab/p3/m7g/post_chain2.sh` in place of `l_run.sh SRC STEP JOB` |
