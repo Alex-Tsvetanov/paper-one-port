@@ -1,0 +1,43 @@
+paper-one-port
+Copyright 2026 Alex I. Tsvetanov
+
+This repository is licensed under the Apache License, Version 2.0 (see LICENSE), except for
+the third-party files named in section 2 below.
+
+1. Code adapted from Netty (Apache License, Version 2.0)
+
+   bench/competitors/netty/src/oneport/NettyHarness.java is written after the
+   PortUnificationServerHandler example of Netty
+   (example/src/main/java/io/netty/example/portunification/PortUnificationServerHandler.java
+   at tag netty-4.2.18.Final of https://github.com/netty/netty). The header comment of the
+   harness lists what differs from the example.
+
+   The example file reads "Copyright 2012 The Netty Project", and Netty's NOTICE.txt at that
+   tag reads "Copyright 2014 The Netty Project". Netty is licensed under the Apache License,
+   Version 2.0. Netty's NOTICE.txt refers to the licences of the components that Netty depends
+   on; none of them is part of this repository.
+
+2. Third-party files not covered by the Apache-2.0 grant
+
+   paper/Definitions/ holds the MDPI LaTeX template (MDPI_template_ACS.zip, downloaded by the
+   author from mdpi.com on 2026-09-28; mdpi.cls declares version v6.5a dated 2026-09-11;
+   paper/TEMPLATE.md records the source and the sha256 of each file). The files are kept only to
+   build the manuscript and stay under their owners' terms. No file states a licence for
+   itself.
+
+   - mdpi.cls, mdpi.bst, journalnames.tex, unicode.tex: the MDPI template. mdpi.cls gives
+     latex@mdpi.com as its contact.
+   - mdpi_apacite.sty, mdpi_apacite.bst: derived from the apacite package ("Copyright (C)
+     1994-2013 Erik Meijer and any individual authors listed elsewhere in this file"),
+     modified by MDPI.
+   - mdpi_chicago.bst: the chicago.bst style by Glenn Paulley (version 4, 1992, as its header
+     states).
+   - logo-mdpi.eps, logo-updates.eps, logo-orcid.pdf: logo files supplied with the template.
+
+3. Programs and libraries that are not in this repository
+
+   The systems and libraries that the benchmarks run against (OpenSSL, nghttp2, nginx, HAProxy,
+   Envoy, Caddy with caddy-l4, sslh, Netty, Jetty, cmux and hyper-util) are downloaded from the
+   release URLs and hashes pinned in bench/cmake/pins.cmake, or from the registries named in the
+   lock files under bench/competitors. They are not part of this repository and keep their own
+   licences.
