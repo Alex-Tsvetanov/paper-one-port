@@ -1,34 +1,30 @@
-% P3: one listening socket for every protocol, its cost, its robustness and its mechanisms; for MDPI
-% Future Internet, on MDPI's class (paper/TEMPLATE.md).
-% Every number in the text comes from a macro: the design constants from ../results/design-macros.tex
-% (paper/design_macros.py, read from hypotheses.md and bench/cmake/pins.cmake), the results from
-% ../results/macros.tex (analysis/macros.py, from the frozen analysis). Before the results exist,
-% paper/result-placeholders.tex stands in for the second file in a draft build only. B1's and B2's
-% counts and decisions come from ../results/hardcase-macros.tex (paper/hardcase_macros.py, from the
-% hard-case runners' outputs). Counts over the results files and the tables of the results come
-% from ../results/report-macros.tex and ../results/tables/ (paper/report_macros.py); two readings
-% of archived W rows that the revision log and the frozen text promise, from
-% ../results/w-evidence-macros.tex (paper/w_evidence_macros.py). Section 10's four descriptive
-% outputs come from ../results/b2-macros.tex (paper/b2_macros.py, B2's distributions),
-% ../results/ops-macros.tex (paper/ops_macros.py, operations and copies per connection from the
-% windows) and ../results/trace-macros.tex (paper/trace_macros.py, the untimed job st1), with their
-% tables in ../results/tables/.
-\documentclass[futureinternet,article,submit,oneauthor]{Definitions/mdpi}
+% P3: one listening socket for every protocol, its cost, its robustness and its mechanisms.
+% Computer Communications (Elsevier), on elsarticle. Future Internet is not this submission.
+% Every number in the text comes from a macro. The kernel listening counts come from
+% ../results/census-macros.tex (paper/census_macros.py). The other macro files are unchanged.
+\documentclass[preprint,number]{elsarticle}
 
-% MDPI internal commands, as template.tex sets them for a submission.
-\firstpage{1}
-\makeatletter
-\setcounter{page}{\@firstpage}
-\makeatother
-\pubvolume{1}
-\issuenum{1}
-\articlenumber{0}
-\pubyear{2026}
-\copyrightyear{2026}
-\datereceived{ }
-\daterevised{ }
-\dateaccepted{ }
-\datepublished{ }
+\journal{Computer Communications}
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{seqsplit}
+\usepackage{etoolbox}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% Width shims for tables that the MDPI draft set into the full measure. preprint is one column.
+\newlength{\extralength}
+\setlength{\extralength}{0pt}
+\newlength{\fulllength}
+\AtBeginDocument{\setlength{\fulllength}{\textwidth}}
+\newenvironment{adjustwidth}[2]{}{}
+\newcommand{\appendixtitles}[1]{}
+\newcommand{\appendixstart}{}
 
 % Something only Alex can supply or decide. Find them with: grep -n "TODO\|ForAlex\|Pending" *.tex.
 % A draft build prints them in colour; with \submissiontrue they print nothing, and each one
@@ -55,6 +51,7 @@
 \input{../results/b2-macros}
 \input{../results/ops-macros}
 \input{../results/trace-macros}
+\input{../results/census-macros}
 
 % A run-in heading at the start of a paragraph; MDPI's \paragraph sets its heading on a line of
 % its own.
@@ -127,7 +124,7 @@
 % A long hexadecimal string in typewriter type that may break anywhere.
 \newcommand{\hex}[1]{\texttt{\expandafter\seqsplit\expandafter{#1}}}
 % The hyphen of a page range in references.bib: BibTeX sees the comma of its argument and prints
-% "pp.", LaTeX prints a hyphen, and mdpi.bst's dashify never sees one (paper/TEMPLATE.md).
+% the pages, LaTeX prints a hyphen, and elsarticle-num.bst's dashify never sees one.
 \newcommand{\bibhyph}[1]{-}
 % natbib, which the class loads with sort&compress, joins a range of citations such as [3, 4, 5]
 % with a range dash. Alex's rule allows no range dash, so the range takes a hyphen: [3-5].
@@ -145,41 +142,57 @@
 
 \emergencystretch=3em
 
-\Title{One Port for Many Protocols: The Cost, Robustness and Mechanism of First-Bytes
-Demultiplexing}
-
 \newcommand{\orcidauthorA}{0009-0001-8369-150X}
 
-\Author{Alex I. Tsvetanov \orcidA{}}
-
-\AuthorNames{Alex I. Tsvetanov}
-
-\address[1]{Faculty of Computer Systems and Technologies, Technical University of Sofia,
-ul.~Professor Georgi Bradistilov 11, Sofia, Bulgaria; atsvetanov@tu-sofia.bg}
-
-% With the class option oneauthor, mdpi.cls prints no correspondence line, so the e-mail is in
-% the address above as well.
-\corres{Correspondence: atsvetanov@tu-sofia.bg}
-
-\abstract{Servers usually listen on one port per protocol; one listener can serve every protocol by
-reading each connection's first bytes, at an unmeasured cost. We built \oneport, a minimal
-C++23 server for HTTP/1.1, h2c, TLS, SSH and MQTT on epoll, io\_uring and I/O completion ports. We
-compared one listener with one port per protocol on Linux and Windows. Hypotheses, tests and rules
-were frozen before any server code existed. Tests used bootstrap intervals and exact sign tests
-under Holm's procedure. Under load of one protocol, one-port mode was equivalent
-within \MarginLow{} to \MarginHigh{} in \CostPassed{} of the \CostHolm{} tested cost cells. All three
-cost tests passed for HTTP/1.1, TLS and MQTT on Linux and HTTP/1.1 and TLS on Windows. On Linux,
-h2c's latency at a fixed load was not shown equivalent, once as a measured cost. The detector
-decided all \HardcaseRuns{} hard-case runs as specified. By the frozen footprint test, nginx,
-HAProxy, Envoy and hyper-util held at least \FootprintMargin{} times the server's counted footprint
-per pending connection; sslh-ev held less. A mixed-protocol load starved new connections on the
-io\_uring backend in both modes. So, for this server, one listener served HTTP/1.1, TLS and MQTT
-there at no measurable cost.}
-
-\keyword{protocol detection; port unification; first-bytes demultiplexing; TLS; HTTP/2; MQTT;
-PROXY protocol; epoll; io\_uring; I/O completion ports; equivalence testing; benchmarking}
-
 \begin{document}
+\setlength{\fulllength}{\textwidth}
+
+\begin{frontmatter}
+
+\title{One Port for Many Protocols: The Cost, Robustness and Mechanism of First-Bytes
+Demultiplexing}
+
+\author[tu]{Alex I. Tsvetanov}
+\address[tu]{Faculty of Computer Systems and Technologies, Technical University of Sofia,
+ul.~Professor Georgi Bradistilov 11, Sofia, Bulgaria. ORCID \orcidauthorA.}
+\ead{atsvetanov@tu-sofia.bg}
+\fntext[phone]{\ForAlex{the corresponding author's telephone number, which Computer Communications
+asks for at submission.}}
+
+\begin{highlights}
+\item Host demultiplexing decides the protocol on the accepting machine.
+\item One shared listener is one kernel socket, not one per protocol.
+\item Passing cost ratios stay inside a pre-registered margin.
+\item Some of those intervals exclude a ratio of one.
+\item sslh, HAProxy, Envoy filters, ALPN and SO\_REUSEPORT.
+\end{highlights}
+
+\begin{abstract}
+This paper measures host demultiplexing, the protocol decision on the machine that accepted the
+connection. If the first bytes on one transport are disjoint, that host needs one listening
+descriptor per transport and accept model, not one per protocol. We built \oneport, a minimal
+C++23 server for HTTP/1.1, h2c, TLS, SSH and MQTT on epoll, io\_uring and I/O completion ports.
+We compared one listener with one port per protocol on two machines, Linux and Windows.
+Under load of one protocol, one-port mode
+was equivalent within \MarginLow{} to \MarginHigh{} in \CostPassed{} of the \CostHolm{} tested cost
+cells. All three cost tests passed for HTTP/1.1, TLS and MQTT on Linux and for HTTP/1.1 and TLS on
+Windows. Those TLS passes have little power to show the cost of the byte check, since the handshake
+dominates. The passing cells stayed inside \MarginLow{} to \MarginHigh{} of dedicated mode. The
+interval [\COneLEpollHttpLow, \COneLEpollHttpHigh] for HTTP/1.1 churn on epoll excludes one. On
+Linux, h2c's latency at a fixed load was not shown equivalent, once as a measured cost. The detector
+decided all \HardcaseRuns{} hard-case runs as specified. In that test, nginx,
+HAProxy, Envoy and hyper-util held at least \FootprintMargin{} times the server's counted footprint
+per pending connection; sslh-ev held less. On epoll the kernel count is \CensusLEpollOnePort{} for the shared listener and
+\CensusLEpollDedicated{} in dedicated mode, with no load. Section~\ref{sec:census} gives the other
+rows. A mixed-protocol load starved new
+connections on the io\_uring backend in both modes.
+\end{abstract}
+
+\begin{keyword}
+protocol detection \sep demultiplexing \sep TLS \sep MQTT \sep epoll \sep benchmarking \sep robustness
+\end{keyword}
+
+\end{frontmatter}
 
 \input{sec-introduction}
 \input{sec-related}
@@ -190,46 +203,53 @@ PROXY protocol; epoll; io\_uring; I/O completion ports; equivalence testing; ben
 \input{sec-discussion}
 \input{sec-conclusions}
 
-\vspace{6pt}
+\section*{CRediT authorship contribution statement}
 
-\authorcontributions{Conceptualization, A.I.T.; methodology, A.I.T.; software, A.I.T.;
-validation, A.I.T.; formal analysis, A.I.T.; investigation, A.I.T.; resources, A.I.T.; data
-curation, A.I.T.; writing, original draft preparation, A.I.T.; writing, review and editing,
-A.I.T.; visualization, A.I.T.; supervision, A.I.T.; project administration, A.I.T.; funding
-acquisition, A.I.T. The author has read and agreed to the published version of the manuscript.}
+Alex I. Tsvetanov is the sole author. He did the conceptualization, the methodology, the software,
+the validation, the formal analysis and the investigation. He also did the resources, the data
+curation, the writing, the visualization, the supervision and the project administration. He
+acquired the funding. He is responsible for the manuscript.
 
-\funding{The publication of this paper was financially supported by the scientific research
-sector of the Technical University of Sofia.}
+\section*{Funding}
 
-\institutionalreview{Not applicable.}
+The publication of this paper was financially supported by the scientific research sector of the
+Technical University of Sofia.
 
-\informedconsent{Not applicable.}
+\section*{Data availability}
 
-\dataavailability{The paper's repository, \PaperRepoURL, holds the pre-specification with its
-revision log, the server, the generators, the competitors' configurations and the analysis. It also
-holds the generated macro files and the programs that write this paper's tables. The code freeze is
-its commit \hex{\CodeFreeze}. The raw outputs of the pilot and of every job of windows or hard cases
-after the pilot entry are the assets of its release \DataRelease{} (\DataReleaseURL). Each has its
-SHA-256 in a file beside it, and \texttt{lab/archives.sha256} lists them. The revision log and the
-design notes describe the development runs before the pilot entry, whose raw outputs are not
-published. The repository's \texttt{lab/} directory holds the sanitizer records that cover the
-measured builds and the two hosts' gates. It also holds the simulation's output behind the pilot
-entry and rule~E's file, which the analysis read. Each record names the SHA-256 of an archive of its
-logs, which are not published. \ForAlex{the DOIs of the paper's repository and of its release \DataRelease, which need
-Alex's account (for example a Zenodo archive of the release).}}
+The repository \PaperRepoURL{} holds the pre-specification with its revision log. It also holds the
+server, the generators, the competitors' configurations and the analysis. It holds the generated
+macro files and the programs that write this paper's tables. The code freeze is commit
+\hex{\CodeFreeze}. The raw outputs of the pilot, and of every later job of windows or hard cases,
+are the assets of release \DataRelease{} (\DataReleaseURL). Each asset has its SHA-256 beside it.
+\texttt{lab/archives.sha256} lists them. The revision log describes the development runs before the
+pilot entry. Their raw outputs are not published. The repository's \texttt{lab/} directory holds
+the sanitizer records of the measured builds and the two hosts' gates. It also holds the
+simulation behind the pilot entry, and rule~E's file, which the analysis read. Each record names
+the SHA-256 of an archive of its logs. Those logs are not published.
+\ForAlex{the DOIs of the repository and of release \DataRelease, which need Alex's account (for
+example a Zenodo archive of the release).}
 
-\acknowledgments{The author would like to thank the scientific research sector of the Technical
-University of Sofia for financial support for publishing the present paper.}
+\section*{Acknowledgements}
 
-\conflictsofinterest{The author declares no conflicts of interest. The funder had no role in the
-design of the study; in the collection, analyses, or interpretation of data; in the writing of
-the manuscript; or in the decision to publish the results.}
+The author thanks the scientific research sector of the Technical University of Sofia for support
+for publishing this paper.
+
+\section*{Declaration of competing interest}
+
+The author declares no competing interest. The funder had no role in the study, in the analysis, or
+in the decision to publish.
+
+\section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
+
+During the preparation of this work a language model in Cursor was used to retarget the manuscript
+to Computer Communications and to replace one cost sentence with the measured interval. The measured
+numbers were not changed.
+\ForAlex{confirm this declaration, including the tool name, before submission. The decision of
+8 October 2026 was that the earlier draft would carry no such statement.}
 
 \input{sec-appendix}
 
-\begin{adjustwidth}{-\extralength}{0cm}
-\reftitle{References}
+\bibliographystyle{elsarticle-num}
 \bibliography{references}
-\PublishersNote{}
-\end{adjustwidth}
 \end{document}

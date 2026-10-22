@@ -1,0 +1,5 @@
+Host demultiplexing decides the protocol on the accepting machine.
+One shared listener is one kernel socket, not one per protocol.
+Passing cost ratios stay inside a pre-registered margin.
+Some of those intervals exclude a ratio of one.
+sslh, HAProxy, Envoy filters, ALPN and SO_REUSEPORT.

@@ -1,6 +1,8 @@
 # Paper
 
-Target: MDPI Future Internet, on MDPI's class (`TEMPLATE.md`).
+Target: Computer Communications (Elsevier), on `elsarticle`. `TEMPLATE.md` records the MDPI class
+the draft used before this retarget. Future Internet is the third venue, only after Computer
+Communications and Software: Practice and Experience reject the paper.
 
 State: the whole draft is written. The method half was written before the data; the Results,
 Deviations and Reproducibility, Discussion (with the threats to validity), Conclusions, the
@@ -92,6 +94,8 @@ test names.
     python paper/report_macros.py --check
     python -m pytest -q paper/test_report_macros.py
     python -m pytest -q paper/test_b2_macros.py paper/test_ops_macros.py paper/test_trace_macros.py
+    python paper/census_macros.py --check
+    python -m pytest -q paper/test_census_macros.py
     python paper/check_text.py
     cd paper && latexmk -pdf main.tex
 
@@ -99,5 +103,6 @@ A draft build prints notes for Alex in blue (`\ForAlex`), open items in red (`\T
 not yet computed as `[pending: ...]`. Set `\submissiontrue` in `main.tex` for a submission build:
 it then stops on any pending result or a missing `../results/macros.tex`.
 
-The paper carries no statement on the use of generative AI: that is the author's decision of
-2026-10-08.
+The Computer Communications draft carries a declaration of the language model used to retarget it.
+Alex confirms that declaration before submission. The decision of 2026-10-08, no such statement on
+the earlier draft, is recorded in the revision log.

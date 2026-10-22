@@ -17,7 +17,8 @@ procedure, \CostPassed{} pass under both computations, and the two computations 
 \caption{The cost family, one-port / dedicated. C1 and C2 are throughputs, so a ratio below one
 favours dedicated mode; C3 is the median time to first byte, so a ratio above one does. The
 intervals are the \CiPct\% BCa interval and the interval at the cell's Holm level. The verdict is the
-analysis's, cut before its first parenthesis.\label{tab:cost}}
+analysis's, cut before its first parenthesis. Where an interval excludes one, the bounded cost is
+that ratio.\label{tab:cost}}
 \begin{adjustwidth}{-\extralength}{0cm}
 \centering\scriptsize
 \begin{tabularx}{\fulllength}{@{}l l l r l l l X@{}}
@@ -43,7 +44,7 @@ sessions lie below the upper margin. The C1 and C2 cells of h2c pass on both Lin
 joint power the pilot gave h2c's three cells was \JointPowerLEpollHtwoc{} on epoll and
 \JointPowerLIouringHtwoc{} on io\_uring, so these failures are not a matter of low power.
 
-A claim of no measurable cost needs C1, C2 and C3 to pass for one protocol, backend and host. It
+The equivalence claim needs C1, C2 and C3 to pass for one protocol, backend and host. It
 holds for \CostClaimCount{} configurations. They are \CostClaims. The joint power that the pilot
 gave each of these claims is \LEpollHttpJointPower{} on L, except for MQTT on io\_uring with
 \LIouringMqttJointPower. On W it is \WIocpHttpJointPower{} for HTTP/1.1 and \WIocpTlsJointPower{}

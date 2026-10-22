@@ -1,0 +1,246 @@
+{
+ "host": "L",
+ "tool": "ss -Hltnp",
+ "binary": "/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport",
+ "binary_sha256": "4c64edc25f7689dab95c90218ae50d3d7e92960d3e4e08bb826b1239e252b179",
+ "ssh": "alex@192.168.1.62",
+ "load": false,
+ "bind": "127.0.0.1",
+ "date": "2026-10-22",
+ "runs": [
+  {
+   "mode": "one-port",
+   "backend": "epoll",
+   "listener": "shared",
+   "workers": 1,
+   "port": 19080,
+   "pid": 2737420,
+   "command": [
+    "/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport",
+    "--mode",
+    "one-port",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "epoll",
+    "--listener",
+    "shared",
+    "--workers",
+    "1",
+    "--port",
+    "19080"
+   ],
+   "server_lines": [
+    "oneport: listening one-port 127.0.0.1:19080"
+   ],
+   "ss": [
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19080 0.0.0.0:* users:((\"oneport\",pid=2737420,fd=3))",
+     "local": "127.0.0.1:19080"
+    }
+   ],
+   "kernel_listen_count": 1,
+   "agree": true
+  },
+  {
+   "mode": "dedicated",
+   "backend": "epoll",
+   "listener": "shared",
+   "workers": 1,
+   "port": 19100,
+   "pid": 2737423,
+   "command": [
+    "/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport",
+    "--mode",
+    "dedicated",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "epoll",
+    "--listener",
+    "shared",
+    "--workers",
+    "1",
+    "--port",
+    "19100"
+   ],
+   "server_lines": [
+    "oneport: listening HTTP/1.1 127.0.0.1:19100",
+    "oneport: listening h2c 127.0.0.1:19101",
+    "oneport: listening TLS 127.0.0.1:19102",
+    "oneport: listening MQTT 127.0.0.1:19103",
+    "oneport: listening SSH 127.0.0.1:19104",
+    "oneport: listening SMTP 127.0.0.1:19105"
+   ],
+   "ss": [
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19105 0.0.0.0:* users:((\"oneport\",pid=2737423,fd=8))",
+     "local": "127.0.0.1:19105"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19104 0.0.0.0:* users:((\"oneport\",pid=2737423,fd=7))",
+     "local": "127.0.0.1:19104"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19101 0.0.0.0:* users:((\"oneport\",pid=2737423,fd=4))",
+     "local": "127.0.0.1:19101"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19100 0.0.0.0:* users:((\"oneport\",pid=2737423,fd=3))",
+     "local": "127.0.0.1:19100"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19103 0.0.0.0:* users:((\"oneport\",pid=2737423,fd=6))",
+     "local": "127.0.0.1:19103"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19102 0.0.0.0:* users:((\"oneport\",pid=2737423,fd=5))",
+     "local": "127.0.0.1:19102"
+    }
+   ],
+   "kernel_listen_count": 6,
+   "agree": true
+  },
+  {
+   "mode": "one-port",
+   "backend": "epoll",
+   "listener": "reuseport",
+   "workers": 2,
+   "port": 19200,
+   "pid": 2737426,
+   "command": [
+    "/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport",
+    "--mode",
+    "one-port",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "epoll",
+    "--listener",
+    "reuseport",
+    "--workers",
+    "2",
+    "--port",
+    "19200"
+   ],
+   "server_lines": [
+    "oneport: listening one-port 127.0.0.1:19200"
+   ],
+   "ss": [
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19200 0.0.0.0:* users:((\"oneport\",pid=2737426,fd=4))",
+     "local": "127.0.0.1:19200"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19200 0.0.0.0:* users:((\"oneport\",pid=2737426,fd=3))",
+     "local": "127.0.0.1:19200"
+    }
+   ],
+   "kernel_listen_count": 2,
+   "agree": true
+  },
+  {
+   "mode": "one-port",
+   "backend": "io_uring",
+   "listener": "shared",
+   "workers": 1,
+   "port": 19300,
+   "pid": 2737430,
+   "command": [
+    "/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport",
+    "--mode",
+    "one-port",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "io_uring",
+    "--listener",
+    "shared",
+    "--workers",
+    "1",
+    "--port",
+    "19300"
+   ],
+   "server_lines": [
+    "oneport: listening one-port 127.0.0.1:19300"
+   ],
+   "ss": [
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19300 0.0.0.0:* users:((\"oneport\",pid=2737430,fd=3))",
+     "local": "127.0.0.1:19300"
+    }
+   ],
+   "kernel_listen_count": 1,
+   "agree": true
+  },
+  {
+   "mode": "dedicated",
+   "backend": "io_uring",
+   "listener": "shared",
+   "workers": 1,
+   "port": 19400,
+   "pid": 2737433,
+   "command": [
+    "/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport",
+    "--mode",
+    "dedicated",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "io_uring",
+    "--listener",
+    "shared",
+    "--workers",
+    "1",
+    "--port",
+    "19400"
+   ],
+   "server_lines": [
+    "oneport: listening HTTP/1.1 127.0.0.1:19400",
+    "oneport: listening h2c 127.0.0.1:19401",
+    "oneport: listening TLS 127.0.0.1:19402",
+    "oneport: listening MQTT 127.0.0.1:19403",
+    "oneport: listening SSH 127.0.0.1:19404",
+    "oneport: listening SMTP 127.0.0.1:19405"
+   ],
+   "ss": [
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19405 0.0.0.0:* users:((\"oneport\",pid=2737433,fd=8))",
+     "local": "127.0.0.1:19405"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19404 0.0.0.0:* users:((\"oneport\",pid=2737433,fd=7))",
+     "local": "127.0.0.1:19404"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19401 0.0.0.0:* users:((\"oneport\",pid=2737433,fd=4))",
+     "local": "127.0.0.1:19401"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19400 0.0.0.0:* users:((\"oneport\",pid=2737433,fd=3))",
+     "local": "127.0.0.1:19400"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19403 0.0.0.0:* users:((\"oneport\",pid=2737433,fd=6))",
+     "local": "127.0.0.1:19403"
+    },
+    {
+     "line": "LISTEN 0      4096   127.0.0.1:19402 0.0.0.0:* users:((\"oneport\",pid=2737433,fd=5))",
+     "local": "127.0.0.1:19402"
+    }
+   ],
+   "kernel_listen_count": 6,
+   "agree": true
+  }
+ ]
+}

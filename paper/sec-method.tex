@@ -261,7 +261,7 @@ per-connection buffer limit to \EnvoyBufferDefaultMiB~MiB; caddy-l4 and sslh fix
 cores and \HostWCpus{} logical CPUs, running \HostWOs{} (build \HostWBuild) and MSVC
 \MsvcVersion. Every run uses the loopback interface. The pre-specification cites Linux source lines
 at tag \KernelTag; the revision log checked each cited line against the kernel the runs use and
-found none changed in content.
+found none changed in content. L and W are two machines. No result in this paper pools them.
 
 \runin{Placement.} The hardware sibling of every used core stays idle, and the server, its back end
 and the generators never share a core. On L, CPUs \PlaceSysA{} and \PlaceSysB{} run the system and
@@ -343,9 +343,9 @@ boundary \SignNull, and $p = P(X \ge x)$ is computed exactly.
 one-sided, run once for each computation. A cell that cannot be tested enters with \PIsOne{}.
 \end{itemize}
 
-\runin{Equivalence in the cost family.} The author fixed the margin before any code existed. The
-widest difference still called ``no measurable cost'' is a ratio between \MarginLow{} and
-\MarginHigh, for C1, C2 and C3, on both hosts. Each cell has two one-sided nulls: the median ratio
+\runin{Equivalence in the cost family.} The author fixed the margin before any code existed.
+Equivalence for C1, C2 and C3, on both hosts, is a ratio between \MarginLow{} and \MarginHigh.
+An interval that excludes one is a bounded difference. This paper does not call that difference absent. Each cell has two one-sided nulls: the median ratio
 is at most \MarginLow, and it is at least \MarginHigh. Each is tested at $\alpha$ by both
 computations, and a computation's $p$-value for the cell is the larger of its two (two one-sided
 tests~\cite{schuirmann1987tost}). Before Holm's adjustment, the BCa form passes exactly when the

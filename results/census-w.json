@@ -1,0 +1,155 @@
+{
+ "host": "W",
+ "tool": "netstat -ano -p tcp",
+ "cross_check": "GetExtendedTcpTable TCP_TABLE_OWNER_PID_LISTENER",
+ "binary": "C:\\Users\\alext\\lab\\p3\\m7g\\records-ff2679c-W\\build-release\\bench\\server\\oneport.exe",
+ "binary_sha256": "749d0209c112fb8fa2689b632f635f32364d46827de243c28398ab647adf328c",
+ "load": false,
+ "bind": "127.0.0.1",
+ "date": "2026-10-22",
+ "runs": [
+  {
+   "mode": "one-port",
+   "backend": "IOCP",
+   "listener": "shared",
+   "workers": 1,
+   "port": 19080,
+   "pid": 19804,
+   "command": [
+    "C:\\Users\\alext\\lab\\p3\\m7g\\records-ff2679c-W\\build-release\\bench\\server\\oneport.exe",
+    "--mode",
+    "one-port",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "IOCP",
+    "--listener",
+    "shared",
+    "--workers",
+    "1",
+    "--port",
+    "19080"
+   ],
+   "server_lines": [
+    "oneport: listening one-port 127.0.0.1:19080"
+   ],
+   "netstat": [
+    {
+     "local": "127.0.0.1:19080",
+     "state": "LISTENING",
+     "pid": 19804
+    }
+   ],
+   "get_extended_tcp_table": [
+    {
+     "local": "127.0.0.1:19080",
+     "state": "LISTEN",
+     "pid": 19804
+    }
+   ],
+   "kernel_listen_count": 1,
+   "agree": true
+  },
+  {
+   "mode": "dedicated",
+   "backend": "IOCP",
+   "listener": "shared",
+   "workers": 1,
+   "port": 19100,
+   "pid": 33196,
+   "command": [
+    "C:\\Users\\alext\\lab\\p3\\m7g\\records-ff2679c-W\\build-release\\bench\\server\\oneport.exe",
+    "--mode",
+    "dedicated",
+    "--detect",
+    "replay",
+    "--dispatch",
+    "inproc",
+    "--backend",
+    "IOCP",
+    "--listener",
+    "shared",
+    "--workers",
+    "1",
+    "--port",
+    "19100"
+   ],
+   "server_lines": [
+    "oneport: listening HTTP/1.1 127.0.0.1:19100",
+    "oneport: listening h2c 127.0.0.1:19101",
+    "oneport: listening TLS 127.0.0.1:19102",
+    "oneport: listening MQTT 127.0.0.1:19103",
+    "oneport: listening SSH 127.0.0.1:19104",
+    "oneport: listening SMTP 127.0.0.1:19105"
+   ],
+   "netstat": [
+    {
+     "local": "127.0.0.1:19100",
+     "state": "LISTENING",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19101",
+     "state": "LISTENING",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19102",
+     "state": "LISTENING",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19103",
+     "state": "LISTENING",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19104",
+     "state": "LISTENING",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19105",
+     "state": "LISTENING",
+     "pid": 33196
+    }
+   ],
+   "get_extended_tcp_table": [
+    {
+     "local": "127.0.0.1:19100",
+     "state": "LISTEN",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19101",
+     "state": "LISTEN",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19102",
+     "state": "LISTEN",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19103",
+     "state": "LISTEN",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19104",
+     "state": "LISTEN",
+     "pid": 33196
+    },
+    {
+     "local": "127.0.0.1:19105",
+     "state": "LISTEN",
+     "pid": 33196
+    }
+   ],
+   "kernel_listen_count": 6,
+   "agree": true
+  }
+ ]
+}

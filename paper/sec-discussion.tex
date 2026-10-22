@@ -2,9 +2,9 @@
 
 \subsection{What the Results Mean for the Claim}\label{sec:disc-claim}
 
-The question was whether one listener can serve every protocol at no measurable cost. For this
-server, under load of one protocol at a time, the answer is yes in \CostClaimCount{} of the
-configurations tested. In each, churn throughput, keep-alive throughput and the median time to
+The question was whether one listener stays inside a ratio of \MarginLow{} to \MarginHigh{} of a
+dedicated port. For this server, under load of one protocol at a time, that holds in
+\CostClaimCount{} of the configurations tested. In each, churn throughput, keep-alive throughput and the median time to
 first byte stayed within the margin of \MarginLow{} to \MarginHigh{} of dedicated mode. These
 configurations span two hosts, three backends and three protocols, HTTP/1.1, TLS and MQTT, and
 nothing outside them.

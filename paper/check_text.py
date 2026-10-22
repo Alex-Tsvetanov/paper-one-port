@@ -92,7 +92,8 @@ def body(path: Path) -> str:
     comments and notes removed, line breaks kept."""
     lines = [uncomment(l) for l in path.read_text(encoding="utf-8").splitlines()]
     if path.name == "main.tex":
-        start = next((i for i, l in enumerate(lines) if l.startswith("\\Title{")), 0)
+        start = next((i for i, l in enumerate(lines)
+                      if l.startswith("\\title{") or l.startswith("\\Title{")), 0)
         lines = [""] * start + lines[start:]
     text = "\n".join(lines)
     for name in NOTES:
@@ -116,7 +117,12 @@ def check_digits(path: Path) -> list[str]:
 def prose(path: Path) -> str:
     text = body(path)
     if path.name == "main.tex":
-        text = text[text.find("\\abstract{"):text.find("\\begin{adjustwidth}")]
+        starts = [text.find(s) for s in ("\\begin{highlights}", "\\begin{abstract}", "\\abstract{")]
+        starts = [s for s in starts if s >= 0]
+        ends = [text.find(s) for s in ("\\bibliography{", "\\begin{adjustwidth}")]
+        ends = [s for s in ends if s >= 0]
+        text = text[min(starts) if starts else 0:min(ends) if ends else len(text)]
+    text = re.sub(r"\\begin\{keyword\}.*?\\end\{keyword\}", "\n\n", text, flags=re.S)
     captions = []
     for env in ("table", "figure"):
         pat = r"\\begin\{" + env + r"\}.*?\\end\{" + env + r"\}"

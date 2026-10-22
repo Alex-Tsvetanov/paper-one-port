@@ -6,6 +6,13 @@ client must be told. The alternative is one listening socket for all of them. Th
 the first bytes a client sends and decides the protocol of the connection from them. We call this
 first-bytes demultiplexing.
 
+This paper studies host demultiplexing. The protocol is decided on the machine that accepted the
+connection. The practice that decision explains includes sslh, HAProxy and Envoy's listener filters.
+ALPN negotiates the application protocol inside one TLS port.
+\texttt{SO\_REUSEPORT} selects a socket before any application byte exists
+(Section~\ref{sec:related}). Section~\ref{sec:census} states how many listening descriptors that
+decision needs, and checks the count by asking the kernel.
+
 Many systems already do it. Proxies such as nginx, HAProxy, Envoy, caddy-l4 and sslh choose a
 route from the first bytes of a connection, before a back end sees
 it~\cite{nginx2026,haproxy2026,envoy2026,caddyl42026,sslh2026}. Server libraries such as Netty,
