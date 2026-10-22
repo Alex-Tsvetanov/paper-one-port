@@ -36,6 +36,47 @@ detection timer and no detection budget. The backend, the workers, the handlers,
 the PROXY setting are the same in both modes. That is the whole difference between them, and it
 is what the cost family measures.
 
+\subsection{Listening Descriptors}\label{sec:census}
+
+If the first bytes of the protocols on one transport are disjoint, the accepting host needs one
+listening descriptor per transport and accept model, not one per protocol. With \(A\) accept models
+and a set \(T\) of transports, that number is
+\begin{equation}
+L = A \cdot |T|.
+\label{eq:census}
+\end{equation}
+Dedicated mode is the other layout, one listening socket per protocol. The cost family compares the
+two layouts. It does not ask the kernel how many listening sockets either layout holds. The server's
+own listening lines are not that count.
+
+On \CensusDate{} the measured Release binaries were started with no client and no load. The kernel
+count on W was read with \texttt{netstat}, and the same addresses came from
+\texttt{GetExtendedTcpTable}. On L it was read with \texttt{ss}, over the management path to that
+host, still on \LoopbackNet. Table~\ref{tab:census} gives the counts. No byte was sent, so this
+census does not measure classification. TLS was not on this path. The cost family did measure TLS
+exchanges, and Section~\ref{sec:res-cost} gives their power.
+
+\begin{table}[H]
+\caption{Listening sockets the kernel reported for the measured binary. One-port mode is the shared
+listener unless the row names reuseport. Dedicated mode opens one socket per protocol. No client
+connected.\label{tab:census}}
+\centering\small
+\begin{tabularx}{\textwidth}{@{}l l X r@{}}
+\toprule
+\textbf{Host} & \textbf{Backend} & \textbf{Layout} & \textbf{Kernel count} \\
+\midrule
+\tabinput{../results/tables/census}
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The shared listener is one accept model on one transport. Its kernel count is
+\CensusLEpollOnePort{} on epoll, \CensusLIouringOnePort{} on io\_uring and \CensusWIocpOnePort{} on
+IOCP. Dedicated mode's kernel count is \CensusLEpollDedicated{} on epoll, \CensusLIouringDedicated{}
+on io\_uring and \CensusWIocpDedicated{} on IOCP. With two workers in a \texttt{SO\_REUSEPORT}
+group, ss reported \CensusLEpollReuseport{} listening sockets on the one port. The process printed a
+single listening line for that port.
+
 \subsection{The Detection Table}\label{sec:table}
 
 Each matcher is a \texttt{constexpr} descriptor. Its function maps the bytes received so far to

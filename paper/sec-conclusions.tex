@@ -3,7 +3,7 @@
 A server that reads a connection's first bytes and decides its protocol on one listening socket can
 match the same server with one port per protocol. For \oneport, under load of one protocol at a
 time, one-port mode was equivalent to dedicated mode within \MarginLow{} to \MarginHigh{} in
-\CostPassed{} of the \CostHolm{} tested cost cells. The claim of no measurable cost holds for \CostClaimCount{}
+\CostPassed{} of the \CostHolm{} tested cost cells. The equivalence claim holds for \CostClaimCount{}
 configurations: HTTP/1.1, TLS and MQTT on both Linux backends, and HTTP/1.1 and TLS on Windows. The
 TLS cells have little power to show the cost of detection, since the handshake dominates. The
 claim does not hold for h2c on L, where equivalence of the time to first byte at a fixed load was not shown. On epoll

@@ -172,6 +172,15 @@ runs of HC21 and HC22 counted apart, and the largest values over some tables. Th
 reported values and are listed in the revision log. None of the four decides anything, and no
 decision moved.
 
+\subsection{The Kernel Census}\label{sec:dev-census}
+
+The confirmatory runs did not ask the kernel for this count. On L, \texttt{ss} was used for
+established sockets, for sockets in TIME-WAIT, and in diagnostics of a stalled proxy. On W, the TCP
+table was read for TIME-WAIT entries. Neither reading is a count of listening descriptors. The
+server's listening lines are its own report. The census of Section~\ref{sec:census} was read on
+\CensusDate{} from the measured Release binaries, with no load. The revision log records it, and it
+changes no cost decision.
+
 \subsection{Reproducibility}\label{sec:dev-repro}
 
 The code freeze is the commit \hex{\CodeFreeze}. Every measured build compiled inputs that green
