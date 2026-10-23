@@ -90,15 +90,18 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    made independent of the probe entry's item 9; a4d8e89, the probe reading its commit from the
    entry's last item that names it; e61e78f, the cost runners taking their host's R, item 8), whose
    files under `bench`, `tests` and `CMakeLists.txt` are Python directly under `bench/run` alone.
-   The probe ran a4d8e89's code (the probe's entry, item 10), which differs from e61e78f in
-   `cost_run.py`, `wcost_run.py` and `test_wlaptop.py`, none of them on the probe's path:
-   CHANGE_COMMIT = **[e61e78ff39ea6b9917a470843c08be866765732f, unless this entry needs another change]**
+   The probe ran a4d8e89's code (the probe's entry, item 10), which differs from 786058e in
+   `cost_run.py`, `wcost_run.py`, `wsys.py`, `wfreq.py` and `test_wlaptop.py`; on the probe's path
+   only `wsys.cycle_rate`, whose reading the probe does not use, and the probe ran under the base
+   interpreter:
+   CHANGE_COMMIT = **[786058e135107b0cf5bf8c3808d6d6c48ba74197, unless this entry needs another change]**
    Files: `wsys.py` (the core layout, item 4's placement, and the counters of all 16 CPUs, where the
    window code read the desktop's 12), `wwindow.py` (the open-loop threads),
    `wcellwin.py` (item 4 (d)), `wpower.py` (item 3 (a) and (c): the laptop's plans by GUID; no plan
    is created on the laptop), `wjob.py` (item 3 (b)), `wrunlib.py` (item 10's gate check, and this
    entry's title among the entries a frozen W run requires), `freeze_guard.py` (that title),
-   `wfreq.py` and `wnight.py` (the laptop's server CPU and Balanced plan), `whardcase_run.py` and
+   `wfreq.py` and `wnight.py` (the laptop's server CPU and Balanced plan; the spinner on the base
+   interpreter in `wsys.py` and `wfreq.py`), `whardcase_run.py` and
    `wpilot_run.py` (docstrings), `cost_run.py` and `wcost_run.py` (each cost runner takes its
    host's R, item 8), the deps wrapper `wdeps.py` (item 11), the probe's driver `wprobe.py`, and
    the tests `test_wlaptop.py`, `test_wrunner.py`, `test_wfrozen.py`. No compiled file, no file
