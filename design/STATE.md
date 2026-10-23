@@ -124,13 +124,20 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 
 ### Alex decides
 
-1. (Answered: pushed to 632b242, 2026-10-23.)
-2. If job a0 shows TCP values other than 30 s and 1025 to 65535: the administrator step that sets
-   them (his own run, like `alex-admin.ps1`, then a restart and a read-back), before the probe.
-3. After the probe: its computed hours (the move's entry, draft item 12).
+Pending, asked in his format only when it arises:
+1. After job a0, and only if it reads TCP values other than 30 s and 1025 to 65535: the
+   administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
+   before the probe.
 
-Answered 2026-10-23: the push to 6c7be67 (done); R per host (8815d89); the frequency counter is
-not tested; the TCP settings (item 10).
+Answered (Alex, 2026-10-23):
+- Push `laptop-w-bringup` to the public repository: yes; pushed to 6c7be67, then to 632b242.
+- The R_C conflict: option (i), R per host in `analysis/` (8815d89, e61e78f).
+- The frequency counter on the laptop: not tested.
+- The laptop's TCP settings: set to the design's values if they differ, else documented (the
+  probe entry's item 10).
+
+The probe's computed hours are laptop time: the coordinator states them to Alex with the other
+papers' requests (Laptop requests above; the move's entry, draft item 12).
 
 ## 1. Where P3 stands
 
