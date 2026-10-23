@@ -604,8 +604,7 @@ class Probe(unittest.TestCase):
             with self.assertRaises(wprobe.ProbeRefused):
                 wprobe.probe_commit(repo)  # the clone now differs from item 9's commit
             second = git("rev-parse", "HEAD")
-            with open(hyp, "a", encoding="utf-8", newline="\n") as f:
-                f.write(f"10. Appended. {wprobe.PROBE_COMMIT_LABEL} {second}; it replaces {first[:7]}.\n")
+            add_item(f"10. Appended. {wprobe.PROBE_COMMIT_LABEL} {second}; it replaces {first[:7]}.")
             git("commit", "-qam", "item 10")
             self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], second)  # the last item wins
             with open(repo / "bench" / "run" / "wprobe.py", "a", encoding="utf-8") as f:
