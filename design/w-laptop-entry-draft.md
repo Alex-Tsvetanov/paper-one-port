@@ -86,20 +86,23 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    (e) the job-start check of item 3 (b) covers CPUs 2 to 15.
    The two-core IOCP cell of section 10 stays not run (the entry of 2055e63; the server refuses
    more than one IOCP worker).
-5. The change, four commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a test
+5. The change, five commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a test
    made independent of the probe entry's item 9; a4d8e89, the probe reading its commit from the
-   entry's last item that names it), Python directly under `bench/run` alone. The probe ran
-   a4d8e89's code (the probe's entry, item 10):
-   CHANGE_COMMIT = **[a4d8e89a3b54f59e67e1eefdd8ad51fce62db2c9, unless this entry needs another change]**
+   entry's last item that names it; e61e78f, the cost runners taking their host's R, item 8), whose
+   files under `bench`, `tests` and `CMakeLists.txt` are Python directly under `bench/run` alone.
+   The probe ran a4d8e89's code (the probe's entry, item 10), which differs from e61e78f in
+   `cost_run.py`, `wcost_run.py` and `test_wlaptop.py`, none of them on the probe's path:
+   CHANGE_COMMIT = **[e61e78ff39ea6b9917a470843c08be866765732f, unless this entry needs another change]**
    Files: `wsys.py` (the core layout, item 4's placement, and the counters of all 16 CPUs, where the
    window code read the desktop's 12), `wwindow.py` (the open-loop threads),
    `wcellwin.py` (item 4 (d)), `wpower.py` (item 3 (a) and (c): the laptop's plans by GUID; no plan
    is created on the laptop), `wjob.py` (item 3 (b)), `wrunlib.py` (item 10's gate check, and this
    entry's title among the entries a frozen W run requires), `freeze_guard.py` (that title),
    `wfreq.py` and `wnight.py` (the laptop's server CPU and Balanced plan), `whardcase_run.py` and
-   `wpilot_run.py` (docstrings), the deps wrapper `wdeps.py` (item 11), the probe's driver
-   `wprobe.py`, and the tests `test_wlaptop.py`, `test_wrunner.py`, `test_wfrozen.py`. No compiled
-   file, no file under `tests/`, `CMakeLists.txt`, any script, or `analysis/` changes. Checks on the
+   `wpilot_run.py` (docstrings), `cost_run.py` and `wcost_run.py` (each cost runner takes its
+   host's R, item 8), the deps wrapper `wdeps.py` (item 11), the probe's driver `wprobe.py`, and
+   the tests `test_wlaptop.py`, `test_wrunner.py`, `test_wfrozen.py`. No compiled file, no file
+   under `tests/`, `CMakeLists.txt` or any script changes; `analysis/` changes in item 8 only. Checks on the
    desktop (2026-10-23, no timing): a Release build of the change's clone with MSVC 19.51.36246,
    whose CTest suite passed 165 of 165; `test_wlaptop` 37 tests, `test_wfrozen` 26, `test_frozen` 61
    (2 skipped), `test_runner` 63 (13 skipped), `test_wrunner` 22 of 22 (its cycle-rate reading
@@ -127,8 +130,8 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
 7. The new pilot, on the laptop's W, by section 8 step 4 and section 4.6 as frozen: W's 12 cost
    cells, P = 16 sessions each, in dedicated mode, in the order `SEED_PILOT_W` gives, with the
    reruns and the one repeat of step 4; then the timer and split parts on IOCP. Then, on the
-   desktop, the simulation of 4.6 at `ANALYSIS_COMMIT` (2045551) with `SEED_SIM`, on L's pilot
-   rows of October (job pl1) and the laptop's W pilot rows. Since each cell's runs are seeded by
+   desktop, the simulation of 4.6 at the new `ANALYSIS_COMMIT` (item 8) with `SEED_SIM` and
+   `--fixed-r L=28`, on L's pilot rows of October (job pl1) and the laptop's W pilot rows. Since each cell's runs are seeded by
    (`SEED_SIM`, c, j), L's cells get the Power_c of October. Then a new pilot entry, made from those
    outputs alone and committed before any one-port window of the laptop's W, with section 9.2's
    values: the resolved list, R_C, m_C, G_W, GAP_SPLIT and each W C3 cell's λ. Cells 10 and 12
@@ -145,18 +148,23 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    by the laptop's W cells, and unless it were exactly 28, the analysis at 2045551 could not run on
    L's rows. Alex chose, of three options (this change; W at the larger of 28 and the new value
    with L topped up to 31; R_C fixed at 28 for W), this change.
-   (b) The change, one commit, in `analysis/` alone:
-   ANALYSIS_COMMIT = **[8815d89ff537ef3dee75f94298dedf8933e08a41, unless the review changes it]**
+   (b) The change, two commits (8815d89; e61e78f with an adversarial review's fixes), in
+   `analysis/` and in the two cost runners of `bench/run` (item 5):
+   ANALYSIS_COMMIT = **[e61e78ff39ea6b9917a470843c08be866765732f, unless this entry needs another change]**
    `pilot.py --fixed-r L=28`: L keeps the R its cost runs ran at, the R_C of the pilot entry of
    2026-10-05, refused if any resolved L cell falls short of 0.80 there; W's R is 4.6 step 6 over
    W's resolved cells alone (31 if none is resolved). The output adds `R_C_by_host`; the resolved
    list, m_C and every Power_c are as before; `R_C`, step 6 over every resolved cell, stays
    reported; each joint power is taken at its host's R. `analyse.py` gives each cost cell, and each
    of section 10's intervals drawn from a cost cell, its host's R; Holm runs over the m_C resolved
-   cells of L and W together as one family (5.1), as frozen; `macros.py` adds the macros `CostRL`
-   and `CostRW`. Without `--fixed-r` every output is as at 2045551.
+   cells of L and W together as one family (5.1), as frozen; `macros.py` writes `CostRL` and
+   `CostRW` and not `CostR`, since the pooled R_C is then the R of no cell. The cost runners
+   (`bench/run/cost_run.py`, `wcost_run.py`) run each host's cells at its host's R, the count the
+   analysis then expects, and their reruns at ceil(R/4) of that R. Without `--fixed-r` every
+   output is as at 2045551.
    (c) The checks (2026-10-23, desktop, no timing): the suite, 78 passed and 2 skipped (73 and 2 at
-   2045551; the five new tests fail without the change); and the analysis at the change's commit,
+   2045551; the new tests fail without the change), `test_wlaptop` 39 tests (the runners' R per
+   host among them); and the analysis at e61e78f,
    from a fresh clone, on October's inputs (the seven row files, pilot, rule E, seeds and gates of
    the confirmatory analysis): `decisions.csv` and `macros.tex` byte for byte the committed ones,
    `summary.json` apart only in `versions.analysis_commit`. That run reproduces October's committed
@@ -164,8 +172,12 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    (d) What it implies, stated before any data. L's rows and R are unchanged, but L's decisions are
    read again from the joint run: Holm's family now holds the laptop's W cells, and the cost
    family's one bootstrap stream (4.7) draws per tested cell in 6.1's order, so W's R and test
-   status change the draws of the L cells after the first W cell. Any L decision that differs from
-   October's is reported with both. The mechanism family runs as frozen over its 20 cells, M1's two
+   status change the draws of the L cells after the first W cell; section 10's one stream
+   (`SEED_BOOT_S`) likewise shifts every interval after the first W interval drawn from a cost
+   cell, those of L's cells and of the mechanism family included. Any L decision that differs from
+   October's is reported with both. R per host departs, for the cost family alone, from 4.1
+   ("Replicates are fixed per family"), 5.1 ("Replicates: R_C") and 4.6 step 7 (a cell not
+   resolved "still runs at R_C"; it runs at its host's R); this entry records each as a deviation. The mechanism family runs as frozen over its 20 cells, M1's two
    IOCP cells now the laptop's. `ANALYSIS_COMMIT` runs unchanged from this commit on, once, on L's
    rows of October and the laptop's W rows, never on a desktop row, with the new pilot entry's
    output.
@@ -194,8 +206,8 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
     flags are the frozen script's.
 12. Machine time on the laptop's W, from the probe **[after the probe]**: churn and open-loop
     windows at the probe's mean length t = ... s, keep-alive windows at k = ... s, the job warm-ups
-    at ... s each and the session readings at ... s each; W's windows by family (the new pilot's
-    R_C sets the cost family's count): ... ; total ... h, against the plan's estimate of 5.3 to
+    at ... s each and the session readings at ... s each; W's windows by family (W's R from the new
+    pilot entry, `R_C_by_host`, sets the cost family's count): ... ; total ... h, against the plan's estimate of 5.3 to
     21.3 h, which had no laptop basis. Stated to Alex on ... before this entry was committed.
 13. The laptop's TCP settings (Alex's decision of 2026-10-23, the probe's entry, item 10): if
     the laptop's `TcpTimedWaitDelay` or dynamic port range differ from the values W's runner was

@@ -39,10 +39,17 @@ the laptop to the design's values if they differ, else the laptop's are document
   committed ones, `summary.json` apart only in `versions.analysis_commit`. The ANALYSIS_COMMIT-to-be,
   named in the move's entry (draft item 8). The pilot simulation on real rows was not rerun (hours
   of CPU); the synthetic CLI test covers that path.
+- e61e78f: a fresh Opus review of 8815d89 found its `analysis/` logic correct and unchanged without
+  the option, and one HIGH: W's cost runner still took the pooled R_C (`cost_run.pilot_values`).
+  Fixed: each cost runner takes its host's R; `CostR` is not written when R is per host (the
+  paper's `\RC` and `\CostR` must become `CostRL` and `CostRW` in the writing pack); docstrings
+  state the departures from 4.1, 5.1 and 4.6 step 7; new tests of the secondary draws and of W at
+  another R than L (analysis 78 passed, 2 skipped; `test_wlaptop` 39). October check repeated at
+  e61e78f: identical result. e61e78f is both the CHANGE_COMMIT-to-be and the ANALYSIS_COMMIT-to-be.
 - 5cc1e06, then b20f415 (the review's fixes), then e183745 (a test that broke once item 9 was
   committed), then a4d8e89 (the probe reads its commit from the entry's last item naming it): the
   runners for the laptop, Python directly under `bench/run` alone. a4d8e89 is the
-  CHANGE_COMMIT-to-be and the probe's commit: `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
+  probe's commit (e61e78f, above, is the CHANGE_COMMIT-to-be): `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
   generator 2 to 13, quiet CPUs 2 to 14), `wwindow.py` (open-loop threads 2, 4, ..., 12),
   `wcellwin.py` (the mixed cell takes L's placement), `wpower.py` (the laptop's lab plan b1bcd431
   by GUID, Alex's plan Balanced; inside a lab job, LAB_JOB_ID set, it only verifies), `wjob.py`
@@ -80,9 +87,9 @@ inside the lab runner (spec `boost` false, `quiet` true). Hours are estimates; t
 | Job | Runs | Commit | Estimate | Basis |
 |---|---|---|---|---|
 | a0 `w-read-1` | read only: OS build and UBR, BIOS, microcode, MSVC's ASan runtime (`clang_rt.asan_dynamic-x86_64.dll`, toolset 14.51) present, the copied files' sha256, and the TCP values (`TcpTimedWaitDelay`, `netsh int ipv4 show dynamicport tcp`, `... excludedportrange protocol=tcp`), which decide Lab request 4 before the probe | any | no measured basis; timeout 900 s | none |
-| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | 8815d89 or the docs commit after it | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
-| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | 8815d89 or the docs commit after it (its build serves a3) | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
-| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from b20f415, a non-Release build and an unpinned host) | the docs commit after 8815d89, or any later commit whose `bench`, `tests` and `CMakeLists.txt` equal a4d8e89's (item 10 names a4d8e89; the probe refuses any other) | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
+| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | 63f5c74 (one clone for a1 to a3) | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
+| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | 63f5c74 (its build serves a3) | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
+| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from a4d8e89, a non-Release build and an unpinned host) | exactly 63f5c74: it holds item 10 and the R per host, and its `bench`, `tests` and `CMakeLists.txt` equal a4d8e89's; e61e78f and later change `bench/run`, which the probe refuses | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
 | a4 `p3-func-w` | after the move's entry: the suites above on the laptop (with `cycle_rate_reading` on CPU 14), CTest of the Release build, and the freeze night's runner checks wf1 to wf4 | the move's entry's commit | 1,541 s, timeout 4,700 s | desktop run 6, 2026-10-05 (status.md) |
 
 Total a0 to a4: about 4,091 to 4,577 s (1.14 to 1.27 h) plus a0, which has no basis. W's
@@ -116,9 +123,9 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 
 ### Alex decides
 
-1. A push of the commits after 6c7be67 (a4d8e89, 54f42aa, 8815d89 and the docs commit after it)
-   to the same public branch, before the probe: item 10 needs its public timestamp before the
-   probe's data.
+1. A push of the commits after 6c7be67 (a4d8e89, 54f42aa, 8815d89, 63f5c74, e61e78f and the docs
+   commit after it) to the same public branch, before the probe: item 10 needs its public
+   timestamp before the probe's data.
 2. If job a0 shows TCP values other than 30 s and 1025 to 65535: the administrator step that sets
    them (his own run, like `alex-admin.ps1`, then a restart and a read-back), before the probe.
 3. After the probe: its computed hours (the move's entry, draft item 12).
