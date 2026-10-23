@@ -187,6 +187,9 @@ upgrades until P4's Arch blocks end, extra versions side by side under `~/opt`. 
 if the kernel census runs on L before then, on the present packages. D4 (P4's idle day) does not
 touch P3.
 
+Answered (Alex, 2026-10-24): push 723d784..3ae481f (the a2 fix 786058e and docs) to
+`laptop-w-bringup`: yes; pushed to 3ae481f.
+
 Answered (Alex, 2026-10-23):
 - Push `laptop-w-bringup` to the public repository: yes; pushed to 6c7be67, then to 632b242.
 - The R_C conflict: option (i), R per host in `analysis/` (8815d89, e61e78f).
