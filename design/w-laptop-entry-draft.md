@@ -209,11 +209,26 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
     to the laptop's version, runs it, and records the sha256 of the script, the copy and the pins,
     and of every file each install prefix holds. The archives' sha256 pins, the options and the
     flags are the frozen script's.
-12. Machine time on the laptop's W, from the probe **[after the probe]**: churn and open-loop
-    windows at the probe's mean length t = ... s, keep-alive windows at k = ... s, the job warm-ups
-    at ... s each and the session readings at ... s each; W's windows by family (W's R from the new
-    pilot entry, `R_C_by_host`, sets the cost family's count): ... ; total ... h, against the plan's estimate of 5.3 to
-    21.3 h, which had no laptop basis. Stated to Alex on ... before this entry was committed.
+12. Machine time on the laptop's W, from the probe (lab job `p3-probe-w-4`, 2026-10-24 01:25:23 to
+    01:52:39, exit 0, at 63f5c74 on the Release build of `p3-gate-w-5`; only `probe-summary.json`
+    and `probe-times.jsonl` read). Per window, the means of the probe: WL1 churn 34.01 s (16
+    windows, 28.11 to 36.35 s), WL2 open loop 34.06 s (16, 27.92 to 36.37 s), WL3 keep-alive 9.09 s
+    (8, 6.19 to 29.31 s: only the first after open-loop windows waited); a session's reading 7.27
+    s (13); a job's warm-up 114.5 s (4 windows). The hours, with each family's windows: the A/A
+    pilot, 12 cells by 16 sessions (256 churn, 256 open and 256 keep-alive windows), 5.91 h, and
+    its timer part at least 0.11 h (128 runs of T_hdr = 3 s; the split part has no measured
+    basis); rule E, 6 sessions of HTTP/1.1 churn, 0.27 h; the cost family, 10 cells by R sessions,
+    1,035 s per unit of R plus a warm-up, 8.08 h at R = 28 (3.19 h at 11, 8.95 h at 31); M1, 2 churn
+    cells by 16, 1.31 h; section 10, 9 cells by 16 (8 churn or open, 1 keep-alive), 5.32 h; the
+    hard cases 0.41 h (the desktop's job wh1, the only basis). Total 21.41 h at R = 28, 16.52 h at
+    R = 11 to 22.27 h at R = 31; if every keep-alive session follows a churn or open one (one wait
+    of at most 30.0 s per session), 22.39 h at 28 and at most 23.31 h. Reruns are not counted:
+    October's W runs needed 9 in 654 sessions, and a cell's cap is a quarter of its R. Two laptop
+    blocks: the pilot and its parts, 6.0 h; then, after the simulation and the new pilot entry on
+    the desktop (no measured basis), the rest, 10.5 to 16.3 h. The runners' functional checks
+    (job a4) come first, 0.43 h on the desktop's basis. The plan's estimate was 5.3 to 21.3 h with
+    no laptop basis; the laptop's TIME-WAIT waits put it at the top of that range. Stated to Alex
+    on ... before this entry was committed.
 13. The laptop's TCP settings (Alex's decision of 2026-10-23, the probe's entry, item 10): if
     the laptop's `TcpTimedWaitDelay` or dynamic port range differ from the values W's runner was
     designed for (30 s; start 1025 with 64,510 ports, the count `design/w-procedure.md` line 24 records; its written end "65535" is off by one, the range ends at 65534), Alex sets them to those values with an administrator step

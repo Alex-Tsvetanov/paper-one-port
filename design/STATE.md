@@ -162,6 +162,15 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
   ninja on PATH. It builds a fresh Release build and gates it against the green record alone, so
   no record is made and the red attempts stay untouched; the old job's folder is only read.
   a3 then at exactly 63f5c74 on this job's build-release, under the base Python.
+- Group (a) complete (2026-10-24, queue `gap3-w-q1-p3-gate.json`): `p3-gate-w-5` (gate only, at
+  3ae481f) exit 0: gate passed and citable, records folder `...\p3-records-w-4\out\rec\laptop-w`,
+  the one record `oneport-3ae481faa-W-asan.json` (green, 165 of 165, 0 reports, MSVC
+  19.51.36248.0), all 10 targets covered, `wrunlib.laptop_gate_problems` finds none. The record is
+  filed in Papers `lab/sanitizer-records/laptop-w/` (the only file there). Its logs
+  (`C:\Users\alext\lab\records-logs\oneport-3ae481faa-W-asan.tar.gz`, sha256 8f3cf426...) come to
+  the desktop's archive with their sha256 (D5). `w-gate-tcp-py-4` exit 0. `p3-probe-w-4` (the
+  probe, at 63f5c74) exit 0, 01:25:23 to 01:52:39; its hours are in the draft's item 12 and TCP
+  values in item 13.
 - Earlier plan, now superseded by the green record: next a2 attempt at the docs commit after 786058e (after its push), so its record is named
   `oneport-<that commit's first 9>-W-asan` and the red attempts (`oneport-63f5c742c-W-asan`,
   `oneport-632b24214-W-asan`) and their logs stay untouched. a3 stays at exactly 63f5c74 (its
