@@ -214,6 +214,11 @@ upgrades until P4's Arch blocks end, extra versions side by side under `~/opt`. 
 if the kernel census runs on L before then, on the present packages. D4 (P4's idle day) does not
 touch P3.
 
+Answered (Alex, 2026-10-24, about 02:05, relayed by the coordinator): P3's Windows campaign as
+planned, about 21.4 h in two blocks with R by the frozen rule; and the push of the section 8
+entry ("W's runs on the laptop's Windows", logged 2026-10-24) to `laptop-w-bringup` before the
+first window.
+
 Answered (Alex, 2026-10-24): push 723d784..3ae481f (the a2 fix 786058e and docs) to
 `laptop-w-bringup`: yes; pushed to 3ae481f.
 

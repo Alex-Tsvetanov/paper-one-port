@@ -1,5 +1,9 @@
 # DRAFT: the section 8 entry that moves W's runs to the laptop's Windows
 
+Logged on 2026-10-24 as the revision-log entry "W's runs on the laptop's Windows (a later change
+under section 8)", after Alex approved the campaign. The log holds the binding text; this file is
+its source and is not edited further.
+
 Status: a draft, not part of the revision log, and not to be appended to `hypotheses.md` until (1)
 the probe of the entry of 2026-10-23 has run and its computed time (item 12) has been stated to
 Alex (Alex answered the open points on 2026-10-23: items 3 (e), 8 and 13), (2) job a0's readings
@@ -192,16 +196,21 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    `results/decisions.csv`, `results/macros.tex` and the other October results stay as committed.
    The laptop's analysis writes into `results/laptop-w/` and its own generated macros file; the
    paper's W numbers come from those alone.
-10. Records and gate. The laptop's records job (Papers job a2, from a clone at the change's
-    commit) builds the Release build and makes MSVC's ASan record of oneport into a folder named
-    `laptop-w` that holds no other record, then `gate-W.json` from that folder alone
-    (`bench/gate_lib.py` reads one folder, not its subfolders). A record made on the desktop and
-    one made on the laptop at the same commit have the same file name, so they never share a
-    folder. Every frozen W run refuses a gate that was not made so: host W, a records folder named
-    `laptop-w`, the laptop's compiler (`wrunlib.check_laptop_gates`). Before the gate, each
-    target's inputs hash is compared with the desktop's record, target by target; they are
-    expected equal, since the compiled inputs and pins are CODE_FREEZE's. Section 11's declared
-    gaps for Windows stand (`bench/coverage.json`).
+10. Records and gate. The laptop's records job made MSVC's ASan record of oneport into a folder
+    named `laptop-w` that holds no other record (`bench/gate_lib.py` reads one folder, not its
+    subfolders; a record made on the desktop and one made on the laptop at the same commit have the
+    same file name, so they never share a folder). Two earlier attempts are red and kept as they
+    are, each for a cause of the laptop's setup that the commits of item 5 or the lab's jobs fixed
+    (`oneport-63f5c742c-W-asan`: numpy missing for the suite's Python, and a checkout with CRLF
+    endings; `oneport-632b24214-W-asan`: the cycle-rate check read a launcher, fixed by 786058e).
+    The record: `oneport-3ae481faa-W-asan` (lab job `p3-records-w-4`, 2026-10-24, at 3ae481f),
+    green, the whole CTest suite 165 of 165 with 0 sanitizer reports, MSVC 19.51.36248.0; each of
+    the 10 targets' inputs hashes equals the desktop's record's at CODE_FREEZE. Its logs are
+    archived with their sha256 (8f3cf426...). The gate (lab job `p3-gate-w-5`, at 3ae481f) passed
+    and is citable: `gate-W.json` cites that record alone and covers every target of the Release
+    build that W's runs start. Every frozen W run refuses a gate that was not made so: host W, a
+    records folder named `laptop-w`, the laptop's compiler (`wrunlib.check_laptop_gates`).
+    Section 11's declared gaps for Windows stand (`bench/coverage.json`).
 11. OpenSSL 3.5.9 and nghttp2 1.70.0 on the laptop. `bench/third_party/build_deps.ps1` stops
     unless `cl` is 19.51.36246. It is a frozen path and is not edited: `bench/run/wdeps.py` checks
     that the clone's script and `bench/cmake/pins.cmake` are CODE_FREEZE's blobs, copies both out
