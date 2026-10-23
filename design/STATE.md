@@ -24,8 +24,10 @@ branch from 29ae2b6 would fork it), its `bench`, `tests` and `CMakeLists.txt` eq
   names 9cae2de. Its item 9, appended in the docs commit after b20f415, names b20f415 as the
   probe's commit and corrects items 5, 6 and 8 after the review (no line of the entry holds the
   word the guard reads, which a test checks).
-- 5cc1e06, then b20f415 (the review's fixes): the runners for the laptop, Python directly under
-  `bench/run` alone; b20f415 is the CHANGE_COMMIT-to-be: `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
+- 5cc1e06, then b20f415 (the review's fixes), then e183745 (a test that broke once item 9 was
+  committed): the runners for the laptop, Python directly under `bench/run` alone. e183745 is the
+  CHANGE_COMMIT-to-be; the probe runs b20f415's code, which differs from it in
+  `test_wlaptop.py` alone: `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
   generator 2 to 13, quiet CPUs 2 to 14), `wwindow.py` (open-loop threads 2, 4, ..., 12),
   `wcellwin.py` (the mixed cell takes L's placement), `wpower.py` (the laptop's lab plan b1bcd431
   by GUID, Alex's plan Balanced; inside a lab job, LAB_JOB_ID set, it only verifies), `wjob.py`
@@ -63,9 +65,9 @@ inside the lab runner (spec `boost` false, `quiet` true). Hours are estimates; t
 | Job | Runs | Commit | Estimate | Basis |
 |---|---|---|---|---|
 | a0 `w-read-1` | read only: OS build and UBR, BIOS, microcode, MSVC's ASan runtime (`clang_rt.asan_dynamic-x86_64.dll`, toolset 14.51) present, the copied files' sha256 | any | no measured basis; timeout 900 s | none |
-| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | the docs commit after b20f415 | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
-| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | the docs commit after b20f415 | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
-| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from b20f415, a non-Release build and an unpinned host) | the docs commit after b20f415 (it holds item 9), or later | 1,139 to 1,625 s, timeout 5,000 s | the proposal's section 4: desktop window plus TIME-WAIT wait (M6b func2b), and the 40 s cap; the laptop's own times are what the probe measures |
+| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | 42240b9 | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
+| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | 42240b9 (its build serves a3) | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
+| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from b20f415, a non-Release build and an unpinned host) | exactly 42240b9 (it holds item 9; every later commit changes `bench/run`, which the probe refuses) | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
 | a4 `p3-func-w` | after the move's entry: the suites above on the laptop (with `cycle_rate_reading` on CPU 14), CTest of the Release build, and the freeze night's runner checks wf1 to wf4 | the move's entry's commit | 1,541 s, timeout 4,700 s | desktop run 6, 2026-10-05 (status.md) |
 
 Total a0 to a4: about 4,091 to 4,577 s (1.14 to 1.27 h) plus a0, which has no basis. W's
@@ -93,8 +95,9 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 
 ### Alex decides
 
-1. Pushes to the public repository, for a public timestamp before the probe's data: 8e7d4a6 (the
-   reading entry) and the commit that appends its item 9 with the code commit before it.
+1. A push to the public repository, for a public timestamp before the probe's data. Pushing the
+   item 9 commit pushes the whole linear branch `laptop-w-bringup`: 8e7d4a6, 5cc1e06, b20f415,
+   42240b9, e183745 and this docs commit. The destination (a new branch or main) is his to choose.
 2. The draft's item 8: the frozen analysis takes one R_C for every cost cell and refuses a cell
    with more valid sessions than R_C; L's cells hold 28. Unless the new pilot gives R_C = 28,
    `ANALYSIS_COMMIT` cannot run unchanged on L's rows and the laptop's W rows. Options (i) a later

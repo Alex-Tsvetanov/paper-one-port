@@ -86,9 +86,11 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    (e) the job-start check of item 3 (b) covers CPUs 2 to 15.
    The two-core IOCP cell of section 10 stays not run (the entry of 2055e63; the server refuses
    more than one IOCP worker).
-5. The change, two commits (5cc1e06, then b20f415 with an adversarial review's fixes), Python
-   directly under `bench/run` alone; the probe ran on b20f415 (the probe's entry, item 9):
-   CHANGE_COMMIT = **[b20f41501495f98313f97336146928c9b2ca2546, unless this entry needs another change]**
+5. The change, three commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a
+   test made independent of the probe entry's item 9), Python directly under `bench/run` alone.
+   The probe ran b20f415's code (the probe's entry, item 9), which differs from e183745 in
+   `bench/run/test_wlaptop.py` alone, a test that no window runs:
+   CHANGE_COMMIT = **[the full hash of e183745, unless this entry needs another change]**
    Files: `wsys.py` (the core layout, item 4's placement, and the counters of all 16 CPUs, where the
    window code read the desktop's 12), `wwindow.py` (the open-loop threads),
    `wcellwin.py` (item 4 (d)), `wpower.py` (item 3 (a) and (c): the laptop's plans by GUID; no plan
