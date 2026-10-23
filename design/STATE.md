@@ -96,6 +96,37 @@ inside the lab runner (spec `boost` false, `quiet` true). Hours are estimates; t
 Total a0 to a4: about 4,091 to 4,577 s (1.14 to 1.27 h) plus a0, which has no basis. W's
 campaign itself waits for the move's entry; its hours come from the probe (draft item 12).
 
+### First laptop block, 2026-10-23 (run by the coordinator's operator)
+
+- a1 `p3-deps-w`: exit 0 (22:24 to 22:45). `wdeps.json`: clone 63f5c74, `cl` 19.51.36248, one line
+  changed; OpenSSL and nghttp2, release and asan, each built (exit 0) into
+  `C:\Users\alext\opt\<lib>-<version>-<flavour>`. Reusable: do not run it again (build_deps.ps1
+  refuses an existing prefix).
+- a2 `p3-records-w`: exit 1 (22:45 to 22:50). The Release build passed. The ASan record
+  `oneport-63f5c742c-W-asan` is red: its CTest suite failed 3 of 165, with 0 sanitizer reports.
+  Its inputs hashes equal the desktop's for all 10 targets. Two causes, both of the laptop's
+  environment, not of the code:
+  (1) `run.test_frozen` and `run.test_wfrozen` stop with `ModuleNotFoundError: No module named
+  'numpy'`. CMake took `C:/Users/alext/AppData/Local/Programs/Python/Python314/python.exe`, which
+  has no numpy; the analysis pins numpy 2.5.0.
+  (2) `run.test_competitors`, `test_editing_an_input_changes_the_hash`, fails because the laptop's
+  clone is checked out with CRLF endings (Git for Windows' `core.autocrlf=true`). The test turns
+  each LF into CRLF and expects the same hash; a file that is already CRLF becomes CR CR LF. The
+  desktop and L check out LF.
+  Neither test can change: `bench/competitors` is a frozen path, and skipping the analysis tests
+  would weaken the record.
+- a3: not run.
+- The rerun, as queue changes:
+  - clone one-port with `core.autocrlf=false`;
+  - a venv from Python 3.14.5 with numpy 2.5.0 (wheel `numpy-2.5.0-cp314-cp314-win_amd64.whl`,
+    sha256 ebb81d9d5443e0309d6c54894c3fbed74ad7da0714352a67b6d773cd189eae73, PyPI's; the
+    desktop's copy is in `C:\Users\alext\lab\p3\confirm1\dl`), activated in a2's command so that
+    CMake's FindPython3 takes it;
+  - a2 at 632b242, because `sanitize_oneport.ps1` line 50 refuses an existing
+    `records-logs\oneport-63f5c742c-W-asan.tar.gz`. The other way is a2 at 63f5c74 again with the
+    red run's logs moved aside first. The compiled inputs and pins are the same at both commits.
+  - a3 stays at exactly 63f5c74, on a2's new build.
+
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
 1. Done (Papers d50a7ab, 2026-10-23). `lab/laptop/win/labjob.py` and `labjob_inner.py` (run phase): drop any `LAB_QUIET` the job's
