@@ -17,6 +17,16 @@ It computes, by the frozen rules and nothing else:
 - lambda for each C3 cell (WL2), from the C1 pilot sessions;
 - G_L and G_W from the timer part, and GAP_SPLIT from the split part (8 step 4, 9.2).
 
+R per host (`--fixed-r HOST=R`, W's move to the laptop's Windows, 2026-10-23, a later change under
+section 8). A host whose cost runs already ran at an R that an earlier pilot entry fixed keeps it:
+`--fixed-r L=28` (the pilot entry of 2026-10-05, R_C = 28; L's cost cells hold 28 valid sessions
+each). Every other host's R is 4.6 step 6 over that host's resolved cells alone: the smallest
+candidate at which each of them has Power_c(R) of at least 0.80, 31 when none is resolved. A fixed
+R at which a resolved cell of its host falls short of the target is refused. The output then also
+holds `R_C_by_host` (and `fixed_r`); `R_C` stays step 6 over every resolved cell, reported beside
+it, and the joint power of each protocol and backend is taken at its host's R. The resolved list,
+m_C and every Power_c are as without the option. Without the option the output is as before.
+
 What it refuses: a row in one-port mode, or of any mode but dedicated (the pilot "holds no
 one-port data", 4.6 step 1); a dry-run row; a synthetic row unless --allow-synthetic; a row that
 bench/check_rows.py refuses against the gates (rule D5: R_C, lambda and G are cited); a row whose
@@ -191,37 +201,68 @@ def outside_numbers() -> set[int]:
     return {c.number for c in C.cost_cells() if c.id in C.COST_OUTSIDE_FAMILY}
 
 
+def smallest_r(cells: list[int], counts: dict[int, dict[int, int]], n_sim: int, candidates: tuple[int, ...]) -> int:
+    """Step 6 over `cells`: the smallest candidate at which every one meets the target (the
+    largest candidate when there is none)."""
+    if not cells:
+        return max(candidates)
+    return next(r for r in candidates if all(meets(counts[c][r], n_sim) for c in cells))
+
+
 def decide(cells_valid: dict[int, bool], counts: dict[int, dict[int, int]], n_sim: int,
-           candidates: tuple[int, ...] = CANDIDATES) -> dict:
+           candidates: tuple[int, ...] = CANDIDATES, fixed: dict[str, int] | None = None) -> dict:
     """Steps 5 to 7: resolved = P valid sessions and Power_c(31) >= 0.80, never a cell outside the
     family by a logged decision (cells.COST_OUTSIDE_FAMILY); R_c each resolved cell's smallest
     candidate meeting the target; R_C the smallest candidate at which every resolved cell meets it
-    (31 when none is resolved); m_C the number resolved."""
+    (31 when none is resolved); m_C the number resolved. With `fixed` (see the docstring), also
+    R_C_by_host: the fixed R of each fixed host, refused unless every resolved cell of that host
+    meets the target there, and step 6 over each other host's resolved cells alone."""
     top = max(candidates)
     outside = outside_numbers()
     resolved = [c for c in sorted(counts) if cells_valid.get(c) and c not in outside and meets(counts[c][top], n_sim)]
     own = {c: next(r for r in candidates if meets(counts[c][r], n_sim)) for c in resolved}
-    if resolved:
-        r_c = next(r for r in candidates if all(meets(counts[c][r], n_sim) for c in resolved))
-    else:
-        r_c = top
-    return {"resolved": resolved, "own_r": own, "R_C": r_c, "m_C": len(resolved)}
+    out = {"resolved": resolved, "own_r": own, "R_C": smallest_r(resolved, counts, n_sim, candidates), "m_C": len(resolved)}
+    if fixed:
+        host = {c.number: c.host for c in C.cost_cells()}
+        hosts = sorted(set(host.values()))
+        if set(fixed) - set(hosts):
+            raise PilotRefused(f"--fixed-r names hosts {sorted(set(fixed) - set(hosts))}, not among {hosts}")
+        by_host = {}
+        for h in hosts:
+            mine = [c for c in resolved if host[c] == h]
+            if h in fixed:
+                r = fixed[h]
+                if r not in candidates:
+                    raise PilotRefused(f"the fixed R of {h}, {r}, is not a candidate of 4.6 step 4")
+                short = [c for c in mine if not meets(counts[c][r], n_sim)]
+                if short:
+                    raise PilotRefused(f"the fixed R of {h}, {r}, leaves resolved cells {short} below the target")
+                by_host[h] = r
+            else:
+                by_host[h] = smallest_r(mine, counts, n_sim, candidates)
+        out["R_C_by_host"] = by_host
+    return out
 
 
-def joint_powers(resolved: list[int], counts: dict[int, dict[int, int]], r_c: int, n_sim: int) -> list[dict]:
+def joint_powers(resolved: list[int], counts: dict[int, dict[int, int]], r_c: int, n_sim: int,
+                 r_by_host: dict[str, int] | None = None) -> list[dict]:
     """Step 7: for each protocol, backend and host whose C1, C2 and C3 cells are all resolved,
-    the product of their three Power_c(R_C)."""
+    the product of their three Power_c(R_C), at the host's R when `r_by_host` is given."""
     by_id = {c.number: c for c in C.cost_cells()}
     out = []
     for backend in C.COST_BACKENDS:
         for proto in C.COST_PROTOS:
             trio = [c.number for c in by_id.values() if c.backend == backend and c.proto == proto]
             if all(c in resolved for c in trio):
+                r = r_by_host[C.host_of(backend)] if r_by_host else r_c
                 fr = Fraction(1)
                 for c in trio:
-                    fr *= Fraction(counts[c][r_c], n_sim)
-                out.append({"host": C.host_of(backend), "backend": backend, "proto": proto, "cells": trio,
-                            "power_exact": f"{fr.numerator}/{fr.denominator}", "power": float(fr)})
+                    fr *= Fraction(counts[c][r], n_sim)
+                j = {"host": C.host_of(backend), "backend": backend, "proto": proto, "cells": trio,
+                     "power_exact": f"{fr.numerator}/{fr.denominator}", "power": float(fr)}
+                if r_by_host:
+                    j["R"] = r
+                out.append(j)
     return out
 
 
@@ -316,7 +357,8 @@ def cell_sessions(sessions: list[RW.Session]) -> dict[str, list[RW.Session]]:
     return out
 
 
-def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int = N_SIM, workers: int = 1) -> dict:
+def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int = N_SIM, workers: int = 1,
+                fixed: dict[str, int] | None = None) -> dict:
     """Every output of the pilot entry that the rows determine (9.2), as one JSON-ready dict."""
     for r in rows:
         if r.get("part") is not None:
@@ -346,7 +388,7 @@ def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int 
             entry["why_not_simulated"] = f"{len(good)} valid sessions with a ratio, P = {P} needed (4.6 step 5)"
         cells_out.append(entry)
     counts = powers(ratios, seeds["SEED_SIM"], n_sim=n_sim, workers=workers)
-    rule = decide(valid_ok, counts, n_sim)
+    rule = decide(valid_ok, counts, n_sim, fixed=fixed)
     for e in cells_out:
         c = e["c"]
         if c in counts:
@@ -359,7 +401,10 @@ def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int 
     hosts = {C.host_of(r["backend"]) for r in rows if r.get("backend")}
     incomplete = [f"no window of host {h}" for h in ("L", "W") if h not in hosts]
     resolved_ids = [e["cell"] for e in cells_out if e["resolved"]]
+    by_host = rule.get("R_C_by_host")
+    extra = {"R_C_by_host": by_host, "fixed_r": dict(fixed)} if by_host else {}
     return {
+        **extra,
         "complete": not incomplete,
         "incomplete": incomplete,
         "n_sim": n_sim,
@@ -373,7 +418,7 @@ def pilot_entry(rows: list[dict], parts: list[dict], seeds: dict, *, n_sim: int 
         "outside_family": dict(C.COST_OUTSIDE_FAMILY),
         "R_C": rule["R_C"],
         "m_C": rule["m_C"],
-        "joint_powers": joint_powers(rule["resolved"], counts, rule["R_C"], n_sim),
+        "joint_powers": joint_powers(rule["resolved"], counts, rule["R_C"], n_sim, by_host),
         "rates": rates(sessions),
         "G": g_values(parts),
         "gap_split": gap_split(parts),
@@ -390,6 +435,17 @@ def write_text(path: Path, text: str) -> None:
         f.write(text)
 
 
+def parse_fixed(items: list[str]) -> dict[str, int]:
+    """`--fixed-r HOST=R` values, at most one per host."""
+    out: dict[str, int] = {}
+    for it in items:
+        h, sep, r = it.partition("=")
+        if not sep or not r.strip().isdigit() or h.strip() in out:
+            raise SystemExit(f"--fixed-r {it!r}: give HOST=R once per host")
+        out[h.strip()] = int(r)
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seeds", type=Path, required=True, help="the 14 seeds of 4.7, as the revision log fixes them")
@@ -400,7 +456,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--workers", type=int, default=1, help="processes for the simulation; the output does not depend on it")
     ap.add_argument("--allow-synthetic", action="store_true", help="synthetic rows only (tests); never under results/")
     ap.add_argument("--n-sim", type=int, default=N_SIM, help="tests only, with --allow-synthetic; the frozen value is 1,000")
+    ap.add_argument("--fixed-r", action="append", default=[], metavar="HOST=R",
+                    help="a host whose cost runs ran at an R an earlier pilot entry fixed (see the docstring), e.g. L=28")
     a = ap.parse_args(argv)
+    fixed = parse_fixed(a.fixed_r)
     versions.require()
     if a.n_sim != N_SIM and not a.allow_synthetic:
         raise SystemExit(f"N_SIM is {N_SIM} (4.6 step 2); another value only for synthetic tests")
@@ -411,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.allow_synthetic:
         versions.refuse_results_path(a.out)
     gate = RW.apply_gate(rows + parts, a.gate)
-    entry = pilot_entry(rows, parts, seeds, n_sim=a.n_sim, workers=a.workers)
+    entry = pilot_entry(rows, parts, seeds, n_sim=a.n_sim, workers=a.workers, fixed=fixed)
     entry["synthetic"] = bool(a.allow_synthetic)
     entry["gate"] = gate
     entry["inputs"] = [{"file": p.name, "sha256": RW.sha256_file(p)} for p in a.rows + a.parts + [a.seeds]]

@@ -506,6 +506,67 @@ def test_w_cpu_is_the_cycles_never_the_ticks():
     assert RW.session_ratio(s, "one-port", "dedicated", "cpu") == pytest.approx(1.02)
 
 
+def test_pilot_r_per_host_is_checked():
+    base = {"synthetic": False, "complete": True, "n_sim": 1000, "R_C": 22, "resolved": [], "m_C": 0}
+    assert AN.check_pilot(dict(base, R_C_by_host={"L": 28, "W": 15}), False)
+    for bad in ({"L": 28}, {"L": 28, "W": 14}, {"L": 28, "W": 15, "X": 11}, [28, 15]):
+        with pytest.raises(AN.AnalysisRefused, match="R_C_by_host"):
+            AN.check_pilot(dict(base, R_C_by_host=bad), False)
+    assert AN.cost_r("W", 22, {"L": 28, "W": 15}) == 15 and AN.cost_r("L", 22, None) == 22
+
+
+def test_r_per_host_end_to_end(run, tmp_path):
+    """The same synthetic pipeline with the pilot's R per host. The synthetic pilot resolves no W
+    cell, so `--fixed-r L=11` gives W = 31 (4.6 step 6 with none resolved). At L = W = 11 every
+    decision is byte for byte the run without R per host; at W = 31, W's cost cells (11 valid
+    sessions each) are left untested, and L's are as before."""
+    d, out0 = run["dir"], run["outs"][0]
+    py = sys.executable
+    pilot2 = tmp_path / "pilot2.json"
+    r = subprocess.run([py, str(HERE / "pilot.py"), "--seeds", str(d / "seeds.json"), "--gate", str(d / "gate.json"), "--rows",
+                        str(d / "pilot.jsonl"), "--parts", str(d / "parts.jsonl"), "--out", str(pilot2), "--allow-synthetic",
+                        "--n-sim", "20", "--workers", "2", "--fixed-r", "L=11"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    p2 = json.loads(pilot2.read_text(encoding="utf-8"))
+    assert p2["R_C_by_host"] == {"L": 11, "W": 31} and p2["fixed_r"] == {"L": 11}
+    assert not any(c.endswith(tuple(f".W.IOCP.{p}" for p in C.COST_PROTOS)) for c in p2["resolved"])
+    assert {k: v for k, v in p2.items() if k not in ("R_C_by_host", "fixed_r", "joint_powers", "inputs")} == \
+        {k: v for k, v in run["pilot"].items() if k not in ("joint_powers", "inputs")}
+
+    def analyse_with(pilot_path: Path, out: Path) -> dict:
+        res = subprocess.run([py, str(HERE / "analyse.py"), "--seeds", str(d / "seeds.json"), "--pilot", str(pilot_path), "--rule-e",
+                              str(d / "rule_e.json"), "--gate", str(d / "gate.json"), "--rows", str(d / "windows.jsonl"), "--out",
+                              str(out), "--allow-synthetic"], capture_output=True, text=True)
+        assert res.returncode == 0, res.stderr
+        return json.loads((out / "summary.json").read_text(encoding="utf-8"))
+
+    pilot_same = tmp_path / "pilot_same.json"
+    pilot_same.write_text(json.dumps(dict(p2, R_C_by_host={"L": 11, "W": 11})), encoding="utf-8")
+    s_same = analyse_with(pilot_same, tmp_path / "same")
+    assert (tmp_path / "same" / "decisions.csv").read_bytes() == (out0 / "decisions.csv").read_bytes()
+    assert s_same["constants"]["R_C_by_host"] == {"L": 11, "W": 11}
+    r = subprocess.run([py, str(HERE / "macros.py"), str(tmp_path / "same" / "summary.json"), "--out", str(tmp_path / "m.tex")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    tex = (tmp_path / "m.tex").read_text(encoding="utf-8")
+    assert "\\newcommand{\\CostRL}" in tex and "\\newcommand{\\CostRW}" in tex
+    s_w31 = analyse_with(pilot2, tmp_path / "w31")
+    before, after = cells_of(run["summary"]), cells_of(s_w31)
+    w_seen = 0
+    for cid, x in after.items():
+        if x["family"] != "C":
+            continue
+        if ".W." in cid:
+            w_seen += 1
+            assert x["R"] == 31 and not x["tested"], cid
+        else:
+            # L's R, test status and session values are unchanged. Its bootstrap p-values are not
+            # compared: the family's one stream (4.7) draws per tested cell in 6.1's order, so W's
+            # untested cells change the draws of the L cells after them.
+            assert (x["R"], x["tested"], x.get("values")) == (11, before[cid]["tested"], before[cid].get("values")), cid
+    assert w_seen == 12
+
+
 def test_a_pilot_entry_resolving_a_cell_outside_the_family_is_refused():
     base = {"synthetic": False, "complete": True, "n_sim": 1000, "R_C": 11}
     assert AN.check_pilot(dict(base, resolved=["C1.W.IOCP.http1"], m_C=1), False)

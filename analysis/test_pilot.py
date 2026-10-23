@@ -340,6 +340,56 @@ def test_cli_byte_identical_and_never_under_results(tmp_path):
     assert r.returncode != 0
 
 
+# ---------------------------------------------------------------- R per host (W's move, 2026-10-23)
+
+
+def host_counts(l_from: int, w_from: int, n: int = 1000) -> tuple[dict, dict]:
+    """Every cost cell valid; L's cells meet the target from candidate `l_from` on, W's from
+    `w_from` on (W's churn h2c and MQTT, c = 10 and 12, outside the family as frozen)."""
+    host = {c.number: c.host for c in C.cost_cells()}
+    counts = {c: {r: (n if r >= (l_from if host[c] == "L" else w_from) else 0) for r in PL.CANDIDATES} for c in host}
+    return {c: True for c in host}, counts
+
+
+def test_fixed_r_keeps_l_and_sizes_w_alone():
+    valid, counts = host_counts(22, 15)
+    plain = PL.decide(valid, counts, 1000)
+    rule = PL.decide(valid, counts, 1000, fixed={"L": 28})
+    assert {k: rule[k] for k in plain} == plain                     # resolved, own R_c, R_C and m_C unchanged
+    assert plain["R_C"] == 22 and "R_C_by_host" not in plain
+    assert rule["R_C_by_host"] == {"L": 28, "W": 15}                # W by step 6 over its own resolved cells
+    assert rule["m_C"] == 34 and 10 not in rule["resolved"] and 12 not in rule["resolved"]
+    valid, counts = host_counts(22, 31)
+    assert PL.decide(valid, counts, 1000, fixed={"L": 28})["R_C_by_host"] == {"L": 28, "W": 31}
+    w_none = {c.number: c.host == "L" for c in C.cost_cells()}
+    assert PL.decide(w_none, counts, 1000, fixed={"L": 28})["R_C_by_host"]["W"] == 31   # no W cell resolved
+
+
+def test_fixed_r_refusals():
+    valid, counts = host_counts(22, 15)
+    with pytest.raises(PL.PilotRefused, match="below the target"):
+        PL.decide(valid, counts, 1000, fixed={"L": 18})              # L's cells fall short at 18
+    with pytest.raises(PL.PilotRefused, match="not a candidate"):
+        PL.decide(valid, counts, 1000, fixed={"L": 27})
+    with pytest.raises(PL.PilotRefused, match="names hosts"):
+        PL.decide(valid, counts, 1000, fixed={"X": 28})
+    assert PL.parse_fixed(["L=28"]) == {"L": 28} and PL.parse_fixed([]) == {}
+    for bad in (["L28"], ["L=x"], ["L=28", "L=31"]):
+        with pytest.raises(SystemExit):
+            PL.parse_fixed(bad)
+
+
+def test_joint_power_at_the_host_r():
+    by_id = {c.number: c for c in C.cost_cells()}
+    l_trio = [c for c, x in by_id.items() if x.backend == "epoll" and x.proto == "http1"]
+    w_trio = [c for c, x in by_id.items() if x.backend == "IOCP" and x.proto == "http1"]
+    counts = {c: {r: (1000 if r == 28 else 900 if r == 15 else 0) for r in PL.CANDIDATES} for c in l_trio + w_trio}
+    jp = {j["backend"]: j for j in PL.joint_powers(l_trio + w_trio, counts, 22, 1000, {"L": 28, "W": 15})}
+    assert (jp["epoll"]["R"], jp["epoll"]["power"]) == (28, 1.0)
+    assert (jp["IOCP"]["R"], jp["IOCP"]["power_exact"]) == (15, "729/1000")
+    assert all("R" not in j for j in PL.joint_powers(l_trio, counts, 28, 1000))
+
+
 def main() -> int:
     return pytest.main([__file__, "-q"])
 

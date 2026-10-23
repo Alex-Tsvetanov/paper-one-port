@@ -161,6 +161,8 @@ def design(mc: Macros, s: dict) -> None:
     mc.add("CostMarginHigh", fixed(k["cost_margin"][1], 2))
     mc.add("BThreeBound", fixed(k["b3_bound"], 2))
     mc.add("CostR", count(k["R_C"]), "R_C from the pilot entry")
+    for host, r in sorted((k.get("R_C_by_host") or {}).items()):
+        mc.add(f"CostR{host}", count(r), f"the cost family's R on {host} (the pilot entry's R_C_by_host)")
     mc.add("BThreeR", count(k["R_B"]))
     mc.add("MR", count(k["R_M"]))
     for name, v in sorted(s["seeds"].items()):

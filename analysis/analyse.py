@@ -7,7 +7,9 @@ decisions.csv, from which analysis/macros.py writes results/macros.tex.
 
 Per family (2.2, never mixed), per cell, the frozen tests and the dual rule (4.2):
 - C (5.1): the two one-sided tests at [0.98, 1.02] (4.3) on the pilot entry's resolved cells at
-  R_C, Holm over m_C; the cells the pilot did not resolve are reported as "not resolved at
+  R_C, or at each cell's host's R when the entry gives R_C_by_host (analysis/pilot.py, --fixed-r:
+  W's move to the laptop's Windows, 2026-10-23), Holm over m_C as one family either way; the WL4
+  intervals of section 10 for a cost cell take the same R; the cells the pilot did not resolve are reported as "not resolved at
   R <= 32", with intervals from the family's draws (section 10); the cells a logged decision put
   outside the family (cells.COST_OUTSIDE_FAMILY: W's churn h2c and churn MQTT) are reported with
   that reason, and a pilot entry that resolves one is refused;
@@ -102,6 +104,11 @@ def check_pilot(pilot: dict, synthetic: bool) -> dict:
         raise AnalysisRefused(f"the pilot entry ran N_SIM = {pilot.get('n_sim')}, not {N_SIM} (4.6 step 2)")
     if pilot.get("R_C") not in COST_CANDIDATES:
         raise AnalysisRefused(f"R_C = {pilot.get('R_C')!r} is not a candidate of 4.6 step 4")
+    by_host = pilot.get("R_C_by_host")
+    if by_host is not None:
+        hosts = sorted({c.host for c in C.cost_cells()})
+        if not isinstance(by_host, dict) or sorted(by_host) != hosts or any(v not in COST_CANDIDATES for v in by_host.values()):
+            raise AnalysisRefused(f"the pilot entry's R_C_by_host {by_host!r} is not one candidate of 4.6 step 4 per host {hosts}")
     ids = [c.id for c in C.cost_cells()]
     res = list(pilot.get("resolved") or [])
     if any(r not in ids for r in res) or res != sorted(res, key=ids.index) or len(res) != pilot.get("m_C"):
@@ -299,12 +306,20 @@ def cost_claims(c_rows: list[dict], pilot: dict) -> list[dict]:
 # ---------------------------------------------------------------- section 10 (SEED_BOOT_S)
 
 
-def secondary(by_cell: dict[str, list[RW.Session]], r_c: int, rng: np.random.Generator, rule_e: dict) -> list[dict]:
+def cost_r(host: str, r_c: int, by_host: dict[str, int] | None) -> int:
+    """The cost family's R for a cell of `host`: the pilot entry's R_C, or its host's R when the
+    entry gives one per host (pilot.py, `--fixed-r`; W's move to the laptop's Windows)."""
+    return int(by_host[host]) if by_host is not None else r_c
+
+
+def secondary(by_cell: dict[str, list[RW.Session]], r_c: int, rng: np.random.Generator, rule_e: dict,
+              by_host: dict[str, int] | None = None) -> list[dict]:
     fam_cells = C.all_family_cells()
     sec_cells = {s.id: s for s in C.secondary_cells()}
     out = []
     for d in C.secondary_draws():
-        r = d.r if d.r is not None else r_c
+        src = fam_cells.get(d.source) or sec_cells.get(d.source)
+        r = d.r if d.r is not None else cost_r(src.host, r_c, by_host)
         ss = by_cell.get(d.source, [])
         good = sorted((s for s in ss if s.valid), key=lambda s: (s.job, s.id))
         if len(good) > r:
@@ -417,23 +432,26 @@ def analyse(rows: list[dict], *, pilot: dict, rule_e: dict, seeds: dict) -> dict
     for s in sessions:
         by_cell.setdefault(s.cell, []).append(s)
     r_c = int(pilot["R_C"])
+    by_host = pilot.get("R_C_by_host")
     resolved = set(pilot["resolved"])
     kb = k_base_of(rows)
     fams = {}
     for fam in C.FAMILY_ORDER:
         cells = C.FAMILY_LISTS[fam]()
-        r_of = {c.id: (r_c if c.r is None else c.r) for c in cells}
+        r_of = {c.id: (cost_r(c.host, r_c, by_host) if c.r is None else c.r) for c in cells}
         in_holm = {c.id: (c.id in resolved) if fam == "C" else c.holm for c in cells}
         rng = np.random.default_rng(seeds[C.FAMILY_BOOT_SEED[fam]])
         fams[fam] = run_family(fam, by_cell, r_of, rng, in_holm, kb["K_BASE"])
-    sec = secondary(by_cell, r_c, np.random.default_rng(seeds["SEED_BOOT_S"]), rule_e)
+    sec = secondary(by_cell, r_c, np.random.default_rng(seeds["SEED_BOOT_S"]), rule_e, by_host)
+    per_host = {"R_C_by_host": dict(by_host)} if by_host is not None else {}
     summary = {
         "constants": {"alpha": S.ALPHA, "resamples": S.B_RESAMPLES, "cost_margin": [S.COST_LOW, S.COST_HIGH],
                       "b3_bound": S.B3_BOUND, "m_bound": S.M_BOUND, "R_C": r_c, "R_B": C.R_B, "R_M": C.R_M,
-                      "R_secondary": C.R_SECONDARY},
+                      "R_secondary": C.R_SECONDARY, **per_host},
         "seeds": seeds,
         "rule_e": rule_e,
-        "pilot": {"R_C": r_c, "m_C": pilot["m_C"], "resolved": pilot["resolved"], "joint_powers": pilot.get("joint_powers")},
+        "pilot": {"R_C": r_c, "m_C": pilot["m_C"], "resolved": pilot["resolved"], "joint_powers": pilot.get("joint_powers"),
+                  **per_host},
         "families": {f: {"m": sum(1 for x in fams[f] if x["holm"]),
                          "passed": sum(1 for x in fams[f] if x.get("passes")),
                          "passed_boot": sum(1 for x in fams[f] if x.get("pass_boot")),
