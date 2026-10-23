@@ -98,7 +98,7 @@ def phase(name: str, seconds: int, load: bool, lead: float) -> dict:
     spinner = None
     out: dict = {"phase": name, "load": load, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     if load:
-        spinner = wsys.start_pinned([sys.executable, str(HERE / "wsys.py"), "spin", str(seconds + lead + 2)], [CPU],
+        spinner = wsys.start_pinned([wsys.base_python(), str(HERE / "wsys.py"), "spin", str(seconds + lead + 2)], [CPU],
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out["spinner_pid"] = spinner.pid
         out["spinner_affinity"] = hex(wsys.affinity(spinner.pid))

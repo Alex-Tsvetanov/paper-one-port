@@ -298,6 +298,32 @@ class LaptopGate(unittest.TestCase):
         self.assertTrue(wrunlib.LAPTOP_COMPILER.startswith(f"MSVC {wdeps.LAPTOP_CL}."))
 
 
+class SpinnerInterpreter(unittest.TestCase):
+    """The cycle rate's spinner is the interpreter itself, also under a virtual environment, whose
+    python.exe on Windows is a launcher with the interpreter as its child (the laptop's records
+    job of 2026-10-23 read 0 cycles under one)."""
+
+    def test_base_python(self):
+        self.assertEqual(wsys.base_python(), getattr(sys, "_base_executable", None) or sys.executable)
+        self.assertTrue(Path(wsys.base_python()).is_file())
+
+    @unittest.skipUnless(sys.platform == "win32", "the launcher is Windows' venv")
+    def test_cycle_rate_under_a_venv_reads_the_spinner(self):
+        cpu = (os.cpu_count() or 2) - 1
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run([wsys.base_python(), "-m", "venv", "--without-pip", str(Path(d) / "v")], check=True)
+            vpy = Path(d) / "v" / "Scripts" / "python.exe"
+            code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import wsys; "
+                    "print(json.dumps({'exe': sys.executable, 'base': wsys.base_python(), "
+                    "'r': wsys.cycle_rate([int(sys.argv[2])], settle_s=0.2, span_s=0.4)}))")
+            out = subprocess.run([str(vpy), "-c", code, str(HERE), str(cpu)], capture_output=True, text=True, check=True).stdout
+        res = json.loads(out.strip().splitlines()[-1])
+        self.assertNotEqual(Path(res["exe"]).resolve(), Path(res["base"]).resolve())  # a launcher, the base apart
+        self.assertGreater(res["r"]["cycles"], 0, res)
+        self.assertGreater(res["r"]["cpu_s"], 0.0, res)
+        self.assertEqual(res["r"]["spinner_exit"], 0)
+
+
 class CostRunR(unittest.TestCase):
     """The cost runners take their host's R when the pilot output gives R per host (2026-10-23)."""
 
@@ -484,7 +510,9 @@ class Probe(unittest.TestCase):
         self.assertEqual(files, ["probe-times.jsonl"])  # the raw files never reach --out
         self.assertFalse(scratch_left)  # and the scratch folder is gone
         self.assertEqual(len(probe), 40)
-        self.assertGreaterEqual(len(windows) - len(probe), 2)  # the warm-up
+        warm = [x for x in windows if x["phase"] == "warmup"]
+        self.assertGreaterEqual(len(warm), 1)  # the warm-up: windows until warmup_s has passed
+        self.assertLess(warm[-1]["wall_start"] - warm[0]["wall_start"], 0.05 + 1.0)  # none started after it
         self.assertEqual(len([x for x in lines if x["kind"] == "reading"]), 13)
         self.assertTrue(all(set(x) == WINDOW_KEYS for x in windows))
         for word in ("metric", "valid", "completed", "4321", "123456", "cpu_s", "conn_rate", "frequency", "cycles"):

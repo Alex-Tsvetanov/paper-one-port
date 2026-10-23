@@ -54,6 +54,15 @@ GEN_CPUS = tuple(range(2, 2 * (N_CORES - 1)))
 HOUSEKEEPING = (0, 1)
 
 
+def base_python() -> str:
+    """The interpreter that runs Python code itself, for a process whose own cycles or CPU time
+    are read. In a virtual environment on Windows, sys.executable is a launcher that starts the
+    base interpreter as a child process, so the process started with it only waits, and its
+    cycles and CPU time read 0 (the laptop's records job, 2026-10-23, whose CTest ran under a venv
+    with numpy). The spinner (`wsys.py spin`) imports the standard library alone."""
+    return getattr(sys, "_base_executable", None) or sys.executable
+
+
 def mask(cpus) -> int:
     m = 0
     for c in cpus:
@@ -369,7 +378,7 @@ if IS_WINDOWS:
         housekeeping CPUs. `cpu_s` is the loop's GetProcessTimes over the same span, a check that
         it was busy throughout (whole 15.625 ms ticks, so about 1 in 64)."""
         spin_s = settle_s + span_s + 1.0
-        p = start_pinned([sys.executable, os.path.abspath(__file__), "spin", str(spin_s)], cpus,
+        p = start_pinned([base_python(), os.path.abspath(__file__), "spin", str(spin_s)], cpus,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         h = open_process(p.pid)
         try:
