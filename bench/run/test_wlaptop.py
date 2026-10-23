@@ -585,17 +585,29 @@ class Probe(unittest.TestCase):
             # Build both states in the clone, whatever the repository holds: the probe entry without
             # its item 9 (refused), then with an item 9 naming the clone's HEAD (that commit back).
             hyp = repo / "hypotheses.md"
+
+            def entry_bounds(lines: list[str]) -> tuple[int, int]:
+                start = max(i for i, ln in enumerate(lines) if ln.startswith("### ") and wprobe.PROBE_ENTRY in ln)
+                end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+                while end > start + 1 and not lines[end - 1].strip():
+                    end -= 1  # before the blank lines that precede the next entry
+                return start, end
+
+            def add_item(line: str) -> None:
+                """Inserts an item at the end of the probe entry, which need not be the log's last."""
+                lines = hyp.read_text(encoding="utf-8").split("\n")
+                _, end = entry_bounds(lines)
+                hyp.write_text("\n".join(lines[:end] + [line] + lines[end:]), encoding="utf-8", newline="\n")
+
             lines = hyp.read_text(encoding="utf-8").split("\n")
-            start = max(i for i, ln in enumerate(lines) if ln.startswith("### ") and wprobe.PROBE_ENTRY in ln)
-            end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+            start, end = entry_bounds(lines)
             kept = lines[:start] + [ln for ln in lines[start:end] if wprobe.PROBE_COMMIT_LABEL not in ln] + lines[end:]
             hyp.write_text("\n".join(kept), encoding="utf-8", newline="\n")
             git("commit", "-qam", "the probe entry without an item naming the probe's commit")
             with self.assertRaises(wprobe.ProbeRefused):
                 wprobe.probe_commit(repo)  # no such item
             first = git("rev-parse", "HEAD")
-            with open(hyp, "a", encoding="utf-8", newline="\n") as f:
-                f.write(f"9. Appended. {wprobe.PROBE_COMMIT_LABEL} {first} (one-port {first[:7]}).\n")
+            add_item(f"9. Appended. {wprobe.PROBE_COMMIT_LABEL} {first} (one-port {first[:7]}).")
             git("commit", "-qam", "item 9")
             self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], first)
             (repo / "bench" / "run" / "probe_marker.py").write_text("# a later code commit\n", encoding="utf-8")
