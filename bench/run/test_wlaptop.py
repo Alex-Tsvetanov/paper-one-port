@@ -539,16 +539,26 @@ class Probe(unittest.TestCase):
             lines = hyp.read_text(encoding="utf-8").split("\n")
             start = max(i for i, ln in enumerate(lines) if ln.startswith("### ") and wprobe.PROBE_ENTRY in ln)
             end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
-            kept = lines[:start] + [ln for ln in lines[start:end] if not ln.startswith("9. ")] + lines[end:]
+            kept = lines[:start] + [ln for ln in lines[start:end] if wprobe.PROBE_COMMIT_LABEL not in ln] + lines[end:]
             hyp.write_text("\n".join(kept), encoding="utf-8", newline="\n")
-            git("commit", "-qam", "the probe entry without item 9")
+            git("commit", "-qam", "the probe entry without an item naming the probe's commit")
             with self.assertRaises(wprobe.ProbeRefused):
-                wprobe.probe_commit(repo)  # no item 9
-            head = git("rev-parse", "HEAD")
+                wprobe.probe_commit(repo)  # no such item
+            first = git("rev-parse", "HEAD")
             with open(hyp, "a", encoding="utf-8", newline="\n") as f:
-                f.write(f"9. Appended: the probe's commit {head}.\n")
+                f.write(f"9. Appended. {wprobe.PROBE_COMMIT_LABEL} {first} (one-port {first[:7]}).\n")
             git("commit", "-qam", "item 9")
-            self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], head)
+            self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], first)
+            (repo / "bench" / "run" / "probe_marker.py").write_text("# a later code commit\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-qm", "a later code commit")
+            with self.assertRaises(wprobe.ProbeRefused):
+                wprobe.probe_commit(repo)  # the clone now differs from item 9's commit
+            second = git("rev-parse", "HEAD")
+            with open(hyp, "a", encoding="utf-8", newline="\n") as f:
+                f.write(f"10. Appended. {wprobe.PROBE_COMMIT_LABEL} {second}; it replaces {first[:7]}.\n")
+            git("commit", "-qam", "item 10")
+            self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], second)  # the last item wins
             with open(repo / "bench" / "run" / "wprobe.py", "a", encoding="utf-8") as f:
                 f.write("\n# changed\n")
             with self.assertRaises(wprobe.ProbeRefused):

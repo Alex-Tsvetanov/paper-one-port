@@ -25,9 +25,9 @@ there (a reading)"): development data, never a result. Run it inside a W lab job
    Defender exclusion, as W's runs' raw files are), which is deleted after each window and checked
    to be gone; if it cannot be deleted the probe stops. Nothing it prints holds a window's value.
 4. Refuses (exit 3, before any window, with the reason in the summary): a build that is not a
-   Release build without a sanitizer; a clone whose revision log's probe entry names in its item 9
-   no single commit that the clone's `bench`, `tests` and `CMakeLists.txt` equal, or whose working
-   tree changes them; a run outside a W lab job (wjob.py sets ONEPORT_W_JOB). It stops (exit 3) at
+   Release build without a sanitizer; a clone whose revision log's probe entry does not name, in
+   its last item that says "The probe's commit:", one commit that the clone's `bench`, `tests` and
+   `CMakeLists.txt` equal, or whose working tree changes them; a run outside a W lab job (wjob.py sets ONEPORT_W_JOB). It stops (exit 3) at
    a session reading that does not find the host as W's procedure sets it.
 
     wprobe.py --build DIR --out DIR --job NAME --pilot lab\\analysis-inputs\\pilot.json [--k-src 16]
@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,9 @@ EXIT_PORTS = 4
 EXIT_REFUSED = 3
 # The heading of the entry that states this probe (hypotheses.md, revision log, 2026-10-23).
 PROBE_ENTRY = "A probe of window times on the laptop's Windows, before the entry that moves W's runs there (a reading)"
+# How an item of that entry names the commit the probe runs (item 9, or a later item).
+PROBE_COMMIT_LABEL = "The probe's commit:"
+ITEM = re.compile(r"^\s*\d+\. ")
 SCRATCH_ROOT = wwindow.STATE_DIR / "wprobe-scratch"
 DELETE_TRIES = 5
 TCPIP_KEY = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
@@ -108,21 +112,25 @@ def entry_text(log: str, heading: str) -> str:
 
 
 def probe_commit(repo: Path) -> dict:
-    """The commit that the probe entry's item 9 names, which this clone's frozen paths equal
-    (committed and in the working tree), as freeze_guard checks a frozen run's clone."""
+    """The commit that the probe entry's last item naming "The probe's commit:" gives (item 9, or a
+    later item that names a new one), which this clone's frozen paths equal (committed and in the
+    working tree), as freeze_guard checks a frozen run's clone."""
     def g(*a: str) -> str:
         return freeze_guard.git(repo, *a)
     text = entry_text(freeze_guard.revision_log(g("show", "HEAD:hypotheses.md")), PROBE_ENTRY)
-    named = {h for ln in text.splitlines() if ln.lstrip().startswith("9.") for h in freeze_guard.HEX40.findall(ln)}
+    items = [ln for ln in text.splitlines() if ITEM.match(ln) and PROBE_COMMIT_LABEL in ln]
+    if not items:
+        raise ProbeRefused(f"no item of the probe entry names {PROBE_COMMIT_LABEL!r}")
+    named = set(freeze_guard.HEX40.findall(items[-1].split(PROBE_COMMIT_LABEL, 1)[1]))
     if len(named) != 1:
-        raise ProbeRefused(f"the probe entry's item 9 names {len(named)} commits, not one")
+        raise ProbeRefused(f"the probe entry's last item naming the probe's commit names {len(named)} commits, not one")
     c, head = named.pop(), g("rev-parse", "HEAD").strip()
     if not freeze_guard.is_ancestor(repo, c, head):
-        raise ProbeRefused(f"item 9's commit {c[:12]} is not an ancestor of HEAD {head[:12]}")
+        raise ProbeRefused(f"the probe's commit {c[:12]} is not an ancestor of HEAD {head[:12]}")
     diff = g("diff", "--name-only", "--no-renames", c, head, "--", *freeze_guard.FROZEN_PATHS).split()
     dirty = g("status", "--porcelain", "--", *freeze_guard.FROZEN_PATHS, "hypotheses.md").splitlines()
     if diff or dirty:
-        raise ProbeRefused(f"the clone differs from item 9's commit {c[:12]}: {(diff + dirty)[:5]}")
+        raise ProbeRefused(f"the clone differs from the probe's commit {c[:12]}: {(diff + dirty)[:5]}")
     return {"probe_commit": c, "head": head}
 
 
