@@ -211,7 +211,7 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
     21.3 h, which had no laptop basis. Stated to Alex on ... before this entry was committed.
 13. The laptop's TCP settings (Alex's decision of 2026-10-23, the probe's entry, item 10): if
     the laptop's `TcpTimedWaitDelay` or dynamic port range differ from the values W's runner was
-    designed for (30 s; 1025 to 65535), Alex sets them to those values with an administrator step
+    designed for (30 s; start 1025 with 64,510 ports, the count `design/w-procedure.md` line 24 records; its written end "65535" is off by one, the range ends at 65534), Alex sets them to those values with an administrator step
     he runs himself, read back, before the probe; if they cannot be set, the probe and W's runs use
     the laptop's own values, documented here. Read by job a0 **[after a0]**: `TcpTimedWaitDelay`
     ...; the dynamic port range ...; the excluded ranges ...; set or not: ... . The probe's

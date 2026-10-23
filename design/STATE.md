@@ -90,7 +90,7 @@ inside the lab runner (spec `boost` false, `quiet` true). Hours are estimates; t
 | a0 `w-read-1` | read only: OS build and UBR, BIOS, microcode, MSVC's ASan runtime (`clang_rt.asan_dynamic-x86_64.dll`, toolset 14.51) present, the copied files' sha256, and the TCP values (`TcpTimedWaitDelay`, `netsh int ipv4 show dynamicport tcp`, `... excludedportrange protocol=tcp`), which decide Lab request 4 before the probe | any | no measured basis; timeout 900 s | none |
 | a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | 63f5c74 (one clone for a1 to a3) | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
 | a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w -LabBin <the deployed Papers lab\bin, which holds inputs_hash.py>` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | 63f5c74 (its build serves a3) | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
-| a3 `p3-probe-w` | only after a0's TCP reading: if it is not 30 s and 1025 to 65535, Alex's admin step, a restart and a read-back come first (the probe entry's item 10). `python bench\run\wjob.py run --dir %LAB_OUT%\probe --name p3probe -- python bench\run\wprobe.py --build <a2's job dir>\out\rec\build-release --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json`, spec `quiet` true and `boost` false (Lab request 1 landed in Papers d50a7ab: `LAB_QUIET=passed:<LAB_JOB_ID>`, so no `--allow-noisy`; the probe refuses a clone whose frozen paths differ from a4d8e89, a non-Release build and an unpinned host) | exactly 63f5c74: it holds item 10 and the R per host, and its `bench`, `tests` and `CMakeLists.txt` equal a4d8e89's; e61e78f and later change `bench/run`, which the probe refuses | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
+| a3 `p3-probe-w` | only after a0's TCP reading: if it is not 30 s and start 1025 with 64,510 ports, Alex's admin step, a restart and a read-back come first (the probe entry's item 10). `python bench\run\wjob.py run --dir %LAB_OUT%\probe --name p3probe -- python bench\run\wprobe.py --build <a2's job dir>\out\rec\build-release --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json`, spec `quiet` true and `boost` false (Lab request 1 landed in Papers d50a7ab: `LAB_QUIET=passed:<LAB_JOB_ID>`, so no `--allow-noisy`; the probe refuses a clone whose frozen paths differ from a4d8e89, a non-Release build and an unpinned host) | exactly 63f5c74: it holds item 10 and the R per host, and its `bench`, `tests` and `CMakeLists.txt` equal a4d8e89's; e61e78f and later change `bench/run`, which the probe refuses | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
 | a4 `p3-func-w` | after the move's entry: the suites above on the laptop (with `cycle_rate_reading` on CPU 14), CTest of the Release build, and the freeze night's runner checks wf1 to wf4 | the move's entry's commit | 1,541 s, timeout 4,700 s | desktop run 6, 2026-10-05 (status.md) |
 
 Total a0 to a4: about 4,091 to 4,577 s (1.14 to 1.27 h) plus a0, which has no basis. W's
@@ -109,10 +109,10 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
    job's `samples.jsonl` holds the server's and generator's shares during windows; the probe's
    entry (item 9) says no value of it is read, so collect it but read only host readings and the
    job-start checks from it.
-4. If a0 shows TCP values other than the design's (30 s; 1025 to 65535): an administrator script
+4. If a0 shows TCP values other than the design's (30 s; start 1025 with 64,510 ports): an administrator script
    for Alex, as `alex-admin.ps1`, that sets `TcpTimedWaitDelay` = 30 (REG_DWORD under
    `HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`) and the IPv4 TCP dynamic range to
-   start 1025, 64511 ports, reads both back, records the old values and can undo them; then a
+   start 1025, 64,510 ports (and IPv6 the same, as on the desktop), reads both back, records the old values and can undo them; then a
    restart of Windows and a read-back job before the probe (the probe's entry, item 10). Recorded
    in `lab/laptop/setup-log.md`.
 2. A folder `lab/sanitizer-records/laptop-w/` for P3's laptop record (a2) and its gate, apart
@@ -125,7 +125,7 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 ### Alex decides
 
 Pending, asked in his format only when it arises:
-1. After job a0, and only if it reads TCP values other than 30 s and 1025 to 65535: the
+1. After job a0, and only if it reads TCP values other than 30 s and start 1025 with 64,510 ports: the
    administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
    before the probe.
 
