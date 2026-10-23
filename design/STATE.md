@@ -10,6 +10,101 @@ follow-up of hc1 (status.md, "The competitors' table hc1, 2026-10-07", and the s
 plus facts from the coordinator not yet in the repo, marked "(coord.)". All confirmatory and
 descriptive data are in; no job is open on L or W.
 
+## 0. W moves to the laptop's Windows (2026-10-23; supersedes the W parts below where they differ)
+
+Alex's decision of 2026-10-23 (Papers plan v2, Q3 option A): W's cells run again on the laptop's
+Windows (Ryzen 7 5800H, 8 cores, MSVC 19.51.36248); L's rows stand; the desktop's rows enter no
+analysis. Work on the local branch `laptop-w-bringup` (worktree `D:\Dev\worktrees\p3-laptop`),
+cut from main 1f27ea8: main holds the whole revision log (so an entry appends at its true end; a
+branch from 29ae2b6 would fork it), its `bench`, `tests` and `CMakeLists.txt` equal CHANGE_COMMIT
+9cae2de's, and it descends from 9830457, so its guard is the fixed one. Nothing is pushed.
+
+- 8e7d4a6: the reading entry "A probe of window times on the laptop's Windows, before the entry
+  that moves W's runs there (a reading)". Pure addition after the 10-08 entry; the guard still
+  names 9cae2de. Its item 9, appended in the docs commit after b20f415, names b20f415 as the
+  probe's commit and corrects items 5, 6 and 8 after the review (no line of the entry holds the
+  word the guard reads, which a test checks).
+- 5cc1e06, then b20f415 (the review's fixes): the runners for the laptop, Python directly under
+  `bench/run` alone; b20f415 is the CHANGE_COMMIT-to-be: `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
+  generator 2 to 13, quiet CPUs 2 to 14), `wwindow.py` (open-loop threads 2, 4, ..., 12),
+  `wcellwin.py` (the mixed cell takes L's placement), `wpower.py` (the laptop's lab plan b1bcd431
+  by GUID, Alex's plan Balanced; inside a lab job, LAB_JOB_ID set, it only verifies), `wjob.py`
+  (inside a lab job the lab's quiet check counts, by LAB_QUIET=passed), `wrunlib.py` (a frozen W
+  run refuses a gate not made from a `laptop-w` records folder with the laptop's compiler, and
+  needs the move's entry), `freeze_guard.py` (`W_LAPTOP_ITEMS`), `wdeps.py` (build_deps.ps1
+  copied with one line changed), `wprobe.py` (the probe), tests `test_wlaptop.py` and updates.
+  b20f415 also reads the counters of all 16 CPUs (the window code read the desktop's 12), ties
+  LAB_QUIET to the lab job (`passed:<LAB_JOB_ID>`), refuses every plan switch inside a lab job
+  (`wpower.py restore`, `switch_within_session`, `wnight.py`, `wfreq.py`), makes the probe refuse a
+  non-Release or sanitizer build, a clone other than item 9's commit, a run outside a W lab job
+  and an unpinned reading, keeps its raw files outside `--out` (deleted and checked), and stores
+  the laptop-gate check in the clearance.
+- Review (fresh Opus agent, 2026-10-23): 3 HIGH (the 12-CPU reads, the entry's items 6 and 8,
+  LAB_QUIET unset), 3 MEDIUM (plan switches inside a lab job, the probe's unenforced conditions,
+  silent raw-file deletion), 3 LOW (CRLF in 5cc1e06, the gate identified by folder and compiler,
+  item 9 and the guard's word). All fixed in b20f415 or item 9, except the gate's host name: the
+  gate file names no host, so the check stays folder and compiler (recorded in the clearance).
+- `design/w-laptop-entry-draft.md`: the draft of the move's section 8 entry. It stays a draft
+  until the probe's computed time is stated to Alex and the open points are answered.
+- Desktop checks (2026-10-23, no timing): Release build with MSVC 19.51.36246 (`-j4`), CTest 165
+  of 165 (at 5cc1e06; b20f415 changes no compiled file); `test_wlaptop` 37, `test_wfrozen` 26, `test_frozen` 61 (2 skipped), `test_runner` 63 (13
+  skipped), `test_wrunner` 22 of 22; `wdeps.py` built nghttp2 release and asan with the desktop's
+  compiler; a clone with a line naming the code commit as CHANGE_COMMIT passed the guard.
+- Laptop-only (cannot run on the desktop, never skipped silently): `test_wrunner`'s
+  `cycle_rate_reading` (pins CPU 14; the desktop has 12 logical CPUs, so it reports itself skipped);
+  OpenSSL's build through `wdeps.py` (only nghttp2 was built on the desktop); the MSVC ASan record
+  and `gate-W.json` (citable records are made on the laptop); every window.
+
+### Laptop requests (group a of Papers `lab/laptop/bringup-w-p3p4.md`; one at a time; W)
+
+Every job on the laptop's Windows, from a clone of one-port at this branch's commit named per job,
+inside the lab runner (spec `boost` false, `quiet` true). Hours are estimates; the basis is named.
+
+| Job | Runs | Commit | Estimate | Basis |
+|---|---|---|---|---|
+| a0 `w-read-1` | read only: OS build and UBR, BIOS, microcode, MSVC's ASan runtime (`clang_rt.asan_dynamic-x86_64.dll`, toolset 14.51) present, the copied files' sha256 | any | no measured basis; timeout 900 s | none |
+| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | the docs commit after b20f415 | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
+| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | the docs commit after b20f415 | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
+| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from b20f415, a non-Release build and an unpinned host) | the docs commit after b20f415 (it holds item 9), or later | 1,139 to 1,625 s, timeout 5,000 s | the proposal's section 4: desktop window plus TIME-WAIT wait (M6b func2b), and the 40 s cap; the laptop's own times are what the probe measures |
+| a4 `p3-func-w` | after the move's entry: the suites above on the laptop (with `cycle_rate_reading` on CPU 14), CTest of the Release build, and the freeze night's runner checks wf1 to wf4 | the move's entry's commit | 1,541 s, timeout 4,700 s | desktop run 6, 2026-10-05 (status.md) |
+
+Total a0 to a4: about 4,091 to 4,577 s (1.14 to 1.27 h) plus a0, which has no basis. W's
+campaign itself waits for the move's entry; its hours come from the probe (draft item 12).
+
+### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
+
+1. `lab/laptop/win/labjob.py` and `labjob_inner.py` (run phase): drop any `LAB_QUIET` the job's
+   environment inherits (`job_env` copies `os.environ`), and set `LAB_QUIET=passed:<LAB_JOB_ID>`
+   only after the job-start quiet check passed (never when the spec sets `quiet` false); also
+   `LAB_PHASE=run`. P3's frozen W runs need it: without that exact value `wjob.py` refuses the job
+   (exit 90) unless `--allow-noisy`, which makes it a functional check, and every frozen W runner
+   refuses a functional check. The power plan needs no labrun change: from b20f415, P3's runners
+   only verify the lab plan inside a lab job and refuse every switch there (boost must be off).
+   Note for the probe's job: the lab sampler records every process's CPU share every 10 s, so the
+   job's `samples.jsonl` holds the server's and generator's shares during windows; the probe's
+   entry (item 9) says no value of it is read, so collect it but read only host readings and the
+   job-start checks from it.
+2. A folder `lab/sanitizer-records/laptop-w/` for P3's laptop record (a2) and its gate, apart
+   from the desktop's `oneport-ff2679cc8-W-asan.json`; the coordinator copies a2's records there.
+3. Before a1: the two archives (`openssl-3.5.9.tar.gz`, `nghttp2-1.70.0.tar.xz`) from the desktop's
+   `C:\Users\alext\opt\src` (sha256 equal to `bench/cmake/pins.cmake`) to the laptop's
+   `C:\Users\alext\opt\src`, checked again there. Desktop-only launch files (`m6b\wlaunch.ps1`,
+   `chain.py`) are not needed: labrun starts `wjob.py` itself.
+
+### Alex decides
+
+1. Pushes to the public repository, for a public timestamp before the probe's data: 8e7d4a6 (the
+   reading entry) and the commit that appends its item 9 with the code commit before it.
+2. The draft's item 8: the frozen analysis takes one R_C for every cost cell and refuses a cell
+   with more valid sessions than R_C; L's cells hold 28. Unless the new pilot gives R_C = 28,
+   `ANALYSIS_COMMIT` cannot run unchanged on L's rows and the laptop's W rows. Options (i) a later
+   change of `analysis/` with per-host R (recommended), (ii) W at max(28, the new R_C) with L run
+   up to 31 if needed, (iii) R_C fixed at 28. Decide before the W pilot.
+3. The draft's item 3 (e): the frequency counter stays untested on the laptop (its control needs a
+   new power plan), or a test under his Balanced plan outside a lab job.
+4. After the probe: its computed hours, and how W proceeds if the TCP values differ from the
+   desktop's.
+
 ## 1. Where P3 stands
 
 Code frozen at ff2679c; A/A pilots done on L and W; pilot entry, rule E and M2_RATE logged; the
