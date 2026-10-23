@@ -86,9 +86,11 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    (e) the job-start check of item 3 (b) covers CPUs 2 to 15.
    The two-core IOCP cell of section 10 stays not run (the entry of 2055e63; the server refuses
    more than one IOCP worker).
-5. The change, five commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a test
+5. The change, six commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a test
    made independent of the probe entry's item 9; a4d8e89, the probe reading its commit from the
-   entry's last item that names it; e61e78f, the cost runners taking their host's R, item 8), whose
+   entry's last item that names it; e61e78f, the cost runners taking their host's R, item 8;
+   786058e, the cycle rate's spinner on the base interpreter, since a venv's `python.exe` on
+   Windows is a launcher whose own cycles read 0, found by the laptop's records job), whose
    files under `bench`, `tests` and `CMakeLists.txt` are Python directly under `bench/run` alone.
    The probe ran a4d8e89's code (the probe's entry, item 10), which differs from 786058e in
    `cost_run.py`, `wcost_run.py`, `wsys.py`, `wfreq.py` and `test_wlaptop.py`; on the probe's path

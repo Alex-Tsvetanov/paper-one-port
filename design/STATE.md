@@ -126,6 +126,28 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
     `records-logs\oneport-63f5c742c-W-asan.tar.gz`. The other way is a2 at 63f5c74 again with the
     red run's logs moved aside first. The compiled inputs and pins are the same at both commits.
   - a3 stays at exactly 63f5c74, on a2's new build.
+- Void journal lines of the operator's first rerun attempt: `p3-records-w-2` (exit 0, did nothing:
+  a cmd `||` and `&&` grouping slip) and `p3-probe-w` (an a3 on a build folder that did not
+  exist, failed after 18 s). Neither produced data.
+- a2's second rerun, `p3-records-w-3` at 632b242 (2026-10-24, exit 1, 4 min 41 s; archive
+  sha256 ca3a4991...): both earlier causes fixed (the venv's Python in both build caches; an LF
+  checkout, lab fix 521be7d). The ASan record `oneport-632b24214-W-asan` is red again on one
+  check: `run.test_wrunner`, `cycle_rate_reading`, ctest.log line 1921: `{'cycles_per_s': 0.0,
+  'cycles': 0, 'wall_s': 0.50, 'cpu_s': 0.0, 'cpus': [14], 'spinner_exit': 0}`. Cause: the
+  spinner was started with `sys.executable`, under CTest the venv's `python.exe`, which on
+  Windows is a launcher that runs the base interpreter as a child process; the launcher, whose
+  cycles and CPU time are read, only waits (shown on the desktop with a throwaway venv: the
+  started process and the interpreter have different process ids). Fix, 786058e: the spinner
+  runs on `wsys.base_python()` (`sys._base_executable`), also in `wfreq.py`; a test runs
+  `cycle_rate` under a fresh venv and reads the spinner's cycles. The frozen runs read this rate
+  in every session's reading (W's WL4 in time), so the fix guards them too.
+- Rule for every W job from now on: start `wjob.py` and the W runners with the base Python
+  (`LAB_PYTHON`), never a venv's `python.exe`. Under the launcher, `wjob.py stop` would set the
+  stop event of the launcher's process id, not the runner's. The venv serves CTest alone.
+- Next a2 attempt: at the docs commit after 786058e (after its push), so its record is named
+  `oneport-<that commit's first 9>-W-asan` and the red attempts (`oneport-63f5c742c-W-asan`,
+  `oneport-632b24214-W-asan`) and their logs stay untouched. a3 stays at exactly 63f5c74 (its
+  probe code is unchanged; it runs under the base Python), on that attempt's build.
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
