@@ -8,8 +8,10 @@ decisions.csv, from which analysis/macros.py writes results/macros.tex.
 Per family (2.2, never mixed), per cell, the frozen tests and the dual rule (4.2):
 - C (5.1): the two one-sided tests at [0.98, 1.02] (4.3) on the pilot entry's resolved cells at
   R_C, or at each cell's host's R when the entry gives R_C_by_host (analysis/pilot.py, --fixed-r:
-  W's move to the laptop's Windows, 2026-10-23), Holm over m_C as one family either way; the WL4
-  intervals of section 10 for a cost cell take the same R; the cells the pilot did not resolve are reported as "not resolved at
+  W's move to the laptop's Windows, 2026-10-23), Holm over m_C as one family either way; every interval
+  of section 10 drawn from a cost cell (WL4 and the by-job bullet) takes the same R. R per host departs
+  from 4.1's "fixed per family", 5.1's "Replicates: R_C" and 4.6 step 7's "still runs at R_C" for the
+  cost family, a deviation that the revision log records (the entry that moves W to the laptop); the cells the pilot did not resolve are reported as "not resolved at
   R <= 32", with intervals from the family's draws (section 10); the cells a logged decision put
   outside the family (cells.COST_OUTSIDE_FAMILY: W's churn h2c and churn MQTT) are reported with
   that reason, and a pilot entry that resolves one is refused;

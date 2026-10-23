@@ -81,15 +81,24 @@ def cost_cells(r: int, rule_e: dict, rates: dict[str, float | None], host: str =
     return out
 
 
-def pilot_values(pilot: dict, development: bool, dev_r: int | None) -> tuple[int, dict[str, float | None]]:
+def pilot_values(pilot: dict, development: bool, dev_r: int | None, host: str | None = None) -> tuple[int, dict[str, float | None]]:
+    """The cost runs' R and the C3 rates from the pilot entry's output. When the output gives R per
+    host (`R_C_by_host`, analysis/pilot.py --fixed-r: W's move to the laptop's Windows, 2026-10-23),
+    a frozen run takes its host's R, which analysis/analyse.py then expects of the host's cells."""
     if development:
         r = dev_r if dev_r is not None else int(pilot.get("R_C", 0) or 0)
         if r <= 0:
             raise runlib.InputRefused("development mode: give --dev-r (or a development pilot output with R_C)")
     else:
-        r = int(pilot["R_C"])
+        by_host = pilot.get("R_C_by_host")
+        if by_host is not None:
+            if host not in by_host:
+                raise runlib.InputRefused(f"the pilot output gives R per host {sorted(by_host)}, and this run names host {host!r}")
+            r = int(by_host[host])
+        else:
+            r = int(pilot["R_C"])
         if r not in CANDIDATES:
-            raise runlib.InputRefused(f"R_C = {r} is not a candidate of 4.6 step 4")
+            raise runlib.InputRefused(f"R = {r} is not a candidate of 4.6 step 4")
     rates = {cid: (e or {}).get("rate") for cid, e in (pilot.get("rates") or {}).items()}
     return r, rates
 
@@ -110,7 +119,7 @@ def main(argv=None) -> int:
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        binaries=runlib.binaries_of(prov, ("oneport", "opgen")), entries=(freeze_guard.M7E_ITEMS,))
-    r, rates = pilot_values(pilot, a.development, a.dev_r)
+    r, rates = pilot_values(pilot, a.development, a.dev_r, "L")
     cells = runlib.only_cells(a, cost_cells(r, rule_e, rates))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, R_C=r), indent=1))
     blocks = window.SourceBlocks(a.blocks)

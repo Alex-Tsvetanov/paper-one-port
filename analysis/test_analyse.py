@@ -550,7 +550,29 @@ def test_r_per_host_end_to_end(run, tmp_path):
     assert r.returncode == 0, r.stderr
     tex = (tmp_path / "m.tex").read_text(encoding="utf-8")
     assert "\\newcommand{\\CostRL}" in tex and "\\newcommand{\\CostRW}" in tex
+    assert "\\newcommand{\\CostR}" not in tex  # the pooled R_C is the R of no cell once R is per host
+    cost_host = {c.id: c.host for c in C.cost_cells()}
+
+    def secondary_r_by_host(s: dict, by_host: dict) -> int:
+        n = 0
+        for e in s["secondary"]:
+            if e["cell"] in cost_host:
+                n += 1
+                assert e["R"] == by_host[cost_host[e["cell"]]], (e["bullet"], e["cell"], e["R"])
+        return n
+
+    # W tested at an R other than L's: W = 11 (its cells hold 11 sessions), L = 15 (L's are short).
+    pilot_l15 = tmp_path / "pilot_l15.json"
+    pilot_l15.write_text(json.dumps(dict(p2, R_C_by_host={"L": 15, "W": 11})), encoding="utf-8")
+    s_l15 = analyse_with(pilot_l15, tmp_path / "l15")
+    for cid, x in cells_of(s_l15).items():
+        if x["family"] == "C":
+            want = (11, cells_of(run["summary"])[cid]["tested"]) if ".W." in cid else (15, False)
+            assert (x["R"], x["tested"]) == want, cid
+    assert any(x["tested"] for cid, x in cells_of(s_l15).items() if x["family"] == "C" and ".W." in cid)
+    assert secondary_r_by_host(s_l15, {"L": 15, "W": 11}) > 0
     s_w31 = analyse_with(pilot2, tmp_path / "w31")
+    assert secondary_r_by_host(s_w31, {"L": 11, "W": 31}) > 0
     before, after = cells_of(run["summary"]), cells_of(s_w31)
     w_seen = 0
     for cid, x in after.items():

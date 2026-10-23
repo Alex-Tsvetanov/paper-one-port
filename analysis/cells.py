@@ -3,7 +3,7 @@ section 10), as data.
 
 Families and their resampling generators (4.7):
 - SEED_BOOT_C: the 36 cost cells of 6.1, numbered c = 1 to 36 in its order; every cell with R_C
-  valid sessions draws its 10,000 resamples once, in that order, whether or not the pilot entry
+  (its host's R when the pilot entry gives R per host, analysis/pilot.py --fixed-r) valid sessions draws its 10,000 resamples once, in that order, whether or not the pilot entry
   resolved it.
 - SEED_BOOT_B: B3's 18 Holm cells of 6.2, then its 16 descriptive cells, each with R_B = 16
   valid sessions drawing once.
@@ -104,7 +104,8 @@ class Cell:
     ratio num / den, in the direction its hypothesis states (4.1, 5.1 to 5.3). `test` is "tost"
     (4.3), "greater" (median above `bound`: B3, M1, M3) or "less" (M2). `holm` is whether the cell
     is in its family's Holm list (for the cost family the pilot entry decides it; this is the
-    frozen list's flag, before the pilot). `r` is None for the cost family (R_C)."""
+    frozen list's flag, before the pilot). `r` is None for the cost family (R_C, or the cell's host's
+    R when the pilot entry gives R per host)."""
     id: str
     family: str
     hyp: str
@@ -291,7 +292,7 @@ def _m_bullet_order(c: Cell) -> tuple:
 
 def secondary_draws() -> list[Draw]:
     """Every interval drawn from SEED_BOOT_S, in order (4.7, section 10). R None means the cost
-    family's R_C."""
+    family's R_C (the source cell's host's R when the pilot entry gives R per host)."""
     sec = {c.id: c for c in secondary_cells()}
     out: list[Draw] = []
     # 1. CPU and resident memory for every cost cell (WL4); p99 TTFB (WL2): the cost cells in

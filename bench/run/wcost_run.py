@@ -7,7 +7,8 @@ default detection mode on IOCP in both arms' flags (the M7d entry, item 3), the 
                  --pilot PILOT.json --rule-e RULE_E.json
     wcost_run.py ... --development --dev-seed N [--only CELL,...] [--dev-r R]
 
-Cells: W's cost cells of 6.1 at R_C, resolved or not (4.6 step 7), but W's churn h2c and churn
+Cells: W's cost cells of 6.1 at R_C (W's R when the pilot output gives R per host, 2026-10-23),
+resolved or not (4.6 step 7), but W's churn h2c and churn
 MQTT (c = 10 and 12), which a logged decision put outside the family (the revision log's entry "W
 before the code freeze", item 1) and which run in the A/A pilot only (the coordinator's decision,
 the M7e entry): they are listed in not-run-<job>.json with why. Sessions X Y Y X of arm A (one-port,
@@ -65,7 +66,7 @@ def main(argv=None) -> int:
     clearance = None
     if not a.development:
         clearance = wrunlib.freeze_check(a, prov, ("oneport", "opgen"), rule_e=a.rule_e)
-    r, rates = cost_run.pilot_values(pilot, a.development, a.dev_r)
+    r, rates = cost_run.pilot_values(pilot, a.development, a.dev_r, "W")
     cells = runlib.only_cells(a, w_cost_cells(r, rule_e, rates))
     not_run = cost_run.cost_not_run("W")
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, R_C=r, not_run=not_run, job_context=job_ctx,

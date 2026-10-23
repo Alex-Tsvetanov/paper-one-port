@@ -298,6 +298,27 @@ class LaptopGate(unittest.TestCase):
         self.assertTrue(wrunlib.LAPTOP_COMPILER.startswith(f"MSVC {wdeps.LAPTOP_CL}."))
 
 
+class CostRunR(unittest.TestCase):
+    """The cost runners take their host's R when the pilot output gives R per host (2026-10-23)."""
+
+    def test_pilot_values_per_host(self):
+        import cost_run
+        import runlib
+        pilot = {"R_C": 22, "R_C_by_host": {"L": 28, "W": 15}, "rates": {"C3.W.IOCP.http1": {"rate": 1.5}}}
+        self.assertEqual(cost_run.pilot_values(pilot, False, None, "W"), (15, {"C3.W.IOCP.http1": 1.5}))
+        self.assertEqual(cost_run.pilot_values(pilot, False, None, "L")[0], 28)
+        self.assertEqual(cost_run.pilot_values({"R_C": 28}, False, None, "W")[0], 28)  # one R_C, as frozen
+        with self.assertRaises(runlib.InputRefused):
+            cost_run.pilot_values(pilot, False, None, None)
+        with self.assertRaises(runlib.InputRefused):
+            cost_run.pilot_values(dict(pilot, R_C_by_host={"L": 28, "W": 14}), False, None, "W")
+        self.assertEqual(cost_run.pilot_values(pilot, True, 3, "W")[0], 3)  # development takes --dev-r
+
+    def test_runners_name_their_host(self):
+        for name, host in (("cost_run.py", '"L")'), ("wcost_run.py", '"W")')):
+            self.assertIn(f"pilot_values(pilot, a.development, a.dev_r, {host}", (HERE / name).read_text(encoding="utf-8"), name)
+
+
 class LaterChange(unittest.TestCase):
     def test_frozen_paths_differ_in_bench_run_python_alone(self):
         """Section 8's rule as the guard reads it (freeze_guard.change_commit): between CODE_FREEZE

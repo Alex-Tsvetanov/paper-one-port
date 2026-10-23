@@ -26,6 +26,9 @@ R at which a resolved cell of its host falls short of the target is refused. The
 holds `R_C_by_host` (and `fixed_r`); `R_C` stays step 6 over every resolved cell, reported beside
 it, and the joint power of each protocol and backend is taken at its host's R. The resolved list,
 m_C and every Power_c are as without the option. Without the option the output is as before.
+R per host departs from 4.1 ("Replicates are fixed per family"), 5.1 ("Replicates: R_C") and 4.6
+step 7 (a cell not resolved "still runs at R_C": it runs at its host's R), for the cost family
+alone; the revision log records it as a deviation (the entry that moves W to the laptop).
 
 What it refuses: a row in one-port mode, or of any mode but dedicated (the pilot "holds no
 one-port data", 4.6 step 1); a dry-run row; a synthetic row unless --allow-synthetic; a row that

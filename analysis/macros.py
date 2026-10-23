@@ -160,9 +160,13 @@ def design(mc: Macros, s: dict) -> None:
     mc.add("CostMarginLow", fixed(k["cost_margin"][0], 2))
     mc.add("CostMarginHigh", fixed(k["cost_margin"][1], 2))
     mc.add("BThreeBound", fixed(k["b3_bound"], 2))
-    mc.add("CostR", count(k["R_C"]), "R_C from the pilot entry")
-    for host, r in sorted((k.get("R_C_by_host") or {}).items()):
-        mc.add(f"CostR{host}", count(r), f"the cost family's R on {host} (the pilot entry's R_C_by_host)")
+    by_host = k.get("R_C_by_host")
+    if by_host:
+        # R per host: the pooled R_C is the R of no cell, so only each host's R is written.
+        for host, r in sorted(by_host.items()):
+            mc.add(f"CostR{host}", count(r), f"the cost family's R on {host} (the pilot entry's R_C_by_host)")
+    else:
+        mc.add("CostR", count(k["R_C"]), "R_C from the pilot entry")
     mc.add("BThreeR", count(k["R_B"]))
     mc.add("MR", count(k["R_M"]))
     for name, v in sorted(s["seeds"].items()):
