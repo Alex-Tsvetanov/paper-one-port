@@ -533,14 +533,21 @@ class Probe(unittest.TestCase):
             subprocess.run(["git", "clone", "-q", str(REPO), str(repo)], check=True)
             git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a],  # noqa: E731
                                             check=True, capture_output=True, text=True).stdout.strip()
-            head = git("rev-parse", "HEAD")
+            # Build both states in the clone, whatever the repository holds: the probe entry without
+            # its item 9 (refused), then with an item 9 naming the clone's HEAD (that commit back).
+            hyp = repo / "hypotheses.md"
+            lines = hyp.read_text(encoding="utf-8").split("\n")
+            start = max(i for i, ln in enumerate(lines) if ln.startswith("### ") and wprobe.PROBE_ENTRY in ln)
+            end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+            kept = lines[:start] + [ln for ln in lines[start:end] if not ln.startswith("9. ")] + lines[end:]
+            hyp.write_text("\n".join(kept), encoding="utf-8", newline="\n")
+            git("commit", "-qam", "the probe entry without item 9")
             with self.assertRaises(wprobe.ProbeRefused):
-                wprobe.probe_commit(repo)  # no item 9 yet
-            text = (repo / "hypotheses.md").read_text(encoding="utf-8")
-            if "\n9. " not in wprobe.entry_text(wprobe.freeze_guard.revision_log(text), wprobe.PROBE_ENTRY):
-                with open(repo / "hypotheses.md", "a", encoding="utf-8", newline="\n") as f:
-                    f.write(f"9. Appended: the probe's commit {head}.\n")
-                git("commit", "-qam", "item 9")
+                wprobe.probe_commit(repo)  # no item 9
+            head = git("rev-parse", "HEAD")
+            with open(hyp, "a", encoding="utf-8", newline="\n") as f:
+                f.write(f"9. Appended: the probe's commit {head}.\n")
+            git("commit", "-qam", "item 9")
             self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], head)
             with open(repo / "bench" / "run" / "wprobe.py", "a", encoding="utf-8") as f:
                 f.write("\n# changed\n")
