@@ -17,17 +17,32 @@ Windows (Ryzen 7 5800H, 8 cores, MSVC 19.51.36248); L's rows stand; the desktop'
 analysis. Work on the local branch `laptop-w-bringup` (worktree `D:\Dev\worktrees\p3-laptop`),
 cut from main 1f27ea8: main holds the whole revision log (so an entry appends at its true end; a
 branch from 29ae2b6 would fork it), its `bench`, `tests` and `CMakeLists.txt` equal CHANGE_COMMIT
-9cae2de's, and it descends from 9830457, so its guard is the fixed one. Nothing is pushed.
+9cae2de's, and it descends from 9830457, so its guard is the fixed one. Pushed with Alex's yes
+(2026-10-23) to the public branch `laptop-w-bringup` up to 6c7be67; later commits are local.
+
+Alex's answers of 2026-10-23: push the branch (done to 6c7be67); R per host in `analysis/`
+(8815d89, below); the frequency counter is not tested on the laptop; the TCP settings are set on
+the laptop to the design's values if they differ, else the laptop's are documented (item 10).
 
 - 8e7d4a6: the reading entry "A probe of window times on the laptop's Windows, before the entry
   that moves W's runs there (a reading)". Pure addition after the 10-08 entry; the guard still
   names 9cae2de. Its item 9, appended in the docs commit after b20f415, names b20f415 as the
   probe's commit and corrects items 5, 6 and 8 after the review (no line of the entry holds the
   word the guard reads, which a test checks).
+- 54f42aa: the entry's item 10: Alex's decision on the laptop's TCP settings (set to 30 s and 1025
+  to 65535 by his own admin step before the probe if they differ; else documented), and the
+  probe's commit a4d8e89, which replaces item 9's.
+- 8815d89: `analysis/` alone, R per host: `pilot.py --fixed-r L=28` keeps L's R; W's R is 4.6
+  step 6 over W's resolved cells alone; `analyse.py` gives each cost cell its host's R, Holm over
+  all resolved cells as one family; `macros.py` adds CostRL and CostRW. Suite 78 passed, 2 skipped.
+  On October's inputs, from a fresh clone: `decisions.csv` and `macros.tex` byte-identical to the
+  committed ones, `summary.json` apart only in `versions.analysis_commit`. The ANALYSIS_COMMIT-to-be,
+  named in the move's entry (draft item 8). The pilot simulation on real rows was not rerun (hours
+  of CPU); the synthetic CLI test covers that path.
 - 5cc1e06, then b20f415 (the review's fixes), then e183745 (a test that broke once item 9 was
-  committed): the runners for the laptop, Python directly under `bench/run` alone. e183745 is the
-  CHANGE_COMMIT-to-be; the probe runs b20f415's code, which differs from it in
-  `test_wlaptop.py` alone: `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
+  committed), then a4d8e89 (the probe reads its commit from the entry's last item naming it): the
+  runners for the laptop, Python directly under `bench/run` alone. a4d8e89 is the
+  CHANGE_COMMIT-to-be and the probe's commit: `wsys.py` (8 cores; section 4.1's rule gives server 14, sibling 15 idle,
   generator 2 to 13, quiet CPUs 2 to 14), `wwindow.py` (open-loop threads 2, 4, ..., 12),
   `wcellwin.py` (the mixed cell takes L's placement), `wpower.py` (the laptop's lab plan b1bcd431
   by GUID, Alex's plan Balanced; inside a lab job, LAB_JOB_ID set, it only verifies), `wjob.py`
@@ -64,10 +79,10 @@ inside the lab runner (spec `boost` false, `quiet` true). Hours are estimates; t
 
 | Job | Runs | Commit | Estimate | Basis |
 |---|---|---|---|---|
-| a0 `w-read-1` | read only: OS build and UBR, BIOS, microcode, MSVC's ASan runtime (`clang_rt.asan_dynamic-x86_64.dll`, toolset 14.51) present, the copied files' sha256 | any | no measured basis; timeout 900 s | none |
-| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | 42240b9 | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
-| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | 42240b9 (its build serves a3) | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
-| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from b20f415, a non-Release build and an unpinned host) | exactly 42240b9 (it holds item 9; every later commit changes `bench/run`, which the probe refuses) | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
+| a0 `w-read-1` | read only: OS build and UBR, BIOS, microcode, MSVC's ASan runtime (`clang_rt.asan_dynamic-x86_64.dll`, toolset 14.51) present, the copied files' sha256, and the TCP values (`TcpTimedWaitDelay`, `netsh int ipv4 show dynamicport tcp`, `... excludedportrange protocol=tcp`), which decide Lab request 4 before the probe | any | no measured basis; timeout 900 s | none |
+| a1 `p3-deps-w` | `python bench\run\wdeps.py --work %LAB_OUT%\deps release asan`, `ONEPORT_VCVARS` = the Community `vcvars64.bat`; archives copied first into `C:\Users\alext\opt\src` from the desktop's checked copies | 8815d89 or the docs commit after it | 1,291 s, timeout 3,900 s | desktop build logs 2026-10-03 (OpenSSL release 640 s, asan 591 s, nghttp2 32 s and 29 s), run serially here |
+| a2 `p3-records-w` | `bench\records_job_w.ps1 -Out %LAB_OUT%\rec -Records %LAB_OUT%\rec\laptop-w` (Release build, MSVC ASan record, `gate-W.json` from that folder alone); then each target's inputs hash compared with the desktop's `release.inputs.json` | 8815d89 or the docs commit after it (its build serves a3) | 120 s, timeout 900 s | desktop job recw1, 2026-10-05 (120 s) |
+| a3 `p3-probe-w` | `wjob.py run --dir %LAB_OUT%\probe --name p3probe --allow-noisy -- python bench\run\wprobe.py --build <a2's build-release> --out %LAB_OUT%\probe\out --job p3probe --pilot lab\analysis-inputs\pilot.json` (`--allow-noisy` only until Lab request 1 exists; the lab's quiet check still gates the job; the probe refuses a clone whose frozen paths differ from b20f415, a non-Release build and an unpinned host) | the docs commit after 8815d89, or any later commit whose `bench`, `tests` and `CMakeLists.txt` equal a4d8e89's (item 10 names a4d8e89; the probe refuses any other) | windows 1,139 to 1,625 s, plus 13 session readings with no measured basis (each reads the frequency counter for 3 s, the cycle rate, and Defender and Update through PowerShell); timeout 5,000 s | windows: the proposal's section 4 (desktop window plus TIME-WAIT wait, M6b func2b; the 40 s cap); the laptop's own times are what the probe measures |
 | a4 `p3-func-w` | after the move's entry: the suites above on the laptop (with `cycle_rate_reading` on CPU 14), CTest of the Release build, and the freeze night's runner checks wf1 to wf4 | the move's entry's commit | 1,541 s, timeout 4,700 s | desktop run 6, 2026-10-05 (status.md) |
 
 Total a0 to a4: about 4,091 to 4,577 s (1.14 to 1.27 h) plus a0, which has no basis. W's
@@ -86,6 +101,12 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
    job's `samples.jsonl` holds the server's and generator's shares during windows; the probe's
    entry (item 9) says no value of it is read, so collect it but read only host readings and the
    job-start checks from it.
+4. If a0 shows TCP values other than the design's (30 s; 1025 to 65535): an administrator script
+   for Alex, as `alex-admin.ps1`, that sets `TcpTimedWaitDelay` = 30 (REG_DWORD under
+   `HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`) and the IPv4 TCP dynamic range to
+   start 1025, 64511 ports, reads both back, records the old values and can undo them; then a
+   restart of Windows and a read-back job before the probe (the probe's entry, item 10). Recorded
+   in `lab/laptop/setup-log.md`.
 2. A folder `lab/sanitizer-records/laptop-w/` for P3's laptop record (a2) and its gate, apart
    from the desktop's `oneport-ff2679cc8-W-asan.json`; the coordinator copies a2's records there.
 3. Before a1: the two archives (`openssl-3.5.9.tar.gz`, `nghttp2-1.70.0.tar.xz`) from the desktop's
@@ -95,18 +116,15 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 
 ### Alex decides
 
-1. A push to the public repository, for a public timestamp before the probe's data. Pushing the
-   item 9 commit pushes the whole linear branch `laptop-w-bringup`: 8e7d4a6, 5cc1e06, b20f415,
-   42240b9, e183745 and this docs commit. The destination (a new branch or main) is his to choose.
-2. The draft's item 8: the frozen analysis takes one R_C for every cost cell and refuses a cell
-   with more valid sessions than R_C; L's cells hold 28. Unless the new pilot gives R_C = 28,
-   `ANALYSIS_COMMIT` cannot run unchanged on L's rows and the laptop's W rows. Options (i) a later
-   change of `analysis/` with per-host R (recommended), (ii) W at max(28, the new R_C) with L run
-   up to 31 if needed, (iii) R_C fixed at 28. Decide before the W pilot.
-3. The draft's item 3 (e): the frequency counter stays untested on the laptop (its control needs a
-   new power plan), or a test under his Balanced plan outside a lab job.
-4. After the probe: its computed hours, and how W proceeds if the TCP values differ from the
-   desktop's.
+1. A push of the commits after 6c7be67 (a4d8e89, 54f42aa, 8815d89 and the docs commit after it)
+   to the same public branch, before the probe: item 10 needs its public timestamp before the
+   probe's data.
+2. If job a0 shows TCP values other than 30 s and 1025 to 65535: the administrator step that sets
+   them (his own run, like `alex-admin.ps1`, then a restart and a read-back), before the probe.
+3. After the probe: its computed hours (the move's entry, draft item 12).
+
+Answered 2026-10-23: the push to 6c7be67 (done); R per host (8815d89); the frequency counter is
+not tested; the TCP settings (item 10).
 
 ## 1. Where P3 stands
 

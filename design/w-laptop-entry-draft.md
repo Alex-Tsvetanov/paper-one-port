@@ -2,7 +2,8 @@
 
 Status: a draft, not part of the revision log, and not to be appended to `hypotheses.md` until (1)
 the probe of the entry of 2026-10-23 has run and its computed time (item 12) has been stated to
-Alex, (2) Alex has answered the open points marked **[Alex]**, and (3) a fresh adversarial review of
+Alex (Alex answered the open points on 2026-10-23: items 3 (e), 8 and 13), (2) job a0's readings
+are in item 13, and (3) a fresh adversarial review of
 the final text has passed. Its heading must keep the exact title below: every frozen W run requires
 it (`bench/run/freeze_guard.py`, `W_LAPTOP_ITEMS`). Placeholders are marked **[after the probe]**.
 Written 2026-10-23. No number below is a result; the hours are estimates with their basis named.
@@ -63,9 +64,8 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    item 13 changes it]**; no TCP setting of either system is ever changed.
    (e) The frequency rule. Section 9.1's fallback, taken on the desktop (the entry "W before the
    code freeze", item 3), stands: W's windows are validated without the frequency rule, and the
-   counter is recorded in every row. The counter is not tested on the laptop: the test's control
-   needs a power plan of its own, which is a change of a Windows setting **[Alex: or a test under
-   his Balanced plan, outside a lab job]**.
+   counter is recorded in every row. Alex's decision of 2026-10-23: the counter is not tested on the
+   laptop (`wfreq.py` refuses inside a lab job, and its control plan is not created there).
 4. The placement. Section 4.1's rule on W, "the server on one logical CPU of the last physical
    core, its sibling idle, `opgen` on the cores between core 0 and the server's", gives on the
    laptop: the server on CPU 14, CPU 15 idle, the generator on CPUs 2 to 13, CPUs 0 and 1 for the
@@ -86,11 +86,11 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    (e) the job-start check of item 3 (b) covers CPUs 2 to 15.
    The two-core IOCP cell of section 10 stays not run (the entry of 2055e63; the server refuses
    more than one IOCP worker).
-5. The change, three commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a
-   test made independent of the probe entry's item 9), Python directly under `bench/run` alone.
-   The probe ran b20f415's code (the probe's entry, item 9), which differs from e183745 in
-   `bench/run/test_wlaptop.py` alone, a test that no window runs:
-   CHANGE_COMMIT = **[the full hash of e183745, unless this entry needs another change]**
+5. The change, four commits (5cc1e06; b20f415 with an adversarial review's fixes; e183745, a test
+   made independent of the probe entry's item 9; a4d8e89, the probe reading its commit from the
+   entry's last item that names it), Python directly under `bench/run` alone. The probe ran
+   a4d8e89's code (the probe's entry, item 10):
+   CHANGE_COMMIT = **[a4d8e89a3b54f59e67e1eefdd8ad51fce62db2c9, unless this entry needs another change]**
    Files: `wsys.py` (the core layout, item 4's placement, and the counters of all 16 CPUs, where the
    window code read the desktop's 12), `wwindow.py` (the open-loop threads),
    `wcellwin.py` (item 4 (d)), `wpower.py` (item 3 (a) and (c): the laptop's plans by GUID; no plan
@@ -137,32 +137,38 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
    The laptop's pilot rows give their server and generator CPU shares; the paper reports them
    beside the desktop's evidence, as a description, and they decide nothing. Moving them into the
    family would change `analysis/`, which this entry does not do.
-8. How the analysis and Holm run. `ANALYSIS_COMMIT` runs unchanged, once, on L's rows of October
-   and the laptop's W rows, never on a desktop row, with the new pilot entry's output. Holm runs as
-   frozen over each family: the cost family over the new m_C resolved cells of L and W together
-   (5.1), the mechanism family over its 20 cells, M1's two IOCP cells now the laptop's. L's
-   decisions are read again from that run: October's family held desktop cells, so October's L
-   decisions are not reused as they stand; any L decision that differs from October's is reported
-   with both.
-   **[Alex] An open point that the unchanged analysis forces.** `analysis/analyse.py` takes one R_C
-   for every cost cell and refuses a cell with more valid sessions than R_C (`run_family`), while a
-   cell with fewer is left untested. L's 24 cost cells hold 28 valid sessions each (job pc1). Under
-   4.6 step 6, the new R_C is the largest R_c of the resolved cells; L's resolved cells reached 0.80
-   at R = 25 or below in October (the pilot entry, item 7), so the new R_C is set by the laptop's
-   W cells. Only if it is 28 does the unchanged analysis run on L's rows; if it is 25 or less the
-   analysis refuses L's cells, and if it is 31, L's cells are untested. The choices, to be fixed
-   before the pilot runs:
-   (i) a later change of `analysis/` (a new `ANALYSIS_COMMIT`, logged before the pilot): the cost
-   family holds L's cells at October's R_C = 28 and W's at R_C,W, 4.6 step 6 over W's resolved
-   cells alone, with Holm over all resolved cells together; the plan's "ANALYSIS_COMMIT runs
-   unchanged" no longer holds;
-   (ii) W's cost cells run at R = max(28, 4.6 step 6's value), and if that is 31, L's cost family
-   runs 3 more sessions per cell (an L campaign, Q3's option B in part);
-   (iii) R_C stays 28 for W as well, the pilot then deciding only the resolved list and reporting
-   each W cell's Power_c(28); 4.6 step 6 is then not applied, and `pilot.py`'s R_C is overridden,
-   which `analysis/` does not allow without a change either.
-   The author's recommendation: (i), the smallest change that keeps both "R from the new pilot by
-   the frozen rule" and L's rows as they are.
+8. How the analysis and Holm run: a later change of `analysis/`, by Alex's decision of 2026-10-23.
+   (a) Why. `analysis/analyse.py` at 2045551 takes one R_C for every cost cell and refuses a cell
+   with more valid sessions than R_C (`run_family`), while a cell with fewer is left untested. L's
+   24 cost cells hold 28 valid sessions each (job pc1). L's resolved cells reached 0.80 at R = 25
+   or below in October (the pilot entry, item 7), so a new R_C over every resolved cell would be set
+   by the laptop's W cells, and unless it were exactly 28, the analysis at 2045551 could not run on
+   L's rows. Alex chose, of three options (this change; W at the larger of 28 and the new value
+   with L topped up to 31; R_C fixed at 28 for W), this change.
+   (b) The change, one commit, in `analysis/` alone:
+   ANALYSIS_COMMIT = **[8815d89ff537ef3dee75f94298dedf8933e08a41, unless the review changes it]**
+   `pilot.py --fixed-r L=28`: L keeps the R its cost runs ran at, the R_C of the pilot entry of
+   2026-10-05, refused if any resolved L cell falls short of 0.80 there; W's R is 4.6 step 6 over
+   W's resolved cells alone (31 if none is resolved). The output adds `R_C_by_host`; the resolved
+   list, m_C and every Power_c are as before; `R_C`, step 6 over every resolved cell, stays
+   reported; each joint power is taken at its host's R. `analyse.py` gives each cost cell, and each
+   of section 10's intervals drawn from a cost cell, its host's R; Holm runs over the m_C resolved
+   cells of L and W together as one family (5.1), as frozen; `macros.py` adds the macros `CostRL`
+   and `CostRW`. Without `--fixed-r` every output is as at 2045551.
+   (c) The checks (2026-10-23, desktop, no timing): the suite, 78 passed and 2 skipped (73 and 2 at
+   2045551; the five new tests fail without the change); and the analysis at the change's commit,
+   from a fresh clone, on October's inputs (the seven row files, pilot, rule E, seeds and gates of
+   the confirmatory analysis): `decisions.csv` and `macros.tex` byte for byte the committed ones,
+   `summary.json` apart only in `versions.analysis_commit`. That run reproduces October's committed
+   outputs as a check of the code; it is not an analysis, and nothing from it is kept.
+   (d) What it implies, stated before any data. L's rows and R are unchanged, but L's decisions are
+   read again from the joint run: Holm's family now holds the laptop's W cells, and the cost
+   family's one bootstrap stream (4.7) draws per tested cell in 6.1's order, so W's R and test
+   status change the draws of the L cells after the first W cell. Any L decision that differs from
+   October's is reported with both. The mechanism family runs as frozen over its 20 cells, M1's two
+   IOCP cells now the laptop's. `ANALYSIS_COMMIT` runs unchanged from this commit on, once, on L's
+   rows of October and the laptop's W rows, never on a desktop row, with the new pilot entry's
+   output.
 9. Desktop rows excluded. No row of the desktop enters any analysis: W's pilot wp1, rule E's
    wre1, the cost jobs wc1 and wc2, M1's wm1, the hard cases wh1, and section 10's ws1. Their
    archives stay as published (`data-2026-10`, never edited); `results/summary.json`,
@@ -191,10 +197,13 @@ Every figure below is a count, a constant, a sha256 or a time named by its recor
     at ... s each and the session readings at ... s each; W's windows by family (the new pilot's
     R_C sets the cost family's count): ... ; total ... h, against the plan's estimate of 5.3 to
     21.3 h, which had no laptop basis. Stated to Alex on ... before this entry was committed.
-13. The laptop's TCP settings, read by the probe and not changed **[after the probe]**:
-    `TcpTimedWaitDelay` ...; the dynamic port range ...; the excluded ranges ...; the probe's
-    TIME-WAIT waits ... . Where these differ from the desktop's (30 s; 1025 to 65535), Alex's
-    decision on how W's runs proceed, with no setting changed: ... .
+13. The laptop's TCP settings (Alex's decision of 2026-10-23, the probe's entry, item 10): if
+    the laptop's `TcpTimedWaitDelay` or dynamic port range differ from the values W's runner was
+    designed for (30 s; 1025 to 65535), Alex sets them to those values with an administrator step
+    he runs himself, read back, before the probe; if they cannot be set, the probe and W's runs use
+    the laptop's own values, documented here. Read by job a0 **[after a0]**: `TcpTimedWaitDelay`
+    ...; the dynamic port range ...; the excluded ranges ...; set or not: ... . The probe's
+    TIME-WAIT waits **[after the probe]**: ... .
 14. The order of W's jobs on the laptop after this entry: the runners' functional checks (a4);
     the A/A pilot with its parts; the simulation and the new pilot entry (desktop); rule E's
     development sessions; the cost family; M1; the hard cases; section 10. Each from a clone at
