@@ -238,10 +238,12 @@ def freeze_check(a: argparse.Namespace, prov: dict, names: tuple[str, ...], *, n
     """freeze_guard.check for a frozen W run: W's gate (gate-W.json of the laptop's records job, from
     the laptop's records folder alone: check_laptop_gates), the binaries this run starts, and the
     entries W's runners apply."""
-    check_laptop_gates(a.gate)
-    return freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, need_pilot=need_pilot,
-                              pilot=getattr(a, "pilot", None) if need_pilot else None, rule_e=rule_e,
-                              binaries=binaries_of(prov, names), entries=ENTRIES + tuple(extra_entries))
+    laptop = check_laptop_gates(a.gate)
+    clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, need_pilot=need_pilot,
+                                   pilot=getattr(a, "pilot", None) if need_pilot else None, rule_e=rule_e,
+                                   binaries=binaries_of(prov, names), entries=ENTRIES + tuple(extra_entries))
+    clearance.record["laptop_gates"] = laptop  # into every row's provenance with the clearance
+    return clearance
 
 
 def journal_note(a: argparse.Namespace) -> str:

@@ -275,7 +275,7 @@ def _run_window(cfg: dict, session: dict, arm: str, position: int, blocks: windo
         if spin is not None:
             cmd += ["--spin-us", str(spin)]
         row["opgen_cmd"] = cmd
-        markers = wsys.MarkerReadings(range(12))
+        markers = wsys.MarkerReadings(wsys.ALL_CPUS)
         gen = wsys.start_pinned(cmd, GEN_CPUS, stdout=subprocess.PIPE, stderr=open(raw / f"{tag}.opgen.err", "wb"))
         row["opgen_affinity"] = hex(wsys.affinity(gen.pid))
         gen_out = ThreadLines(gen)

@@ -316,6 +316,11 @@ def parse(argv=None) -> argparse.Namespace:
 
 
 def main(argv=None) -> int:
+    if os.environ.get("LAB_JOB_ID"):
+        # The desktop's night chain switches and restores plans itself; inside a lab runner's job
+        # (the laptop, W since 2026-10-23) the job owns the plan (wpower.py's docstring).
+        print("wnight: refused inside a lab runner's job, which owns the power plan", file=sys.stderr)
+        return 95
     a = parse(argv)
     a.dir.mkdir(parents=True, exist_ok=True)
     (a.dir / "wnight.pid").write_text(str(os.getpid()))

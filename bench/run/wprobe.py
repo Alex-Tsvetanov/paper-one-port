@@ -16,11 +16,19 @@ there (a reading)"): development data, never a result. Run it inside a W lab job
    windows per protocol. Before each group of windows of one workload and protocol, the reading a W
    session takes (wwindow.fingerprint), timed.
 3. Records only wall time: per window the fields of `window_times` (the workload, the protocol, the
-   start and end, the length, the TIME-WAIT wait and counts, a driver error's text), per group the
-   reading's length, and the summary of `summarise`. A window's row is kept in memory only to copy
-   those fields; its raw files (the generator's report, the server's and the generator's error
-   output) are deleted once it ends, so no metric of the probe is ever on disk. Nothing it prints
-   holds a window's value either.
+   rate given as its load, the start and end, the length, the TIME-WAIT wait and counts, a driver
+   error's text), per group the reading's length and whether it found the host as W's procedure
+   sets it, and the summary of `summarise`, beside the readings of step 1, the build's provenance,
+   the placement and the rates given. A window's row is kept in memory only to copy those fields;
+   its raw files (the generator's report, the server's and the generator's error output) go to a
+   scratch folder outside --out (default %USERPROFILE%\\lab\\p3\\wprobe-scratch\\<job>, inside the
+   Defender exclusion, as W's runs' raw files are), which is deleted after each window and checked
+   to be gone; if it cannot be deleted the probe stops. Nothing it prints holds a window's value.
+4. Refuses (exit 3, before any window, with the reason in the summary): a build that is not a
+   Release build without a sanitizer; a clone whose revision log's probe entry names in its item 9
+   no single commit that the clone's `bench`, `tests` and `CMakeLists.txt` equal, or whose working
+   tree changes them; a run outside a W lab job (wjob.py sets ONEPORT_W_JOB). It stops (exit 3) at
+   a session reading that does not find the host as W's procedure sets it.
 
     wprobe.py --build DIR --out DIR --job NAME --pilot lab\\analysis-inputs\\pilot.json [--k-src 16]
 
@@ -41,6 +49,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import aa  # noqa: E402  (PORT_A)
+import freeze_guard  # noqa: E402  (the revision log, FROZEN_PATHS, HEX40)
 import sessions  # noqa: E402  (JOB_WARMUP_S)
 import waa  # noqa: E402  (provenance)
 import window  # noqa: E402  (SourceBlocks)
@@ -57,13 +66,75 @@ K_SRC = 16  # section 9.1
 PORT = aa.PORT_A
 USED_PORTS = [(PORT, PORT + 5)]  # the dedicated server's consecutive listeners, as wcost_run's arm A
 EXIT_PORTS = 4
+EXIT_REFUSED = 3
+# The heading of the entry that states this probe (hypotheses.md, revision log, 2026-10-23).
+PROBE_ENTRY = "A probe of window times on the laptop's Windows, before the entry that moves W's runs there (a reading)"
+SCRATCH_ROOT = wwindow.STATE_DIR / "wprobe-scratch"
+DELETE_TRIES = 5
 TCPIP_KEY = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
 # The only fields of a window's row that are written (item 6 of the entry).
 ROW_FIELDS = ("started", "time_wait_wait_s", "time_wait_before_wait", "time_wait_start")
 
 
+class ProbeRefused(Exception):
+    pass
+
+
 def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+# ---------------------------------------------------------------- what the probe refuses
+
+
+def build_problems(prov: dict) -> list[str]:
+    """The probe times the measured kind of build: Release, no sanitizer (CMake's cache)."""
+    problems = []
+    if prov.get("build_type") != "Release":
+        problems.append(f"the build is {prov.get('build_type')!r}, not Release")
+    if prov.get("sanitizer"):
+        problems.append(f"the build has the sanitizer {prov.get('sanitizer')!r}")
+    return problems
+
+
+def entry_text(log: str, heading: str) -> str:
+    """The text of the revision-log entry whose heading holds `heading`, to the next heading."""
+    lines = log.splitlines()
+    at = [i for i, ln in enumerate(lines) if ln.startswith("### ") and heading in ln]
+    if len(at) != 1:
+        raise ProbeRefused(f"the revision log holds {len(at)} entries headed {heading!r}, not one")
+    end = next((i for i in range(at[0] + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+    return "\n".join(lines[at[0]:end])
+
+
+def probe_commit(repo: Path) -> dict:
+    """The commit that the probe entry's item 9 names, which this clone's frozen paths equal
+    (committed and in the working tree), as freeze_guard checks a frozen run's clone."""
+    def g(*a: str) -> str:
+        return freeze_guard.git(repo, *a)
+    text = entry_text(freeze_guard.revision_log(g("show", "HEAD:hypotheses.md")), PROBE_ENTRY)
+    named = {h for ln in text.splitlines() if ln.lstrip().startswith("9.") for h in freeze_guard.HEX40.findall(ln)}
+    if len(named) != 1:
+        raise ProbeRefused(f"the probe entry's item 9 names {len(named)} commits, not one")
+    c, head = named.pop(), g("rev-parse", "HEAD").strip()
+    if not freeze_guard.is_ancestor(repo, c, head):
+        raise ProbeRefused(f"item 9's commit {c[:12]} is not an ancestor of HEAD {head[:12]}")
+    diff = g("diff", "--name-only", "--no-renames", c, head, "--", *freeze_guard.FROZEN_PATHS).split()
+    dirty = g("status", "--porcelain", "--", *freeze_guard.FROZEN_PATHS, "hypotheses.md").splitlines()
+    if diff or dirty:
+        raise ProbeRefused(f"the clone differs from item 9's commit {c[:12]}: {(diff + dirty)[:5]}")
+    return {"probe_commit": c, "head": head}
+
+
+def remove_scratch(path: Path) -> None:
+    """Deletes the scratch folder and checks that it is gone (a file a scanner holds open can keep
+    it for a moment); stops the probe if it stays."""
+    for i in range(DELETE_TRIES):
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return
+        time.sleep(1.0 + i)
+    raise ProbeRefused(f"the raw files in {path} could not be deleted; the probe stops")
 
 
 # ---------------------------------------------------------------- the readings (read only)
@@ -197,7 +268,7 @@ class Probe:
         self.warmup_s = warmup_s
         self.lines: list[dict] = []
         self.times = a.out / "probe-times.jsonl"
-        self.raw = a.out / "raw-scratch"
+        self.raw = a.scratch
         self.blocks = window.SourceBlocks(a.blocks)
 
     def write(self, line: dict) -> None:
@@ -210,6 +281,9 @@ class Probe:
         fp = self.fingerprint()
         t1 = time.monotonic()
         self.write({"kind": "reading", "group": gid, "wall_start": w0, "length_s": t1 - t0, "pinned": fp.get("pinned")})
+        if not fp.get("pinned"):
+            raise ProbeRefused(f"the reading before {gid} does not find the host as W's procedure sets it: "
+                               f"power {(fp.get('power') or {}).get('problems')}, cores {fp.get('core_problems')}")
         return {"job": self.a.job, "id": gid, "fingerprint": fp, "lab_plan": fp.get("lab_plan"),
                 "frequency": fp.get("frequency"), "cycle_rate": fp.get("cycle_rate")}
 
@@ -219,13 +293,13 @@ class Probe:
                "ports": {"A": PORT}, "functional": False}
         if group.get("rate") is not None:
             cfg["rate"] = group["rate"]
-        shutil.rmtree(self.raw, ignore_errors=True)
+        remove_scratch(self.raw)
         t0, w0 = time.monotonic(), time.time()
         try:
             row = self.run_window(cfg, session, "A", position, self.blocks, self.raw)
         finally:
             t1, w1 = time.monotonic(), time.time()
-            shutil.rmtree(self.raw, ignore_errors=True)
+            remove_scratch(self.raw)
         line = window_times(row, phase=phase, index=index, group=group, t0=t0, t1=t1, w0=w0, w1=w1)
         self.write(line)
         tw = line.get("time_wait_wait_s")
@@ -257,34 +331,48 @@ def main(argv=None) -> int:
     ap.add_argument("--pilot", type=Path, required=True, help="the pilot entry's output (lab/analysis-inputs/pilot.json)")
     ap.add_argument("--k-src", type=int, default=K_SRC)
     ap.add_argument("--blocks", type=Path, default=wrunlib.BLOCKS)
+    ap.add_argument("--scratch", type=Path, help="the windows' raw files, deleted after each (default: SCRATCH_ROOT/<job>)")
     a = ap.parse_args(argv)
     if a.out.exists() and any(a.out.iterdir()):
         raise SystemExit(f"wprobe: {a.out} is not empty")
+    a.scratch = (a.scratch or SCRATCH_ROOT / a.job).resolve()
+    if a.scratch.is_relative_to(a.out.resolve()):
+        raise SystemExit(f"wprobe: the scratch folder {a.scratch} lies inside --out")
     a.out.mkdir(parents=True, exist_ok=True)
     rates = pilot_rates(a.pilot)
     wrunlib.install_stop()
-    head = subprocess.run(["git", "-C", str(HERE.parent.parent), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    summary: dict = {"job": a.job, "started": now(), "development": True,
-                     "entry": "2026-10-23: A probe of window times on the laptop's Windows (a reading)",
+    summary: dict = {"job": a.job, "started": now(), "development": True, "entry": PROBE_ENTRY,
                      "job_context": wrunlib.check_job_context(development=True), "provenance": waa.provenance(a.build),
-                     "probe_commit": head, "readings": readings(), "rates_given": rates,
+                     "readings": readings(), "rates_given": rates, "scratch": str(a.scratch),
                      "placement": {"server_cpus": wwindow.SERVER_CPUS, "generator_cpus": wwindow.GEN_CPUS,
                                    "open_generator_threads": wwindow.OPEN_GEN_THREADS}}
     path = a.out / "probe-summary.json"
-    path.write_text(json.dumps(summary, indent=1), encoding="utf-8")
-    if summary["readings"]["port_conflicts"]:
-        print(f"wprobe: {summary['readings']['port_conflicts']}; no window runs", file=sys.stderr)
-        return EXIT_PORTS
-    probe = Probe(a, rates)
-    rc = 0
+    probe, rc = None, 0
     try:
-        probe.run()
+        if not summary["job_context"].get("job"):
+            raise ProbeRefused("the probe runs inside a W lab job (wjob.py run sets ONEPORT_W_JOB)")
+        problems = build_problems(summary["provenance"])
+        if problems:
+            raise ProbeRefused("; ".join(problems))
+        summary["clone"] = probe_commit(HERE.parent.parent)
+        if summary["readings"]["port_conflicts"]:
+            summary["refused"] = f"{summary['readings']['port_conflicts']}; no window runs"
+            print(f"wprobe: {summary['refused']}", file=sys.stderr)
+            rc = EXIT_PORTS
+        else:
+            remove_scratch(a.scratch)
+            probe = Probe(a, rates)
+            probe.run()
+    except ProbeRefused as e:
+        summary["refused"] = str(e)
+        print(f"wprobe: refused: {e}", file=sys.stderr)
+        rc = EXIT_REFUSED
     except (KeyboardInterrupt, SystemExit) as e:
         summary["stopped"] = repr(e)
         rc = 130
     finally:
         summary["ended"] = now()
-        summary["times"] = summarise(probe.lines)
+        summary["times"] = summarise(probe.lines if probe else [])
         path.write_text(json.dumps(summary, indent=1), encoding="utf-8")
     return rc
 

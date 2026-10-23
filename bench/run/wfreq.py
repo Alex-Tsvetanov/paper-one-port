@@ -127,6 +127,10 @@ def phase(name: str, seconds: int, load: bool, lead: float) -> dict:
 
 
 def main(argv=None) -> int:
+    if wpower.under_lab_runner():
+        # Its control phases switch plans; inside a lab runner's job the job owns the plan.
+        print("wfreq: refused inside a lab runner's job, which owns the power plan", file=sys.stderr)
+        return 95
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--control", choices=("cap", "alex"), default="cap",

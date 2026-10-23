@@ -20,8 +20,10 @@
    inside a job of the lab's runner (LAB_JOB_ID set; the laptop, W since 2026-10-23), that job owns
    the power plan and the job-start quiet check (Papers lab/laptop/README.md, "The procedure per
    job"): wpower.LabPlan only verifies the lab plan, and step 3's quiet check is the lab's, which the
-   job's run phase passed before the command started; the job says so by LAB_QUIET=passed (a Lab
-   request of 2026-10-23), and without it this job runs as a functional check, as --allow-noisy;
+   job's run phase passed before the command started; the job says so by LAB_QUIET=passed:<LAB_JOB_ID>
+   (a Lab request of 2026-10-23: the run phase drops any LAB_QUIET it inherited and sets it only
+   after its check passed). Without that exact value the job is refused (exit 90) unless
+   --allow-noisy, which runs it as a functional check, as outside a lab job;
 5. writes DIR/NAME.done with the exit status, the end time, whether it was stopped and whether
    Alex's plan was restored.
 `stop` asks a running job to stop: it sets the job's stop event; the job asks its command to stop
@@ -56,6 +58,11 @@ STOP_GRACE_S = 120.0
 LAB_QUIET_ENV = "LAB_QUIET"
 
 
+def lab_quiet_passed(lab_job: str | None) -> str:
+    """The value of LAB_QUIET that says this lab job's own quiet check passed."""
+    return f"passed:{lab_job}"
+
+
 def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
@@ -79,8 +86,9 @@ def preflight(allow_noisy: bool) -> tuple[dict, int]:
         return rec, EXIT_POWER
     if wpower.under_lab_runner():
         lab_quiet = os.environ.get(LAB_QUIET_ENV)
-        rec["quiet"] = {"quiet": lab_quiet == "passed", "by": "the lab runner's job-start check (labrec.quiet_check)",
-                        LAB_QUIET_ENV: lab_quiet, "lab_job": os.environ.get(wpower.LAB_RUNNER_ENV)}
+        lab_job = os.environ.get(wpower.LAB_RUNNER_ENV)
+        rec["quiet"] = {"quiet": lab_quiet == lab_quiet_passed(lab_job), "by": "the lab runner's job-start check (labrec.quiet_check)",
+                        LAB_QUIET_ENV: lab_quiet, "lab_job": lab_job}
     else:
         rec["quiet"] = wsys.quiet_check()
     rec["functional_check"] = not rec["quiet"]["quiet"]

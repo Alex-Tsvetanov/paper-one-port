@@ -280,7 +280,7 @@ def run(p: dict, session: dict, arm: str, position: int, blocks: window.SourceBl
         if spin is not None:
             gcmd += ["--spin-us", str(spin)]
         row["opgen_cmd"] = gcmd
-        markers = wsys.MarkerReadings(range(12))
+        markers = wsys.MarkerReadings(wsys.ALL_CPUS)
         gen = start_err(raw / f"{tag}.opgen.err", gcmd, gen_cpus, stdout=subprocess.PIPE)
         row["opgen_affinity"] = hex(wsys.affinity(gen.pid))
         gen_out = wwindow.ThreadLines(gen)

@@ -209,6 +209,12 @@ def under_lab_runner(env=None) -> bool:
     return bool((os.environ if env is None else env).get(LAB_RUNNER_ENV))
 
 
+def refuse_inside_lab_runner(what: str) -> None:
+    """Every switch of the plan outside LabPlan's own refuses inside a lab runner's job."""
+    if under_lab_runner():
+        raise PowerError(f"{what} inside the lab runner's job {os.environ.get(LAB_RUNNER_ENV)!r}, which owns the plan; nothing changed")
+
+
 def cap_plan_guid() -> str | None:
     """The frequency test's control plan's GUID, found by its name; refuses two plans of that name."""
     return plan_guid(CAP_PLAN_NAME)
@@ -234,7 +240,8 @@ def readback(plan: str) -> dict:
 def switch_within_session(plan: str, wanted: dict) -> dict:
     """Inside a LabPlan session only (its end and its guard set Alex's plan back, whatever plan is
     active then): makes `plan` active and reads it back. Returns the read-back and its problems;
-    the caller stops on a problem."""
+    the caller stops on a problem. Refused inside a lab runner's job, which owns the plan."""
+    refuse_inside_lab_runner(f"switching to {plan}")
     powercfg("/setactive", plan)
     at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     rb = readback(plan)
@@ -449,6 +456,7 @@ def main(argv=None) -> int:
                               "lab": {k: v for k, v in processor_settings(lab).items() if k in SETTING_NAMES} if lab else None,
                               "alex": {k: v for k, v in processor_settings(ALEX_PLAN).items() if k in SETTING_NAMES}}, indent=1))
         elif a.cmd == "restore":
+            refuse_inside_lab_runner("restoring Alex's plan")
             powercfg("/setactive", ALEX_PLAN)
             print(json.dumps(readback(ALEX_PLAN)["active"]))
         elif a.cmd == "run":

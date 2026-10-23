@@ -183,17 +183,75 @@ class JobQuietCheck(unittest.TestCase):
             return wjob.preflight(allow_noisy)
 
     def test_lab_quiet_passed(self):
-        rec, rc = self.preflight({"LAB_JOB_ID": "f1", "LAB_QUIET": "passed"})
+        rec, rc = self.preflight({"LAB_JOB_ID": "f1", "LAB_QUIET": "passed:f1"})
         self.assertEqual(rc, 0)
         self.assertFalse(rec["functional_check"])
-        self.assertEqual(rec["quiet"]["LAB_QUIET"], "passed")
+        self.assertEqual(rec["quiet"]["LAB_QUIET"], "passed:f1")
 
-    def test_no_lab_quiet_is_a_functional_check(self):
+    def test_lab_quiet_of_another_job_or_bare_is_refused(self):
+        for value in ("passed", "passed:other", "passed:f1 ", "off"):
+            _rec, rc = self.preflight({"LAB_JOB_ID": "f1", "LAB_QUIET": value})
+            self.assertEqual(rc, wjob.EXIT_NOT_QUIET, value)
+
+    def test_no_lab_quiet_refused_unless_allow_noisy(self):
         _rec, rc = self.preflight({"LAB_JOB_ID": "a3"})
         self.assertEqual(rc, wjob.EXIT_NOT_QUIET)
         rec, rc = self.preflight({"LAB_JOB_ID": "a3", "LAB_QUIET": "off"}, allow_noisy=True)
         self.assertEqual(rc, 0)
         self.assertTrue(rec["functional_check"])
+
+
+class NoSwitchInsideLabRunner(unittest.TestCase):
+    """Inside a lab runner's job nothing of P3 switches or restores the plan (the job owns it)."""
+
+    def test_refusals(self):
+        pc = FakePowercfg(LAB)
+        with mock.patch.object(wpower, "powercfg", pc), mock.patch.dict(os.environ, {"LAB_JOB_ID": "a3"}):
+            with self.assertRaises(wpower.PowerError):
+                wpower.switch_within_session(BALANCED, wpower.LAB_VALUES)
+            self.assertEqual(wpower.main(["restore"]), 95)
+            import wfreq
+            import wnight
+            self.assertEqual(wfreq.main(["--out", "x"]), 95)
+            self.assertEqual(wnight.main(["--dir", "x"]), 95)
+        self.assertEqual(pc.switched(), [])
+
+
+class CountersOfEveryCpu(unittest.TestCase):
+    def test_all_cpus(self):
+        self.assertEqual(wsys.ALL_CPUS, tuple(range(16)))
+        self.assertTrue(set(wsys.QUIET_CPUS) | set(wsys.SERVER_SIBLINGS) <= set(wsys.ALL_CPUS))
+
+    def test_no_desktop_cpu_count_left(self):
+        # The desktop's 12 logical CPUs were written as range(12) where the counters are read.
+        for f in sorted(HERE.glob("w*.py")):
+            self.assertNotIn("range(12)", f.read_text(encoding="utf-8").replace("written there as range(12)", ""), f.name)
+
+    @unittest.skipUnless(sys.platform == "win32", "PDH on Windows")
+    def test_marker_readings_and_quiet_check_read_every_cpu(self):
+        paths = []
+
+        class FakePdh:
+            def __init__(self, ps):
+                paths.extend(ps)
+
+            def collect(self):
+                pass
+
+            def value(self, p):
+                return 99.0
+
+            def array(self, p):
+                return {}
+
+            def close(self):
+                pass
+
+        with mock.patch.object(wsys, "Pdh", FakePdh), mock.patch.object(wsys.time, "sleep", lambda s: None):
+            wsys.MarkerReadings()
+            wsys.quiet_check(seconds=1)
+        for c in wsys.ALL_CPUS:
+            self.assertTrue(any(f"0,{c})" in p for p in paths), c)
 
 
 class LaptopGate(unittest.TestCase):
@@ -322,7 +380,13 @@ class Deps(unittest.TestCase):
 
 
 PILOT = REPO / "lab" / "analysis-inputs" / "pilot.json"
-# What a window line may hold (the entry of 2026-10-23, item 6).
+# What a window line may hold, from the probe's entry (2026-10-23), not from the code: item 6 "the
+# workload and protocol" (workload, proto), "the start and end on the wall clock" (wall_start,
+# wall_end, and the window code's own start, started), "the window's length on the monotonic clock"
+# (length_s), "the TIME-WAIT wait in seconds" (time_wait_wait_s), "the TIME-WAIT count before the
+# wait and at the window's start" (time_wait_before_wait, time_wait_start), "the error text if the
+# window code raised a driver error" (driver_error); item 9 adds the rate given as the load
+# (rate_given); kind, phase and index only order the lines.
 WINDOW_KEYS = {"kind", "phase", "index", "workload", "proto", "rate_given", "wall_start", "wall_end", "length_s", "started",
                "time_wait_wait_s", "time_wait_before_wait", "time_wait_start", "driver_error"}
 
@@ -385,16 +449,19 @@ class Probe(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "out"
             out.mkdir()
-            a = mock.Mock(out=out, job="a3", build=Path(d), k_src=16, blocks=Path(d) / "blocks.json")
+            scratch = Path(d) / "scratch" / "a3"
+            a = mock.Mock(out=out, job="a3", build=Path(d), k_src=16, blocks=Path(d) / "blocks.json", scratch=scratch)
             rates = wprobe.pilot_rates(PILOT)
             p = wprobe.Probe(a, rates, run_window=run_window, fingerprint=lambda: dict(fp), warmup_s=0.05)
             p.run()
             text = (out / "probe-times.jsonl").read_text(encoding="utf-8")
             files = sorted(x.name for x in out.iterdir())
+            scratch_left = scratch.exists()
         lines = [json.loads(x) for x in text.splitlines()]
         windows = [x for x in lines if x["kind"] == "window"]
         probe = [x for x in windows if x["phase"] == "probe"]
-        self.assertEqual(files, ["probe-times.jsonl"])  # the raw files are gone
+        self.assertEqual(files, ["probe-times.jsonl"])  # the raw files never reach --out
+        self.assertFalse(scratch_left)  # and the scratch folder is gone
         self.assertEqual(len(probe), 40)
         self.assertGreaterEqual(len(windows) - len(probe), 2)  # the warm-up
         self.assertEqual(len([x for x in lines if x["kind"] == "reading"]), 13)
@@ -417,16 +484,75 @@ class Probe(unittest.TestCase):
         self.assertEqual((s["wait_at_cap"], s["started_above_limit"], s["driver_errors"]), (1, 1, 1))
         self.assertEqual(s["length_s"], {"n": 2, "sum": 54.0, "min": 7.0, "max": 47.0})
 
-    def test_main_stops_on_a_port_conflict(self):
+    def main_with(self, *, env: dict, prov: dict, conflicts=(), commit=None) -> tuple[int, dict]:
+        def clone(repo):
+            if commit is None:
+                raise wprobe.ProbeRefused("the probe entry's item 9 names 0 commits, not one")
+            return {"probe_commit": commit, "head": commit}
         with tempfile.TemporaryDirectory() as d, \
-                mock.patch.object(wprobe, "readings", lambda: {"port_conflicts": ["ports 20000 to 20005 overlap W's excluded range"]}), \
+                mock.patch.object(wprobe, "readings", lambda: {"port_conflicts": list(conflicts)}), \
                 mock.patch.object(wprobe.wrunlib, "install_stop", lambda: None), \
-                mock.patch.object(wprobe.waa, "provenance", lambda build: {"build_dir": str(build)}), \
-                mock.patch.object(wprobe.Probe, "run", side_effect=AssertionError("a window ran")):
+                mock.patch.object(wprobe.waa, "provenance", lambda build: dict(prov, build_dir=str(build))), \
+                mock.patch.object(wprobe, "probe_commit", clone), \
+                mock.patch.object(wprobe.Probe, "run", side_effect=AssertionError("a window ran")), \
+                mock.patch.dict(os.environ, env, clear=False) as e:
+            if "ONEPORT_W_JOB" not in env:
+                e.pop("ONEPORT_W_JOB", None)
             out = Path(d) / "out"
-            rc = wprobe.main(["--build", d, "--out", str(out), "--job", "a3", "--pilot", str(PILOT)])
-            self.assertEqual(rc, wprobe.EXIT_PORTS)
-            self.assertTrue((out / "probe-summary.json").is_file())
+            rc = wprobe.main(["--build", d, "--out", str(out), "--job", "a3", "--pilot", str(PILOT), "--scratch", str(Path(d) / "s")])
+            return rc, json.loads((out / "probe-summary.json").read_text(encoding="utf-8"))
+
+    def test_main_refusals_before_any_window(self):
+        release = {"build_type": "Release", "sanitizer": ""}
+        job = {"ONEPORT_W_JOB": "p3probe"}
+        rc, s = self.main_with(env={}, prov=release, commit="c" * 40)
+        self.assertEqual(rc, wprobe.EXIT_REFUSED)
+        self.assertIn("W lab job", s["refused"])
+        for prov, why in (({"build_type": "Debug", "sanitizer": ""}, "not Release"), ({"build_type": "Release", "sanitizer": "address"}, "sanitizer")):
+            rc, s = self.main_with(env=job, prov=prov, commit="c" * 40)
+            self.assertEqual(rc, wprobe.EXIT_REFUSED)
+            self.assertIn(why, s["refused"])
+        rc, s = self.main_with(env=job, prov=release, commit=None)
+        self.assertEqual(rc, wprobe.EXIT_REFUSED)
+        self.assertIn("item 9", s["refused"])
+        rc, s = self.main_with(env=job, prov=release, commit="c" * 40, conflicts=["ports 20000 to 20005 overlap W's excluded range"])
+        self.assertEqual(rc, wprobe.EXIT_PORTS)
+        self.assertIn("no window runs", s["refused"])
+
+    def test_unpinned_reading_stops(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = mock.Mock(out=Path(d), job="a3", build=Path(d), k_src=16, blocks=Path(d) / "b.json", scratch=Path(d) / "s")
+            p = wprobe.Probe(a, {q: 1.0 for q in wprobe.PROTOS}, run_window=mock.Mock(side_effect=AssertionError("a window ran")),
+                             fingerprint=lambda: {"pinned": False, "power": {"problems": ["the lab plan is not active"]}}, warmup_s=1)
+            with self.assertRaises(wprobe.ProbeRefused):
+                p.run()
+
+    def test_probe_commit_from_item_9(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "c"
+            subprocess.run(["git", "clone", "-q", str(REPO), str(repo)], check=True)
+            git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a],  # noqa: E731
+                                            check=True, capture_output=True, text=True).stdout.strip()
+            head = git("rev-parse", "HEAD")
+            with self.assertRaises(wprobe.ProbeRefused):
+                wprobe.probe_commit(repo)  # no item 9 yet
+            text = (repo / "hypotheses.md").read_text(encoding="utf-8")
+            if "\n9. " not in wprobe.entry_text(wprobe.freeze_guard.revision_log(text), wprobe.PROBE_ENTRY):
+                with open(repo / "hypotheses.md", "a", encoding="utf-8", newline="\n") as f:
+                    f.write(f"9. Appended: the probe's commit {head}.\n")
+                git("commit", "-qam", "item 9")
+            self.assertEqual(wprobe.probe_commit(repo)["probe_commit"], head)
+            with open(repo / "bench" / "run" / "wprobe.py", "a", encoding="utf-8") as f:
+                f.write("\n# changed\n")
+            with self.assertRaises(wprobe.ProbeRefused):
+                wprobe.probe_commit(repo)  # the working tree changes a frozen path
+
+    def test_probe_entry_names_no_change_commit(self):
+        # freeze_guard.change_commit adopts any line with the word and one full hash; the probe's
+        # entry must hold none, or its commit would become the last change for L and W.
+        text = (REPO / "hypotheses.md").read_text(encoding="utf-8")
+        entry = wprobe.entry_text(freeze_guard.revision_log(text), wprobe.PROBE_ENTRY)
+        self.assertFalse(freeze_guard.CHANGE_COMMIT.search(entry))
 
     def test_readings_are_read_only(self):
         r = wprobe.readings()

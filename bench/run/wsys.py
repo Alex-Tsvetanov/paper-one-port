@@ -41,6 +41,9 @@ if IS_WINDOWS:
 # The desktop's six cores (design/w-procedure.md section 1) are no longer a W host.
 N_CORES = 8
 EXPECTED_CORES = [(2 * k, 2 * k + 1) for k in range(N_CORES)]
+# Every logical CPU of W, the CPUs whose counters a window and the quiet check read (the desktop's 12
+# until 2026-10-23, written there as range(12)).
+ALL_CPUS = tuple(range(2 * N_CORES))
 # Section 4.1's rule on W: the server on one logical CPU of the last physical core, its sibling idle,
 # opgen on the cores between core 0 and the server's. On eight cores: the server on CPU 14 (core 7),
 # its sibling 15 idle; opgen on cores 1 to 6 (logical CPUs 2 to 13); core 0 (logical CPUs 0 and 1)
@@ -528,7 +531,7 @@ if IS_WINDOWS:
         """One query over every CPU's MARKER_COUNTERS, collected at MEASURE_START and MEASURE_END:
         each value is that CPU's mean over the window (a rate counter over its two samples)."""
 
-        def __init__(self, cpus=range(12)):
+        def __init__(self, cpus=ALL_CPUS):
             self.cpus = list(cpus)
             self.pdh = Pdh([cpu_path(c, k) for c in self.cpus for k in MARKER_COUNTERS])
 
@@ -580,7 +583,7 @@ if IS_WINDOWS:
         """Section 5: one 10 s reading. Per second, `\\Processor(_Total)\\% Idle Time` (P1's
         Win32_PerfFormattedData_PerfOS_Processor PercentIdleTime); over the whole interval, each
         CPU's `% Idle Time` and each process's `% Processor Time` (in units of one logical CPU)."""
-        per_cpu = Pdh([cpu_path(c, "% Idle Time") for c in range(12)] + ["\\Process(*)\\% Processor Time", "\\Process(*)\\ID Process"])
+        per_cpu = Pdh([cpu_path(c, "% Idle Time") for c in ALL_CPUS] + ["\\Process(*)\\% Processor Time", "\\Process(*)\\ID Process"])
         total = Pdh(["\\Processor(_Total)\\% Idle Time"])
         try:
             per_cpu.collect()
@@ -593,7 +596,7 @@ if IS_WINDOWS:
                 v = total.value("\\Processor(_Total)\\% Idle Time")
                 samples.append(v if v is not None else 0.0)
             per_cpu.collect()
-            cpu_idle = {c: per_cpu.value(cpu_path(c, "% Idle Time")) for c in range(12)}
+            cpu_idle = {c: per_cpu.value(cpu_path(c, "% Idle Time")) for c in ALL_CPUS}
             cpu_pct = per_cpu.array("\\Process(*)\\% Processor Time")
             pids = per_cpu.array("\\Process(*)\\ID Process")
         finally:
