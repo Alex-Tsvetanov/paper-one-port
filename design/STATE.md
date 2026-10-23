@@ -144,7 +144,25 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 - Rule for every W job from now on: start `wjob.py` and the W runners with the base Python
   (`LAB_PYTHON`), never a venv's `python.exe`. Under the launcher, `wjob.py stop` would set the
   stop event of the launcher's process id, not the runner's. The venv serves CTest alone.
-- Next a2 attempt: at the docs commit after 786058e (after its push), so its record is named
+- a2's third rerun, `p3-records-w-4` at 3ae481f (2026-10-24 00:59:28 to 01:04:37, exit 1; archive
+  sha256 82e9b534...): the ASan record `oneport-3ae481faa-W-asan` is green (165 of 165 tests, 0
+  sanitizer reports, MSVC 19.51.36248.0), and the Release build passed. The gate step failed in
+  0 s: `bench/build_inputs.py` line 135 runs `ninja -C <build> -t compdb`, and gate.log ends in
+  `FileNotFoundError: [WinError 2] The system cannot find the file specified`. The gate's cmd
+  file (written by `records_job_w.ps1`, a frozen path) calls no vcvarsall, so the ninja that the
+  release step had on PATH through vcvarsall is not there. The desktop had ninja on PATH
+  globally. The overlap the coordinator disclosed (an scp of seven P2 archives at 00:59:14 to
+  00:59:34 and a sha256 check of about 1 GB) played no part: the failure is a missing program,
+  three minutes later, after the timing-sensitive tests had passed 165 of 165.
+- Rule for every W job that runs `build_inputs.py` (the gate, and every frozen W runner through
+  `wrunlib.job_provenance`): the folder of the ninja that built the Release build (Visual Studio
+  Community's CMake\Ninja, which vcvarsall adds) first on PATH.
+- Gate rerun, without a new record: `records_job_w.ps1 -Out %LAB_OUT%\rec -Records <p3-records-w-4's
+  out\rec\laptop-w> -Only "release gate" -LabBin <deployed lab\bin>` from a clone at 3ae481f, with
+  ninja on PATH. It builds a fresh Release build and gates it against the green record alone, so
+  no record is made and the red attempts stay untouched; the old job's folder is only read.
+  a3 then at exactly 63f5c74 on this job's build-release, under the base Python.
+- Earlier plan, now superseded by the green record: next a2 attempt at the docs commit after 786058e (after its push), so its record is named
   `oneport-<that commit's first 9>-W-asan` and the red attempts (`oneport-63f5c742c-W-asan`,
   `oneport-632b24214-W-asan`) and their logs stay untouched. a3 stays at exactly 63f5c74 (its
   probe code is unchanged; it runs under the base Python), on that attempt's build.
