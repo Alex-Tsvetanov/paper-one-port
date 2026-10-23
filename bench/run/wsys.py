@@ -35,14 +35,19 @@ if IS_WINDOWS:
     import ctypes
     from ctypes import wintypes
 
-# Section 1 of design/w-procedure.md (read on W on 2026-10-03): six cores, core k holding logical
-# processors 2k and 2k + 1, one group, one efficiency class.
-EXPECTED_CORES = [(2 * k, 2 * k + 1) for k in range(6)]
-# Section 6: the server on logical CPU 10 (core 5), its sibling 11 idle; opgen on cores 1 to 4
-# (logical CPUs 2 to 9); core 0 (logical CPUs 0 and 1) for the system, the driver and the samplers.
-SERVER_CPUS = (10,)
-SERVER_SIBLINGS = (11,)
-GEN_CPUS = tuple(range(2, 10))
+# W is the laptop's Windows since 2026-10-23 (hypotheses.md, revision log, the entry of that date):
+# eight cores, core k holding logical processors 2k and 2k + 1, one group, one efficiency class (read
+# there with GetLogicalProcessorInformationEx; Papers lab/laptop/setup-log.md, 2026-10-22 23:55).
+# The desktop's six cores (design/w-procedure.md section 1) are no longer a W host.
+N_CORES = 8
+EXPECTED_CORES = [(2 * k, 2 * k + 1) for k in range(N_CORES)]
+# Section 4.1's rule on W: the server on one logical CPU of the last physical core, its sibling idle,
+# opgen on the cores between core 0 and the server's. On eight cores: the server on CPU 14 (core 7),
+# its sibling 15 idle; opgen on cores 1 to 6 (logical CPUs 2 to 13); core 0 (logical CPUs 0 and 1)
+# for the system, the driver and the samplers. The same CPUs as L's in-process cells.
+SERVER_CPUS = (2 * (N_CORES - 1),)
+SERVER_SIBLINGS = (2 * (N_CORES - 1) + 1,)
+GEN_CPUS = tuple(range(2, 2 * (N_CORES - 1)))
 HOUSEKEEPING = (0, 1)
 
 
@@ -79,7 +84,7 @@ def check_core_layout(cores: list[dict]) -> list[str]:
 QUIET_TOTAL_IDLE_MIN = 90.0  # mean CPU idle at least 90% over 10 s (was P1's 95%)
 QUIET_CPU_IDLE_MIN = 90.0    # each logical CPU the window uses (was 95%)
 QUIET_PROCESS_MAX = 10.0     # no process above 10% of one logical CPU (was 5%)
-QUIET_CPUS = tuple(range(2, 11))  # the CPUs a window uses: the generator's 2 to 9 and the server's 10
+QUIET_CPUS = GEN_CPUS + SERVER_CPUS  # the CPUs a window uses: the generator's and the server's
 QUIET_SECONDS = 10
 
 

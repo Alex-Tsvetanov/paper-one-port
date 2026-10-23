@@ -20,11 +20,13 @@ only in dedicated mode (the A/A runs and the pilot keep it):
 - the mixed cell's background on W: TLS and MQTT keep-alive (opgen --load keepalive, WL3, 64
   connections each, as on L: the revision log's entry "M7c's open items, before the code freeze",
   items 1 and 8) and 64 silent connections held by opcase hold, stopped by its event
-  Local\\oneport-stop-<pid>; placement, a design choice of M7e (the M7e entry): section 4.1 gives
-  W's generators CPUs 2 to 9 alone, so the cell's opgen takes CPUs 2 to 5 (cores 1 and 2), the TLS
-  background CPUs 6 and 7 (core 3), the MQTT background and the holder CPUs 8 and 9 (core 4), as
-  L's split gives the cell's generator the larger share and each background a core of its own;
-  section 7's generator rule reads the cell's generator's CPUs (gen_cpus);
+  Local\\oneport-stop-<pid>; placement: on the laptop (W since 2026-10-23) section 4.1 gives W's
+  generators CPUs 2 to 13, L's range, so the cell takes L's placement (the M7c entry, item 7): the
+  cell's opgen on CPUs 2 to 9 (cores 1 to 4), the TLS background on CPUs 10 and 11 (core 5), the
+  MQTT background and the holder on CPUs 12 and 13 (core 6). On the desktop, whose generators had
+  CPUs 2 to 9 alone, it was M7e's design choice (the M7e entry): 2 to 5, 6 and 7, 8 and 9. Both
+  give the cell's generator the larger share and each background a core of its own; section 7's
+  generator rule reads the cell's generator's CPUs (gen_cpus);
 - `misclassified` on every one-port row (cellwin.b1_count, the same count and bounds).
 """
 from __future__ import annotations
@@ -43,9 +45,9 @@ from window import WindowError
 
 HERE = Path(__file__).resolve().parent
 
-# The mixed cell on W (a design choice of M7e; see the docstring).
-MIXED_GEN_CPUS = (2, 3, 4, 5)
-MIXED_BG_CPUS = {"tls": (6, 7), "mqtt": (8, 9), "silent": (8, 9)}
+# The mixed cell on W, the laptop: L's placement (the M7c entry, item 7; see the docstring).
+MIXED_GEN_CPUS = (2, 3, 4, 5, 6, 7, 8, 9)
+MIXED_BG_CPUS = {"tls": (10, 11), "mqtt": (12, 13), "silent": (12, 13)}
 N_BG = cellwin.N_BG
 OPCASE = Path("bench") / "cases" / "opcase.exe"
 ONEPORT = Path("bench") / "server" / "oneport.exe"

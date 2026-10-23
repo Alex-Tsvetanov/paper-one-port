@@ -31,7 +31,11 @@ import wsys  # noqa: E402
 import wwindow  # noqa: E402
 
 SAMPLES = HERE / "samples"
+# The samples were recorded on the desktop, W until 2026-10-23: its lab plan and Alex's plan there.
+# They test the parsers; the laptop's plans are tested in test_wlaptop.py.
 LAB = "277bfd76-c26d-4cac-b253-a8500e6728d8"
+DESKTOP_ALEX = ("00acab9f-6807-4927-af55-c72a4c589dad", "ChrisTitus - Ultimate Power Plan")
+DESKTOP_LAB_NAME = "oneport W windows"
 CHECKS: list = []
 
 
@@ -45,8 +49,8 @@ def powercfg_list():
     plans = wpower.parse_list((SAMPLES / "W-powercfg-list.txt").read_text(encoding="utf-8"))
     by = {p["guid"]: p for p in plans}
     assert len(plans) == 9, plans
-    assert by[wpower.ALEX_PLAN]["name"] == wpower.ALEX_PLAN_NAME and by[wpower.ALEX_PLAN]["active"]
-    assert by[LAB]["name"] == wpower.LAB_PLAN_NAME and not by[LAB]["active"]
+    assert by[DESKTOP_ALEX[0]]["name"] == DESKTOP_ALEX[1] and by[DESKTOP_ALEX[0]]["active"]
+    assert by[LAB]["name"] == DESKTOP_LAB_NAME and not by[LAB]["active"]
     assert by[wpower.HIGH_PERFORMANCE]["name"] == "High performance"
     assert sum(p["active"] for p in plans) == 1
 
@@ -54,7 +58,7 @@ def powercfg_list():
 @check
 def powercfg_active_and_duplicate():
     a = wpower.parse_active((SAMPLES / "W-powercfg-getactivescheme.txt").read_text(encoding="utf-8"))
-    assert a == {"guid": wpower.ALEX_PLAN, "name": wpower.ALEX_PLAN_NAME}, a
+    assert a == {"guid": DESKTOP_ALEX[0], "name": DESKTOP_ALEX[1]}, a
     # duplicatescheme's line as W printed it on 2026-10-03 (C:\Users\alext\lab\p3\m6b\plan-create.json).
     assert wpower.parse_duplicate(f"Power Scheme GUID: {LAB}  (High performance)") == LAB
     try:
@@ -96,12 +100,14 @@ def section2_commands():
 
 @check
 def core_layout_rule():
-    good = [{"cpus": [2 * k, 2 * k + 1], "group": 0, "efficiency_class": 0} for k in range(6)]
+    # The laptop's eight cores (W since 2026-10-23); the desktop's six no longer pass.
+    good = [{"cpus": [2 * k, 2 * k + 1], "group": 0, "efficiency_class": 0} for k in range(8)]
     assert wsys.check_core_layout(good) == []
     swapped = [dict(c) for c in good]
-    swapped[5] = {"cpus": [10, 9], "group": 0, "efficiency_class": 0}
+    swapped[7] = {"cpus": [14, 13], "group": 0, "efficiency_class": 0}
     assert wsys.check_core_layout(swapped)
-    assert wsys.check_core_layout(good[:5])
+    assert wsys.check_core_layout(good[:7])
+    assert wsys.check_core_layout(good[:6])
     two = [dict(c) for c in good]
     two[0] = dict(two[0], efficiency_class=1)
     assert wsys.check_core_layout(two)
@@ -113,22 +119,23 @@ def core_layout_rule():
 
 @check
 def quiet_rules():
-    cpus = {c: 99.0 for c in range(12)}
+    cpus = {c: 99.0 for c in range(16)}
     assert (wsys.QUIET_TOTAL_IDLE_MIN, wsys.QUIET_CPU_IDLE_MIN, wsys.QUIET_PROCESS_MAX) == (90.0, 90.0, 10.0)
-    ok = wsys.quiet_verdict([90.0] * 10, {c: 90.0 for c in range(12)}, [{"name": "a", "pid": 1, "cpu_percent": 10.0}])
+    assert wsys.QUIET_CPUS == tuple(range(2, 15))  # the laptop's generator CPUs 2 to 13 and the server's 14
+    ok = wsys.quiet_verdict([90.0] * 10, {c: 90.0 for c in range(16)}, [{"name": "a", "pid": 1, "cpu_percent": 10.0}])
     assert ok["quiet"], ok["reasons"]  # at the bounds: 90% idle overall and per CPU, 10% of one CPU pass
     low = wsys.quiet_verdict([89.9] * 10, cpus, [])
     assert not low["quiet"] and "mean CPU idle" in low["reasons"][0]
-    one = wsys.quiet_verdict([99.0] * 10, {**cpus, 10: 89.9}, [])
-    assert not one["quiet"] and "CPU 10" in one["reasons"][0]
-    outside = wsys.quiet_verdict([99.0] * 10, {**cpus, 0: 50.0, 11: 50.0}, [])
-    assert outside["quiet"], "CPUs 0, 1 and 11 are not the window's"
+    one = wsys.quiet_verdict([99.0] * 10, {**cpus, 14: 89.9}, [])
+    assert not one["quiet"] and "CPU 14" in one["reasons"][0]
+    outside = wsys.quiet_verdict([99.0] * 10, {**cpus, 0: 50.0, 1: 50.0, 15: 50.0}, [])
+    assert outside["quiet"], "CPUs 0, 1 and 15 are not the window's"
     proc = wsys.quiet_verdict([99.0] * 10, cpus, [{"name": "TextInputHost", "pid": 7, "cpu_percent": 10.1}])
     assert not proc["quiet"] and "TextInputHost" in proc["reasons"][0]
     own = wsys.quiet_verdict([99.0] * 10, cpus, [{"name": "python", "pid": 9, "cpu_percent": 40.0}], exclude_pids=(9,))
     assert own["quiet"] and own["top_processes"] == []
-    missing = wsys.quiet_verdict([99.0] * 10, {c: 99.0 for c in range(10)}, [])
-    assert not missing["quiet"] and "CPU 10: no idle reading" in missing["reasons"]
+    missing = wsys.quiet_verdict([99.0] * 10, {c: 99.0 for c in range(14)}, [])
+    assert not missing["quiet"] and "CPU 14: no idle reading" in missing["reasons"]
 
 
 @check
@@ -189,8 +196,8 @@ def report(workload: str = "churn", completed: int = 50000, errors: int = 0, con
 
 
 def snaps(gen_busy: float = 50.0, server_perf: float = 100.0) -> dict:
-    cpus = {str(c): {"% Processor Time": gen_busy if 2 <= c <= 9 else (99.9 if c == 10 else 1.0), "% Processor Performance": server_perf,
-                     "Actual Frequency": 3950.0, "% Interrupt Time": 0.0, "% DPC Time": 0.0, "Interrupts/sec": 1000.0} for c in range(12)}
+    cpus = {str(c): {"% Processor Time": gen_busy if c in wwindow.GEN_CPUS else (99.9 if c in wwindow.SERVER_CPUS else 1.0), "% Processor Performance": server_perf,
+                     "Actual Frequency": 3950.0, "% Interrupt Time": 0.0, "% DPC Time": 0.0, "Interrupts/sec": 1000.0} for c in range(16)}
     return {"s0": {"t": 0.0, "cpu_s": 1.0, "cycles": 1_000_000, "working_set_kb": 9000},
             "s1": {"t": 5.0, "cpu_s": 5.9, "cycles": 2_001_000_000, "working_set_kb": 9100, "peak_working_set_kb": 9200},
             "cpus": {"span_s": 5.0, "cpus": cpus}}
@@ -217,7 +224,7 @@ def window_metric_and_rules():
     rc = wwindow.finish(row(), report(), snaps(), dict(SESSION, cycle_rate={"cycles_per_s": 4.0e9}), [])
     assert abs(rc["cycles_us_per_exchange"] - 10.0) < 1e-9 and rc["cpu_us_per_exchange"] == r["cpu_us_per_exchange"]
     assert abs(r["server_cores_busy"] - 0.999) < 1e-9 and r["gen_cpus_busy_pct"] == 50.0 and r["gen_cpu_pct_rule"] == 50.0
-    assert r["irq_server"] == 5000.0 and r["irq_generator"] == 40000.0
+    assert r["irq_server"] == 5000.0 and r["irq_generator"] == 1000.0 * 5 * len(wwindow.GEN_CPUS)  # 60,000 on the laptop's 12
     assert r["per_connection"]["recv_calls"] == 1.0 and r["rss_kb"] == 9100 and r["peak_rss_kb"] == 9200
     assert r["freq_window"] == 100.0 and r["freq_drift"] == 0.0
     ka = wwindow.finish(row("keepalive"), report("keepalive"), snaps(), SESSION, [])
@@ -233,7 +240,7 @@ def cpu_shares_named():
     r = wwindow.finish(row(), report(cpu_pct=45.5), snaps(gen_busy=47.0), dict(SESSION, cycle_rate={"cycles_per_s": 4.0e9}), [])
     s = r["cpu_shares"]
     assert abs(s["server_cpu_busy"] - 0.999) < 1e-9 and abs(s["server_process"] - 0.1) < 1e-9   # 2e9 cycles / (4e9 x 5 s)
-    assert s["generator_cpus_busy"] == 0.47 and s["generator_process"] == 0.455 and s["generator_cpus"] == list(range(2, 10))
+    assert s["generator_cpus_busy"] == 0.47 and s["generator_process"] == 0.455 and s["generator_cpus"] == wwindow.GEN_CPUS
     assert wwindow.finish(row(), report(), snaps(), SESSION, [])["cpu_shares"]["server_process"] is None   # no cycle rate
     # The mixed cell's generator on W reads its own CPUs (bench/run/wcellwin.py).
     m = wwindow.finish(row(), report(), snaps(), SESSION, [], gen_cpus=(2, 3, 4, 5))
@@ -299,8 +306,13 @@ def dedicated_only():
 
 @check
 def placement():
-    assert wwindow.SERVER_CPUS == [10] and wwindow.SERVER_IDLE_SIBLINGS == [11] and wwindow.GEN_CPUS == list(range(2, 10))
-    assert wwindow.gen_threads({"workload": "open"}) == [2, 4, 6, 8] and wwindow.gen_threads({"workload": "churn"}) == list(range(2, 10))
+    # Section 4.1's rule on the laptop's eight cores (W since 2026-10-23): L's in-process CPUs.
+    assert wwindow.SERVER_CPUS == [14] and wwindow.SERVER_IDLE_SIBLINGS == [15] and wwindow.GEN_CPUS == list(range(2, 14))
+    assert wwindow.HOUSEKEEPING == [0, 1]
+    assert wwindow.gen_threads({"workload": "open"}) == [2, 4, 6, 8, 10, 12]
+    assert wwindow.gen_threads({"workload": "churn"}) == list(range(2, 14))
+    assert wwindow.SERVER_CPUS == window.SERVER_CPUS and wwindow.GEN_CPUS == window.GEN_CPUS
+    assert wwindow.OPEN_GEN_THREADS == list(window.OPEN_GEN_THREADS)
     assert wwindow.WARMUP_MS == 1000 and wwindow.DURATION_MS == 5000 and wwindow.CONNS_PER_CORE == 64
 
 
@@ -355,6 +367,8 @@ def cycle_rate_reading():
     check, so a loop there could be preempted on a W that passed it (found in W's suite, M7 freeze)."""
     if not wsys.IS_WINDOWS:
         return "skipped: not Windows"
+    if (os.cpu_count() or 0) <= max(wsys.SERVER_CPUS):
+        return f"skipped: laptop-only, CPU {wsys.SERVER_CPUS[0]} does not exist on this host ({os.cpu_count()} logical CPUs)"
     r = wsys.cycle_rate(wsys.SERVER_CPUS, settle_s=0.3, span_s=0.5)
     assert r["spinner_exit"] == 0, r
     assert r["cycles_per_s"] > 1e9 and r["cycles"] > 0, r

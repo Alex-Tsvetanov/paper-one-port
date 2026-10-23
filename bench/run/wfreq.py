@@ -25,6 +25,10 @@ The sampler runs on CPU 0 (this process's affinity), section 4's core 0. `% Proc
 10 is sampled beside them, so each phase shows whether CPU 10 was idle or loaded.
 
     wfreq.py --out DIR [--control cap|alex] [--seconds 10] [--lead 1.5] [--require-quiet]
+
+On the laptop (W since 2026-10-23) "CPU 10" above is the server's CPU, wsys.SERVER_CPUS (CPU 14), and
+`--control cap` cannot run: no plan is created there (wpower.create_cap refuses). The test ran on
+the desktop only; section 9.1's fallback stands until a revision-log entry says otherwise.
 """
 from __future__ import annotations
 
@@ -42,7 +46,7 @@ sys.path.insert(0, str(HERE))
 import wpower  # noqa: E402
 import wsys  # noqa: E402
 
-CPU = 10
+CPU = wsys.SERVER_CPUS[0]  # the server's CPU (CPU 10 on the desktop, CPU 14 on the laptop)
 COUNTER = "% Processor Performance"
 BESIDE = ("Actual Frequency", "% Processor Time")
 DRIFT = 0.02  # section 4's 2%, by analogy with L's frequency rule (hypotheses.md section 7)

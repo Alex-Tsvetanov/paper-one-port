@@ -74,6 +74,10 @@ W_ITEMS = "W before the code freeze"
 # warm-up, bench/run/sessions.py) and W's runners apply (W's churn h2c and MQTT in the pilot only,
 # the two-core IOCP cell not run, the mixed cell's placement on W, the IOCP forms' cells; M7e).
 M7E_ITEMS = "The job's warm-up and W's runners (M7e), before the code freeze"
+# The title of the entry that moves W's runs to the laptop's Windows (2026-10-23; a later change under
+# section 8), which every frozen W run applies from then on (bench/run/wrunlib.py): the host, the
+# compiler and the records on the laptop, the placement, the power plan and the quiet check there.
+W_LAPTOP_ITEMS = "W's runs on the laptop's Windows (a later change under section 8)"
 FROZEN_PATHS = ("bench", "tests", "CMakeLists.txt")
 HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
 # The word of a revision-log line that names a later change's commit (section 8; see the docstring),

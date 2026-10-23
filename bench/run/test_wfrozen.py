@@ -147,7 +147,11 @@ class WCells(unittest.TestCase):
     def test_mixed_placement(self):
         gen = set(wcellwin.MIXED_GEN_CPUS)
         bg = {k: set(v) for k, v in wcellwin.MIXED_BG_CPUS.items()}
-        self.assertEqual(len(gen), 4)
+        # On the laptop (W since 2026-10-23), L's mixed placement (the M7c entry, item 7).
+        self.assertEqual(sorted(gen), list(range(2, 10)))
+        self.assertEqual((sorted(bg["tls"]), sorted(bg["mqtt"])), ([10, 11], [12, 13]))
+        self.assertEqual(gen, set(wcellwin.cellwin.MIXED_GEN.gen))
+        self.assertEqual(wcellwin.MIXED_BG_CPUS, wcellwin.cellwin.MIXED_BG_CPUS)
         self.assertTrue(gen | bg["tls"] | bg["mqtt"] <= set(wwindow.GEN_CPUS))
         self.assertFalse(gen & (bg["tls"] | bg["mqtt"]) or bg["tls"] & bg["mqtt"])
         self.assertEqual(bg["silent"], bg["mqtt"])
@@ -388,10 +392,17 @@ class WWindowPieces(unittest.TestCase):
             wrunlib.arm_provenance(p, Path("b"), ("oneport", "opcase"))
 
     def test_entries_are_logged(self):
-        self.assertEqual(wrunlib.ENTRIES, (freeze_guard.W_ITEMS, freeze_guard.M7E_ITEMS))
-        heads = [ln for ln in (REPO / "hypotheses.md").read_text(encoding="utf-8").splitlines() if ln.startswith("### ")]
-        for title in wrunlib.ENTRIES:
+        self.assertEqual(wrunlib.ENTRIES, (freeze_guard.W_ITEMS, freeze_guard.M7E_ITEMS, freeze_guard.W_LAPTOP_ITEMS))
+        text = (REPO / "hypotheses.md").read_text(encoding="utf-8")
+        heads = [ln for ln in text.splitlines() if ln.startswith("### ")]
+        for title in wrunlib.ENTRIES[:2]:
             self.assertTrue(any(title in h for h in heads), title)
+        # The move's entry (2026-10-23) is logged only once the probe has run and Alex has its
+        # computed time; until then every frozen W run refuses, naming it.
+        if not any(freeze_guard.W_LAPTOP_ITEMS in h for h in heads):
+            with self.assertRaises(freeze_guard.FreezeRefused) as e:
+                freeze_guard.check_entries(freeze_guard.revision_log(text), wrunlib.ENTRIES)
+            self.assertIn(freeze_guard.W_LAPTOP_ITEMS, str(e.exception))
 
     def test_frozen_w_cost_run_needs_the_job(self):
         called = []

@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
 """W's power plan for measurement sessions (design/w-procedure.md, section 2; Alex's decision 1 of
-2026-10-03), with no administrator rights.
+2026-10-03), with no administrator rights. W is the laptop's Windows since 2026-10-23 (hypotheses.md,
+revision log, the entry of that date): its lab plan and Alex's plan are the laptop's.
 
-- `create`, once: duplicates High performance (8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c) into a plan
-  named "oneport W windows" with exactly section 2's commands: performance boost mode 0
-  (Disabled), minimum and maximum processor state 100%, core parking minimum cores 100%, each on
-  AC. Refused if a plan of that name exists.
-- A session (`LabPlan`, or `run -- COMMAND`): makes the lab plan active and reads it back (the
-  active scheme and the four AC values, which must be as set), runs, and at its end makes Alex's
-  plan "ChrisTitus - Ultimate Power Plan" (00acab9f-6807-4927-af55-c72a4c589dad) active again and
-  reads that back; also on an error, on Ctrl+C or Ctrl+Break, and on the console's close. A guard
-  process started at the switch restores Alex's plan if the session's process ends without having
-  restored it (killed). A session refuses to start if the active plan is neither Alex's nor the lab
-  plan (a plan Alex chose is never overwritten), and records which it found.
-- `create-cap`, once: the frequency test's control plan "oneport W cap50" (w-procedure section 4,
-  the revision of 2026-10-03), a duplicate of the lab plan with the minimum and maximum processor
-  state at 50%. wfreq.py switches to it inside a lab-plan session, so the session's end and its
-  guard set Alex's plan back as for the lab plan. Refused if a plan of that name exists.
+- The lab plan is the laptop's "lab laptop" (b1bcd431-7706-4898-b26a-caeee179f68e), a duplicate of
+  High performance that the lab's setup made on 2026-10-22 (Papers lab/laptop/README.md) with
+  section 2's values on AC: minimum and maximum processor state 100%, core parking minimum cores
+  100%, and the performance boost mode that each lab job sets (0, Disabled, by default). It is
+  hidden from `powercfg /L` on this Modern Standby laptop, so it is found by its GUID (`powercfg
+  /QH`), never by a name. Alex's plan on the laptop is Balanced
+  (381b4222-f694-41f0-9685-ff5bb260df2e). This module creates and changes no plan on the laptop.
+- A session (`LabPlan`, or `run -- COMMAND`), outside a job of the lab's runner: makes the lab
+  plan active and reads it back (the active scheme and the four AC values, which must be as
+  section 2 sets them), runs, and at its end makes Alex's plan active again and reads that back;
+  also on an error, on Ctrl+C or Ctrl+Break, and on the console's close. A guard process started
+  at the switch restores Alex's plan if the session's process ends without having restored it
+  (killed). A session refuses to start if the active plan is neither Alex's nor the lab plan (a
+  plan Alex chose is never overwritten), and records which it found.
+- A session inside a job of the lab's runner (Papers lab/bin/labrun.py; it sets LAB_JOB_ID): that
+  job's run phase owns the plan. It makes the lab plan active with the job's boost mode before
+  the command starts and sets the plan it found back when the command ends. So the session only
+  verifies: the lab plan active and its four AC values as section 2 sets them (boost mode 0), or
+  it refuses; it switches nothing, restores nothing and starts no guard.
+- `create` and `create-cap` (the desktop's lab plan "oneport W windows" and the frequency test's
+  control plan "oneport W cap50", w-procedure sections 2 and 4) refuse on the laptop: no plan is
+  created there, so wfreq.py's test does not run there either.
 - Every powercfg command's exit status and output are checked: an answer of "access denied" (or
   any failure) stops the session with AdminNeeded or PowerError and nothing is elevated.
 
@@ -36,9 +44,13 @@ import time
 from pathlib import Path
 
 HIGH_PERFORMANCE = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
-ALEX_PLAN = "00acab9f-6807-4927-af55-c72a4c589dad"
-ALEX_PLAN_NAME = "ChrisTitus - Ultimate Power Plan"
-LAB_PLAN_NAME = "oneport W windows"
+# The laptop's plans (see the docstring).
+ALEX_PLAN = "381b4222-f694-41f0-9685-ff5bb260df2e"
+ALEX_PLAN_NAME = "Balanced"
+LAB_PLAN = "b1bcd431-7706-4898-b26a-caeee179f68e"
+LAB_PLAN_NAME = "lab laptop"
+# The lab's runner sets this in every job's environment (Papers lab/laptop/labjob_inner.py, job_env).
+LAB_RUNNER_ENV = "LAB_JOB_ID"
 SUB_PROCESSOR = "54533251-82be-4824-96c1-47b60b740d00"
 # Section 2's settings, by GUID (boost mode and core parking are hidden settings; powercfg /QH shows
 # them): name, alias, the AC value the lab plan sets.
@@ -182,8 +194,19 @@ def plan_guid(name: str) -> str | None:
 
 
 def lab_plan_guid() -> str | None:
-    """The lab plan's GUID, found by its name; refuses two plans of that name."""
-    return plan_guid(LAB_PLAN_NAME)
+    """The lab plan's GUID if the plan exists (its processor settings read by GUID), else None."""
+    try:
+        qh = processor_settings(LAB_PLAN)
+    except AdminNeeded:
+        raise
+    except PowerError:
+        return None
+    return LAB_PLAN if qh else None
+
+
+def under_lab_runner(env=None) -> bool:
+    """Inside a job of the lab's runner, whose run phase owns the power plan (see the docstring)."""
+    return bool((os.environ if env is None else env).get(LAB_RUNNER_ENV))
 
 
 def cap_plan_guid() -> str | None:
@@ -192,64 +215,15 @@ def cap_plan_guid() -> str | None:
 
 
 def create(record: Path | None = None) -> dict:
-    """Section 2's commands, once. Returns what was run and read back."""
-    if lab_plan_guid():
-        raise PowerError(f"a plan named {LAB_PLAN_NAME!r} exists already: {lab_plan_guid()}")
-    log = {"created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "commands": []}
-
-    def run(*a: str) -> str:
-        out = powercfg(*a)
-        log["commands"].append({"args": list(a), "output": out.strip()})
-        return out
-
-    g = parse_duplicate(run("/duplicatescheme", HIGH_PERFORMANCE))
-    log["guid"] = g
-    run("/changename", g, LAB_PLAN_NAME)
-    for sub, setting, value in SET_COMMANDS:
-        run("/setacvalueindex", g, sub, setting, str(value))
-    qh = processor_settings(g)
-    log["readback"] = {k: qh.get(k) for k in SETTING_NAMES}
-    log["problems"] = check_values(qh)
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    PLAN_FILE.write_text(json.dumps({"guid": g, "name": LAB_PLAN_NAME, "created": log}, indent=1))
-    if record:
-        record.write_text(json.dumps(log, indent=1))
-    if log["problems"]:
-        raise PowerError(f"the new plan does not read back as set: {log['problems']}")
-    return log
+    """The desktop's section 2 commands (the plan "oneport W windows"), refused on the laptop, whose
+    lab plan is the lab's own: P3 creates no plan."""
+    raise PowerError("the laptop's lab plan is the lab's own (Papers lab/laptop/README.md); P3 creates no plan")
 
 
 def create_cap(record: Path | None = None) -> dict:
-    """Once: the frequency test's control plan, a duplicate of the lab plan with CAP_SET_COMMANDS.
-    Refused if a plan of that name exists or the lab plan does not. Returns what was run and read
-    back."""
-    lab = lab_plan_guid()
-    if lab is None:
-        raise PowerError(f"no plan named {LAB_PLAN_NAME!r}: run `wpower.py create` once")
-    if cap_plan_guid():
-        raise PowerError(f"a plan named {CAP_PLAN_NAME!r} exists already: {cap_plan_guid()}")
-    log = {"created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "from": lab, "commands": []}
-
-    def run(*a: str) -> str:
-        out = powercfg(*a)
-        log["commands"].append({"args": list(a), "output": out.strip()})
-        return out
-
-    g = parse_duplicate(run("/duplicatescheme", lab))
-    log["guid"] = g
-    run("/changename", g, CAP_PLAN_NAME)
-    for sub, setting, value in CAP_SET_COMMANDS:
-        run("/setacvalueindex", g, sub, setting, str(value))
-    qh = processor_settings(g)
-    log["readback"] = {k: qh.get(k) for k in SETTING_NAMES}
-    log["problems"] = check_values(qh, CAP_VALUES)
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    CAP_PLAN_FILE.write_text(json.dumps({"guid": g, "name": CAP_PLAN_NAME, "created": log}, indent=1))
-    if record:
-        record.write_text(json.dumps(log, indent=1))
-    if log["problems"]:
-        raise PowerError(f"the cap plan does not read back as set: {log['problems']}")
-    return log
+    """The desktop's frequency test's control plan (w-procedure section 4), refused on the laptop:
+    no plan is created there."""
+    raise PowerError("no plan is created on the laptop, so the frequency test's control plan is not made there")
 
 
 def readback(plan: str) -> dict:
@@ -275,11 +249,14 @@ def switch_within_session(plan: str, wanted: dict) -> dict:
 
 class LabPlan:
     """The lab plan for the length of a `with` block: set and read back at its start, Alex's plan
-    set and read back at its end, however it ends."""
+    set and read back at its end, however it ends. Inside a job of the lab's runner (`verify_only`,
+    by default when LAB_JOB_ID is set) the job owns the plan: the block only checks, at its start,
+    that the lab plan is active with section 2's values, and records the active plan at its end."""
 
-    def __init__(self, record: Path, guard: bool = True):
+    def __init__(self, record: Path, guard: bool = True, verify_only: bool | None = None):
         self.record = record
         self.guard = guard
+        self.verify_only = under_lab_runner() if verify_only is None else verify_only
         self.rec: dict = {}
         self.guard_proc = None
         self._restored = False
@@ -293,7 +270,9 @@ class LabPlan:
     def __enter__(self) -> "LabPlan":
         g = lab_plan_guid()
         if g is None:
-            raise PowerError(f"no plan named {LAB_PLAN_NAME!r}: run `wpower.py create` once")
+            raise PowerError(f"no lab plan {LAB_PLAN_NAME!r} ({LAB_PLAN}) on this host")
+        if self.verify_only:
+            return self._verify(g)
         before = active()
         self.rec = {"lab_plan": g, "alex_plan": ALEX_PLAN, "before": before, "pid": os.getpid()}
         if before["guid"] not in (ALEX_PLAN, g):
@@ -323,10 +302,37 @@ class LabPlan:
             raise
         return self
 
+    def _verify(self, g: str) -> "LabPlan":
+        """The lab's runner's job made the plan active (see the class): check it, change nothing."""
+        rb = readback(g)
+        self.rec = {"lab_plan": g, "alex_plan": ALEX_PLAN, "mode": "verify: the lab runner's job owns the plan",
+                    "lab_job": os.environ.get(LAB_RUNNER_ENV), "pid": os.getpid(), "lab_readback": rb,
+                    "checked_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+        problems = check_values(rb["settings"])
+        if rb["active"]["guid"] != g:
+            problems.append(f"the active plan reads {rb['active']}, not the lab plan (the lab runner's job sets it)")
+        self.rec["lab_problems"] = problems
+        if problems:
+            self.rec["refused"] = f"the lab plan is not active as section 2 sets it; nothing changed: {problems}"
+            self._write()
+            raise PowerError(self.rec["refused"])
+        self._write()
+        return self
+
     def restore(self) -> dict:
         if self._restored:
             return self.rec.get("after", {})
         self._restored = True
+        if self.verify_only:
+            # The lab runner's job sets its saved plan back after the command; this records only.
+            try:
+                self.rec["after"] = {"active": active()}
+            except Exception as e:  # noqa: BLE001 - recorded
+                self.rec["after_error"] = repr(e)
+            self.rec["restored"] = None
+            self.rec["restore_left_to"] = "the lab runner's job"
+            self._write()
+            return self.rec.get("after", {})
         try:
             powercfg("/setactive", ALEX_PLAN)
             self.rec["restored_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")

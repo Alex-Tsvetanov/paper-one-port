@@ -20,8 +20,10 @@ check, the lab plan set and read back, Alex's plan set back at the end, the pid 
 
 A frozen W run (no --development) also needs: the job context (ONEPORT_W_JOB set by wjob.py, and
 not a functional check: ONEPORT_W_FUNCTIONAL unset); the revision log's entries "W before the code
-freeze" and "The job's warm-up and W's runners (M7e), before the code freeze"; and the ports it
-binds outside W's excluded port ranges (read with netsh, read only).
+freeze", "The job's warm-up and W's runners (M7e), before the code freeze" and, since W is the
+laptop's Windows (2026-10-23), "W's runs on the laptop's Windows (a later change under section 8)";
+gates made on the laptop (laptop_gate_problems: from a records folder of the laptop's alone, with
+its compiler); and the ports it binds outside W's excluded port ranges (read with netsh, read only).
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -47,8 +49,15 @@ import wwindow  # noqa: E402
 
 HOST = "W"
 BLOCKS = wwindow.STATE_DIR / "src-blocks-w.json"
-ENTRIES = (freeze_guard.W_ITEMS, freeze_guard.M7E_ITEMS)
+ENTRIES = (freeze_guard.W_ITEMS, freeze_guard.M7E_ITEMS, freeze_guard.W_LAPTOP_ITEMS)
 InputRefused = runlib.InputRefused
+# W's records on the laptop (2026-10-23): the laptop's records job writes them into a folder of this
+# name, which holds no desktop record, and its gate reads that folder alone (bench/gate_lib.py,
+# host_records, reads one folder and not its subfolders). A record of the desktop and one of the
+# laptop at the same commit would have the same file name, so they never share a folder. The
+# laptop's compiler, as its CMake configure reads it (Papers lab/laptop/versions.md).
+LAPTOP_RECORDS_DIR = "laptop-w"
+LAPTOP_COMPILER = "MSVC 19.51.36248.0"
 
 
 # ---------------------------------------------------------------- the command line and the job
@@ -188,10 +197,48 @@ def w_session(session: dict) -> dict:
     return dict(session, lab_plan=fp.get("lab_plan"), frequency=fp.get("frequency"), cycle_rate=fp.get("cycle_rate"))
 
 
+def laptop_gate_problems(gate: dict) -> list[str]:
+    """Why a W gate was not made on the laptop (see LAPTOP_RECORDS_DIR); empty when it was: a gate
+    of host W, read from a folder named LAPTOP_RECORDS_DIR, whose oneport build and records name the
+    laptop's compiler."""
+    problems = []
+    if gate.get("host") != HOST:
+        problems.append(f"the gate's host is {gate.get('host')!r}, not {HOST}")
+    folder = PureWindowsPath(str(gate.get("records_dir") or "")).name
+    if folder != LAPTOP_RECORDS_DIR:
+        problems.append(f"the gate read the records folder {gate.get('records_dir')!r}, not a folder named {LAPTOP_RECORDS_DIR!r}")
+    one = gate.get("oneport") or {}
+    if one.get("compiler") != LAPTOP_COMPILER:
+        problems.append(f"the gate's build names the compiler {one.get('compiler')!r}, not the laptop's {LAPTOP_COMPILER!r}")
+    if not one.get("records"):
+        problems.append("the gate names no record")
+    for r in one.get("records") or []:
+        if PureWindowsPath(str(r)).parent.name not in ("", LAPTOP_RECORDS_DIR):
+            problems.append(f"the record {r!r} is not in the laptop's records folder")
+    return problems
+
+
+def check_laptop_gates(gates: list[Path]) -> list[dict]:
+    """Refuses a frozen W run unless each gate it is given was made on the laptop."""
+    out = []
+    for g in gates:
+        try:
+            gate = json.loads(Path(g).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise InputRefused(f"the gate {g} cannot be read: {e}") from e
+        problems = laptop_gate_problems(gate)
+        if problems:
+            raise InputRefused(f"the gate {g} was not made on the laptop: {'; '.join(problems)}")
+        out.append({"gate": str(g), "records_dir": gate.get("records_dir"), "compiler": gate["oneport"]["compiler"]})
+    return out
+
+
 def freeze_check(a: argparse.Namespace, prov: dict, names: tuple[str, ...], *, need_pilot: bool = True, rule_e: Path | None = None,
                  extra_entries: tuple[str, ...] = ()) -> freeze_guard.Clearance:
-    """freeze_guard.check for a frozen W run: W's gate (gate-W.json of W's record at CODE_FREEZE),
-    the binaries this run starts, and the entries W's runners apply."""
+    """freeze_guard.check for a frozen W run: W's gate (gate-W.json of the laptop's records job, from
+    the laptop's records folder alone: check_laptop_gates), the binaries this run starts, and the
+    entries W's runners apply."""
+    check_laptop_gates(a.gate)
     return freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, need_pilot=need_pilot,
                               pilot=getattr(a, "pilot", None) if need_pilot else None, rule_e=rule_e,
                               binaries=binaries_of(prov, names), entries=ENTRIES + tuple(extra_entries))

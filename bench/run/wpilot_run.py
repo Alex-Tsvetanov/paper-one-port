@@ -18,8 +18,8 @@ Run it inside a W lab job (bench/run/wjob.py run ... -- python wpilot_run.py ...
   CPU shares, the evidence that they are generator-bound (the M7e entry). The job's warm-up phase
   (bench/run/sessions.py) runs before the first session;
 - timer: on IOCP, 128 runs, one connection at a time, of HC12's script against the dedicated
-  HTTP/1.1 port with PROXY on, T_hdr = 3 s, one server with --record on CPU 10, opcase on CPUs 2 to
-  9; lateness = wait_return - deadline of the run's T_hdr event (the M7c entry, item 3);
+  HTTP/1.1 port with PROXY on, T_hdr = 3 s, one server with --record on the server's CPU, opcase on the
+  generator's CPUs (wsys.py: on the laptop CPU 14 and CPUs 2 to 13; on the desktop CPU 10 and 2 to 9); lateness = wait_return - deadline of the run's T_hdr event (the M7c entry, item 3);
 - split: on IOCP, HC2's HTTP/1.1 script split after its first byte, 16 replicates at each gap of 5,
   10, 20, 50 and 100 ms, one fresh server per replicate; recv_data = recv_calls - recv_eof -
   recv_again (the M7c entry, item 4).

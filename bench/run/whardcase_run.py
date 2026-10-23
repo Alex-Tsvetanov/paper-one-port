@@ -12,7 +12,8 @@ it applies, 16 replicates" (Appendix A): on W, IOCP in replay and in peek, in-pr
 Linux only, section 2.1; the M6a entry, item 1), so 2 entries. The timers are section 1's 3 s; G is
 G_W and GAP_SPLIT the pilot entry's; HC7 is not run where the pilot entry says G_W is not below T_fb
 or W had no valid timer run (9.2). Each one-port server is the measured binary with --record, on
-CPU 10, opcase on CPUs 2 to 9 (section 4.1's W placement), one server per listener setup per entry
+the server's CPU, opcase on the generator's CPUs (section 4.1's W placement, wsys.py: on the laptop CPU 14 and
+CPUs 2 to 13; on the desktop CPU 10 and CPUs 2 to 9), one server per listener setup per entry
 (the M7d entry, item 4 (c)); every run is `opcase case --id ID --replicates 1`; the run's record
 lines are matched by the client's local port once the server has recorded its close; the
 expectations come from `opcase case --list`; the judge is hardcase_run.py's, ported line for line

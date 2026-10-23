@@ -15,9 +15,11 @@ and the validity rules W can compute.
 M3's rule holds on W too: no window times one-port mode against dedicated mode before the pilot
 entry (section 8, step 2); this runner starts the server only in dedicated mode (window.guard_mode).
 
-Placement on W (section 4.1; w-procedure section 6): the server on logical CPU 10 (core 5), its
-sibling 11 idle; opgen on CPUs 2 to 9 (cores 1 to 4); CPUs 0 and 1 for the system, this runner and
-its samplers. Each process is started suspended and given its CPUs before it runs.
+Placement on W (section 4.1's rule; wsys.py): on the laptop's eight cores, W since 2026-10-23, the
+server on logical CPU 14 (core 7), its sibling 15 idle; opgen on CPUs 2 to 13 (cores 1 to 6); CPUs 0
+and 1 for the system, this runner and its samplers (on the desktop's six cores it was CPU 10, CPUs
+2 to 9 and CPUs 0 and 1, w-procedure section 6). Each process is started suspended and given its
+CPUs before it runs.
 """
 from __future__ import annotations
 
@@ -49,8 +51,9 @@ GEN_CPUS = list(wsys.GEN_CPUS)
 HOUSEKEEPING = list(wsys.HOUSEKEEPING)
 # Design choices of M6b, as M3's on L (window.OPEN_GEN_THREADS): in an open-loop window one opgen
 # worker per physical core of the generator's CPUs, on the first sibling of each; closed-loop
-# windows a worker on each of the eight.
-OPEN_GEN_THREADS = [2, 4, 6, 8]
+# windows a worker on each of the generator's CPUs (on the laptop 2, 4, ..., 12 and twelve workers;
+# on the desktop 2, 4, 6, 8 and eight).
+OPEN_GEN_THREADS = GEN_CPUS[::2]
 # Design choice of M6b: an open-loop worker polls the last 1.5 ms before each due time. On W a
 # high-resolution waitable timer woke 0.3 to 0.5 ms late at the median, at most about 1.3 ms
 # (design/status-m6b.md), against Linux's timer slack of 1 ns behind M3's 200 us.

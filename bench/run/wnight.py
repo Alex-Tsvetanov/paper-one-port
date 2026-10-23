@@ -49,7 +49,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-ALEX_PLAN = "00acab9f-6807-4927-af55-c72a4c589dad"
+ALEX_PLAN = "381b4222-f694-41f0-9685-ff5bb260df2e"  # Alex's plan on the laptop (Balanced; wpower.ALEX_PLAN)
 CELLS = ("churn:http1,churn:h2c,churn:tls,churn:mqtt,keepalive:http1,keepalive:h2c,keepalive:tls,keepalive:mqtt,"
          "open:http1,open:h2c,open:tls,open:mqtt")
 SESSIONS = 6

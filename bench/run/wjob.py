@@ -17,6 +17,11 @@
 4. under the lab plan (wpower.LabPlan: set and read back; Alex's plan set and read back at the end,
    also on failure, on Ctrl+C or Ctrl+Break, on the console's close, and by a guard process if this
    process is killed), runs COMMAND with its output in DIR/NAME.log;
+   inside a job of the lab's runner (LAB_JOB_ID set; the laptop, W since 2026-10-23), that job owns
+   the power plan and the job-start quiet check (Papers lab/laptop/README.md, "The procedure per
+   job"): wpower.LabPlan only verifies the lab plan, and step 3's quiet check is the lab's, which the
+   job's run phase passed before the command started; the job says so by LAB_QUIET=passed (a Lab
+   request of 2026-10-23), and without it this job runs as a functional check, as --allow-noisy;
 5. writes DIR/NAME.done with the exit status, the end time, whether it was stopped and whether
    Alex's plan was restored.
 `stop` asks a running job to stop: it sets the job's stop event; the job asks its command to stop
@@ -47,6 +52,8 @@ EXIT_UPDATING = 92
 EXIT_POWER = 95
 EXIT_ADMIN = 96
 STOP_GRACE_S = 120.0
+# Set by the lab runner's run phase once its job-start quiet check passed (see step 4 above).
+LAB_QUIET_ENV = "LAB_QUIET"
 
 
 def now() -> str:
@@ -70,7 +77,12 @@ def preflight(allow_noisy: bool) -> tuple[dict, int]:
     rec["active_plan"] = wpower.active()
     if rec["lab_plan"] is None:
         return rec, EXIT_POWER
-    rec["quiet"] = wsys.quiet_check()
+    if wpower.under_lab_runner():
+        lab_quiet = os.environ.get(LAB_QUIET_ENV)
+        rec["quiet"] = {"quiet": lab_quiet == "passed", "by": "the lab runner's job-start check (labrec.quiet_check)",
+                        LAB_QUIET_ENV: lab_quiet, "lab_job": os.environ.get(wpower.LAB_RUNNER_ENV)}
+    else:
+        rec["quiet"] = wsys.quiet_check()
     rec["functional_check"] = not rec["quiet"]["quiet"]
     if not rec["quiet"]["quiet"] and not allow_noisy:
         return rec, EXIT_NOT_QUIET
