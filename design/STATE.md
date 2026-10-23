@@ -18,7 +18,8 @@ analysis. Work on the local branch `laptop-w-bringup` (worktree `D:\Dev\worktree
 cut from main 1f27ea8: main holds the whole revision log (so an entry appends at its true end; a
 branch from 29ae2b6 would fork it), its `bench`, `tests` and `CMakeLists.txt` equal CHANGE_COMMIT
 9cae2de's, and it descends from 9830457, so its guard is the fixed one. Pushed with Alex's yes
-(2026-10-23) to the public branch `laptop-w-bringup` up to 6c7be67; later commits are local.
+(2026-10-23) to the public branch `laptop-w-bringup`: up to 6c7be67, then up to 632b242 (item 10
+and the R per host now have their public timestamp before any probe data).
 
 Alex's answers of 2026-10-23: push the branch (done to 6c7be67); R per host in `analysis/`
 (8815d89, below); the frequency counter is not tested on the laptop; the TCP settings are set on
@@ -123,9 +124,7 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
 
 ### Alex decides
 
-1. A push of the commits after 6c7be67 (a4d8e89, 54f42aa, 8815d89, 63f5c74, e61e78f and the docs
-   commit after it) to the same public branch, before the probe: item 10 needs its public
-   timestamp before the probe's data.
+1. (Answered: pushed to 632b242, 2026-10-23.)
 2. If job a0 shows TCP values other than 30 s and 1025 to 65535: the administrator step that sets
    them (his own run, like `alex-admin.ps1`, then a restart and a read-back), before the probe.
 3. After the probe: its computed hours (the move's entry, draft item 12).
