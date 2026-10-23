@@ -176,6 +176,44 @@ campaign itself waits for the move's entry; its hours come from the probe (draft
   `oneport-632b24214-W-asan`) and their logs stay untouched. a3 stays at exactly 63f5c74 (its
   probe code is unchanged; it runs under the base Python), on that attempt's build.
 
+### Campaign jobs: a4 and block 1 (Alex approved the campaign 2026-10-24; entry pushed at 165c2dd)
+
+Common to both: a one-port clone at 165c2dd with `core.autocrlf=false` (LF); spec `quiet` true,
+`boost` false; `wjob.py` and every runner under `%LAB_PYTHON%` (the base 3.14.5, never the venv's
+launcher); the folder of Visual Studio Community's ninja (`...\Common7\IDE\CommonExtensions\
+Microsoft\CMake\Ninja`) first on PATH, since `wrunlib.job_provenance` runs `bench\build_inputs.py`;
+the build and gate of `p3-gate-w-5` (`C:\lab\jobs\p3-gate-w-5\out\rec\build-release`,
+`...\out\rec\gate-W.json`), which the frozen guard binds by each binary's sha256; `--tools` the
+deployed Papers `lab\bin` (`C:\lab\src\Papers\lab\bin`). Each job's whole `out` folder is archived.
+
+- a4 `p3-func-w`. Plain: the runners' tests on the laptop, then one short development session of
+  the pilot runner, so block 1 starts on code proven on this host. Run, in `%LAB_SRC%`:
+  `C:\Users\alext\lab\p3\venv-numpy\Scripts\python.exe` on `bench\run\test_wlaptop.py`,
+  `test_wrunner.py` (its cycle-rate check runs on CPU 14 here), `test_wfrozen.py`,
+  `test_frozen.py`, `test_runner.py`, then `-m pytest -q analysis`, each into its own log under
+  `%LAB_OUT%`, stopping at the first failure; then `%LAB_PYTHON% bench\run\wjob.py run --dir
+  %LAB_OUT%\smoke --name p3smoke -- %LAB_PYTHON% bench\run\wpilot_run.py --development
+  --dev-seed 52317 --build <p3-gate-w-5 build-release> --out %LAB_OUT%\smoke\out --job p3smoke
+  --tools C:\lab\src\Papers\lab\bin --only C1.W.IOCP.http1 --max-sessions 1 --timer-runs 4
+  --split-replicates 1 --split-gaps 5`. Seed 52317 is in no journal line and no design file.
+  Writes: the six suites' logs; `smoke\out` with development rows (never read for a value; their
+  validity counts only). `expected_s` 900 (desktop: the suites about 3 min; one session about
+  2.3 min, a warm-up 115 s and the short parts, from the probe's means), `timeout_s` 3,600.
+- Block 1 `p3-pilot-w`. Plain: the A/A pilot of W's 12 cost cells on the laptop, 16 sessions each
+  in dedicated mode, then its timer and split parts; the frozen run that sizes W's R. Run, in
+  `%LAB_SRC%`: `%LAB_PYTHON% bench\run\wjob.py run --dir %LAB_OUT%\pilot --name p3pilotw --
+  %LAB_PYTHON% bench\run\wpilot_run.py --build C:\lab\jobs\p3-gate-w-5\out\rec\build-release
+  --out %LAB_OUT%\pilot\out --job p3pilotw --seeds design\seeds.json --code-freeze
+  ff2679cc89d23e08a817308c9aeba7901e056fef --gate C:\lab\jobs\p3-gate-w-5\out\rec\gate-W.json
+  --tools C:\lab\src\Papers\lab\bin`. The guard clears it only from this clone (last change
+  6abd28e, the move's entry logged, the laptop's gate). Writes `pilot\out\windows.jsonl` (the
+  sessions' rows) and `pilot\out\parts.jsonl` (the timer and split parts), which
+  `analysis/pilot.py` reads with L's October pilot rows; also the provenance, the warm-up record
+  and the raw folders. During the run only validity counts are read. `expected_s` 22,000 (the
+  probe: 5.91 h of sessions plus at least 384 s of timer runs; the split part has no basis),
+  `timeout_s` 66,000. Afterwards, on the desktop: `analysis/pilot.py --fixed-r L=28` at
+  e61e78f's analysis code (no `analysis/` change since), then the new pilot entry, then block 2.
+
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
 1. Done (Papers d50a7ab, 2026-10-23). `lab/laptop/win/labjob.py` and `labjob_inner.py` (run phase): drop any `LAB_QUIET` the job's
