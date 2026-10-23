@@ -129,6 +129,11 @@ Pending, asked in his format only when it arises:
    administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
    before the probe.
 
+Alex's laptop-plan decisions of 2026-10-23 (relayed by the coordinator): D1, no Arch package
+upgrades until P4's Arch blocks end, extra versions side by side under `~/opt`. It touches P3 only
+if the kernel census runs on L before then, on the present packages. D4 (P4's idle day) does not
+touch P3.
+
 Answered (Alex, 2026-10-23):
 - Push `laptop-w-bringup` to the public repository: yes; pushed to 6c7be67, then to 632b242.
 - The R_C conflict: option (i), R per host in `analysis/` (8815d89, e61e78f).
