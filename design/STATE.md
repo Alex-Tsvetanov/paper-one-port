@@ -214,6 +214,17 @@ deployed Papers `lab\bin` (`C:\lab\src\Papers\lab\bin`). Each job's whole `out` 
   `timeout_s` 66,000. Afterwards, on the desktop: `analysis/pilot.py --fixed-r L=28` at
   e61e78f's analysis code (no `analysis/` change since), then the new pilot entry, then block 2.
 
+- Correction after a4 (`p3-func-w`, 2026-10-24 02:33 to 02:48, exit 1: the six suites passed; the
+  smoke step stopped on `ModuleNotFoundError: No module named 'numpy'`, since `%LAB_PYTHON%` is the
+  per-user 3.14.6 without numpy). Every runner and `wjob.py` run under `C:\Python314\python.exe`
+  (3.14.5, a real interpreter, the venv's base), with `PYTHONPATH=C:\Users\alext\lab\p3\venv-numpy\
+  Lib\site-packages` (numpy 2.5.0, built for this same interpreter) and `PYTHONNOUSERSITE=1`, in
+  place of `%LAB_PYTHON%` in both commands above. The runners record only the Python version
+  (`waa.provenance`), never its path or prefix; they do not call `analysis/versions.require`
+  (only the analysis's command lines do, and it checks Python 3.14 and numpy 2.5.0, both met);
+  `wsys.base_python()` is then the interpreter itself. a4 runs again as its smoke step alone
+  (job `p3-func-w-smoke`, `expected_s` 600, `timeout_s` 2,400): the suites passed at 165c2dd.
+
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
 1. Done (Papers d50a7ab, 2026-10-23). `lab/laptop/win/labjob.py` and `labjob_inner.py` (run phase): drop any `LAB_QUIET` the job's
