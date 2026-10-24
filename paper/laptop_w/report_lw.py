@@ -83,7 +83,7 @@ ROLE = {"one-port": "one-port", "dedicated": "dedicated", "reuseport": "group", 
         "server": "server", "proxy": "proxy", "variant": "form", "default": "default", "other": "other",
         "inproc": "in-process", "relay": "relay"}
 METRIC = {"conn_per_s": "conn./s", "req_per_s": "req./s", "ttfb_median_us": "median TTFB", "W": "footprint",
-          "cpu": "CPU per conn.", None: "conn./s"}
+          "cpu": "server CPU per exchange", None: "conn./s"}
 
 
 # report_macros.py's reason labels that print the footprint's symbol W, which reads as a host label.
@@ -336,6 +336,22 @@ def by_job_table(summary: dict, names: set[str]) -> str:
     return TABLE_HEAD + "\n".join(rows) + ("\n" if rows else "")
 
 
+def b3_table(dec: list[dict], names: set[str], report_names: set[str]) -> str:
+    """report_macros.b3_table, with the upper end of a loss cell's interval at six decimals (this
+    file's ...HighFine macro): at four decimals it can print as the loss bound itself."""
+    text = RM.b3_table(dec, names).replace(RM.TABLE_HEAD, TABLE_HEAD, 1)
+    bs = "\\"
+    for r in dec:
+        if r["family"] == "B3" and "loss" in r["verdict"]:
+            w = AM.word(r["cell"])
+            fine = RM.require(w + "HighFine", report_names)
+            old = f"[{bs}{w}Low, {bs}{w}High]"
+            if text.count(old) != 1:
+                raise ValueError(f"{r['cell']}: its interval is not in the B3 table once")
+            text = text.replace(old, f"[{bs}{w}Low, {fine}]")
+    return text
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -358,7 +374,7 @@ def build() -> dict[Path, str]:
     out = {
         OUT: HEAD + mc.text(),
         C.TABLES / "cost.tex": cost_table(dec, names),
-        C.TABLES / "b3.tex": RM.b3_table(dec, names).replace(RM.TABLE_HEAD, TABLE_HEAD, 1),
+        C.TABLES / "b3.tex": b3_table(dec, names, set(mc.names)),
         C.TABLES / "b3-parts-competitor.tex": RM.b3_parts_table(dec, names, "Competitor").replace(RM.TABLE_HEAD, TABLE_HEAD, 1),
         C.TABLES / "b3-parts-server.tex": RM.b3_parts_table(dec, names, "Server").replace(RM.TABLE_HEAD, TABLE_HEAD, 1),
         C.TABLES / "mechanism.tex": mech_table(dec, names),

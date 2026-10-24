@@ -136,6 +136,7 @@ LAPTOP_SPECS: list[D.Spec] = [
       note="the percentile of the secondary time to first byte (section 10)"),
     S("BTwoTailPct", H, r"is given by its count, minimum, median, (\d+)th percentile \(the value at rank",
       note="the percentile of B2's distributions (the entry of 2026-10-08, item 3)"),
+    S("HcLongBytes", H, r"\| HC23 \| ([\d,]+) bytes starting `GETX`", note="the long inputs of hard case HC23 (Appendix A)"),
     # Where the laptop's analysis ran.
     S("AnalysisRunCommit", SUMMARY_LW, r"\"analysis_commit\": \"([0-9a-f]{40})\"", V, "the clone the laptop's analysis ran from"),
     S("AnalysisNumpy AnalysisPython", SUMMARY_LW, r"\"numpy\": \"([\d.]+)\", \"python\": \"([\d.]+)\"", V,
