@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,6 +72,17 @@ LOGGED: list[tuple[str, list[dict], list[tuple[str, str]]]] = [
                            "4.1's ceil(R/4) at R = 16), 15 valid, 5 invalid (each by the TIME-WAIT rule at both samples). "
                            "No treatment is proposed here.")]),
 ]
+
+
+def sources_read() -> dict:
+    """The git blobs of hypotheses.md and design/status.md that the references and quotes were read
+    from (not_run.py records the commit, which moves with every later commit and would make a check
+    fail although nothing it read changed), and whether the working tree differed from them."""
+    def git(*a: str) -> str:
+        return subprocess.run(["git", "-C", str(C.ROOT), *a], capture_output=True, text=True, check=True).stdout.strip()
+    rels = sorted(str(p.relative_to(C.ROOT).as_posix()) for p in NR.SOURCES.values())
+    return {"blobs": {r: git("rev-parse", f"HEAD:{r}") for r in rels},
+            "changed_in_working_tree": bool(git("status", "--porcelain", "--", *rels))}
 
 
 def logged_for(cell: str, texts: dict[str, str]) -> tuple[list[dict], list[dict]]:
@@ -167,7 +179,7 @@ def build(not_run_paths: list[Path], rows_paths: list[Path]) -> str:
            "made_by": "paper/laptop_w/not_run_lw.py",
            "inputs": [{"file": "results/laptop-w/summary.json", "role": "summary", "sha256": C.sha256_file(SUMMARY)}]
                      + nr_inputs + row_inputs,
-           "logged_entries_read_at": NR.sources_commit(),
+           "logged_entries_read_at": sources_read(),
            "cells": sorted(cells, key=lambda c: c["cell"]),
            "m_ttfb_cells_that_ran_without_a_rate": notes}
     return json.dumps(out, indent=1, ensure_ascii=True) + "\n"
