@@ -360,7 +360,16 @@ times that, rounded up to 100 s. Each job's whole `out` folder is archived.
   `test_frozen` 67 checks (2 skipped), `test_wlaptop` 43, `test_wfrozen` 26, `test_wrunner` 22 of 22
   with `cycle_rate_reading` run on CPU 14, `test_runner` 63 (13 skipped), the sha256 fb50302a....
   `expected_s` 180 (desktop, this session: the five suites 59 s; plus the cycle-rate reading and
-  the clone), `timeout_s` 900. Its result goes here before 2b.
+  the clone), `timeout_s` 900. Its result goes here before 2b. Dry run on the desktop (no timing):
+  this exact command through `cmd.exe /d /s /c`, with 2a's real prefix and the desktop venv's
+  site-packages, from the clone at 5091d9f: exit 0, the six logs written, every suite passed, the
+  sha256 step fb50302a....
+- Kept on the desktop: `C:\Users\alext\lab\p3\laptop-w-rule-e-guard\` holds the scratch scripts of
+  step D and the checks (`decide_lf.py`, the LF wrapper the rule E entry names, sha256 5f184d75...;
+  `guard_check.py`; `relog_throwaway.py`; `try_guard_job.py`), the decided file and its notes, the
+  guard's record at 5091d9f (`guard-5091d9f.json`), the suites' logs at 1afcf90 and 5091d9f and the
+  dry run's logs; manifest `SHA256SUMS` sha256
+  2701b1bd0adb49f4ba92c673bec1d778d261442a408040f00082916d24542261.
 - 2b, each at RE 5091d9f (or a later commit of this branch whose frozen paths equal d22ae16's), in
   this order (the move's entry, item 14), after push 2 and `p3-guard-w` exit 0:
   - `p3-cost-w`. Plain: the cost family on the laptop's Windows, W's 10 cost cells, one-port against
