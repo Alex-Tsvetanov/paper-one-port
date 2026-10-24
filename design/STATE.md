@@ -225,6 +225,128 @@ deployed Papers `lab\bin` (`C:\lab\src\Papers\lab\bin`). Each job's whole `out` 
   `wsys.base_python()` is then the interpreter itself. a4 runs again as its smoke step alone
   (job `p3-func-w-smoke`, `expected_s` 600, `timeout_s` 2,400): the suites passed at 165c2dd.
 
+### The new pilot entry (bcf74b4) and block 2 (2026-10-24)
+
+Block 1 ran (journal lines 474 and 475): `p3-func-w-smoke` 03:25:45 to 03:30:43, exit 0;
+`p3-pilot-w` 03:35:53 to 09:24:45, exit 0 (archive sha256 ba01c82f..., checked); 768 windows, 128
+timer runs, 80 split replicates, every one valid, no rerun; all 976 rows name change_commit
+6abd28e and head 165c2dd. Its 5.81 h against `expected_s` 22,000 (6.11 h): the probe's basis held.
+
+- The simulation (desktop, 09:51:18 to 09:54:34, no timing): `analysis/pilot.py --fixed-r L=28
+  --workers 11` from a fresh clone at e61e78f (`analysis_dirty` false), Python 3.14.5 and numpy
+  2.5.0 (`C:\Users\alext\lab\p3\confirm1\venv`), on L's pl1 rows (from the October pilot archive,
+  019c7986..., the rows' sha256 as entry 7455e28 names them) and the laptop's rows, with
+  `lab/gates/gate-L.json` and the laptop's `gate-W.json` (96248c8f..., from `p3-gate-w-5`'s archive
+  5a226ebc...). Output `lab/analysis-inputs/laptop-w/pilot.json`, sha256 d31d54cc...: R per host L 28,
+  W 18 (pooled `R_C` 18, reported); m_C 31 (24 L, 7 W); W resolved 9, 11, 21, 22, 23, 24, 33; not
+  resolved 34, 35 (C3.W.IOCP.tls, 0.582 at 31; resolved on the desktop), 36; cells 10 and 12 stay
+  outside (their Power_c is 1.000 at every candidate on the laptop, 0.000 on the desktop; the
+  move's entry, item 7, keeps them out); L's 24 cells' pass counts equal October's; joint power
+  http1 on IOCP 0.7840 at 18; `G_W` 16 ms; `G_L` 4 ms and `GAP_SPLIT` 5 ms as in October.
+- bcf74b4: the new pilot entry (revision log, "The new pilot entry, with W's pilot on the laptop's
+  Windows", 13 items) and its output. Checks at bcf74b4 in a fresh clone (desktop, no timing):
+  `freeze_guard.check` with the new pilot output and `wrunlib.ENTRIES` clears (pilot logged in
+  bcf74b4, change_commit 6abd28e); with October's `rule_e.json` it refuses (logged in 77cedae,
+  not after bcf74b4); `test_wlaptop` 41, `test_wfrozen` 26, `test_frozen` 61 (2 skipped) passed.
+  The guard reads the log only in UTF-8 mode (the cp1252 bug of section 2); the entry adds no byte
+  that cp1252 cannot decode.
+- Rule E comes first (the move's entry, item 14; section 8 rule E): every W runner of the cost,
+  M1, hard-case and section 10 jobs takes `--rule-e`, and the guard clears that file only if its
+  sha256 was first logged after the pilot entry's commit. So block 2 is 2a (rule E's sessions), a
+  desktop step D (the decision and its entry), then 2b.
+- Open, blocks 2b (for the coordinator and Alex): if the laptop's sessions keep replay on IOCP
+  (October: peek's operations per connection 6.08 against 4.47), `rule_e.py decide` writes October's
+  choices again. Written with LF (as on L) its sha256 is October's fb50302a..., first logged in
+  77cedae, so the guard refuses every 2b job. On Windows, `decide` writes CRLF (`Path.write_text`):
+  October's evidence decided on the desktop gives 42299c5d..., whose LF form is fb50302a. Options:
+  (b) decide on the desktop and commit that CRLF file (git keeps its bytes: `core.autocrlf` false,
+  no `text` attribute), the rule E entry saying that its bytes differ from October's file only by
+  line endings and that this is why the guard accepts it; no code change; (a) a later change of
+  `bench/run/freeze_guard.py` (accept a rule E line added after the pilot entry even when the
+  file's hash was logged before), with its entry, CHANGE_COMMIT, review and the laptop's runner
+  tests. Recommendation: (b), disclosed in the entry; it needs no code change and the order the
+  guard enforces holds (the choice is made from the laptop's evidence and logged after bcf74b4).
+
+Common to every block 2 job: a one-port clone with `core.autocrlf=false`; spec `quiet` true,
+`boost` false; the command prefix of block 1 (`cd /d "%LAB_SRC%" && set "PATH=C:\Program
+Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;
+%PATH%" && set "PYTHONPATH=C:\Users\alext\lab\p3\venv-numpy\Lib\site-packages" && set
+"PYTHONNOUSERSITE=1" && `), `wjob.py` and the runner on `C:\Python314\python.exe`; and the
+frozen arguments F = `--build C:\lab\jobs\p3-gate-w-5\out\rec\build-release --seeds
+design\seeds.json --code-freeze ff2679cc89d23e08a817308c9aeba7901e056fef --gate
+C:\lab\jobs\p3-gate-w-5\out\rec\gate-W.json --pilot lab\analysis-inputs\laptop-w\pilot.json --tools
+C:\lab\src\Papers\lab\bin` (`--blocks` at its default, as in block 1). `expected_s` from the
+probe's means (the move's entry, item 12: churn 34.01 s, open loop 34.06 s, keep-alive 9.09 s a
+window, 7.27 s a session's reading, 114.5 s a job's warm-up), reruns not counted; `timeout_s` three
+times that, rounded up to 100 s. Each job's whole `out` folder is archived.
+
+- 2a `p3-rule-e-w`, commit bcf74b4, after push 1. Plain: rule E's 6 development sessions of
+  HTTP/1.1 churn on the laptop's IOCP, replay against peek, which decide W's default detection
+  mode. Run: prefix, then `C:\Python314\python.exe bench\run\wjob.py run --dir "%LAB_OUT%\rule"
+  --name p3rulew -- C:\Python314\python.exe bench\run\wrule_e.py --out "%LAB_OUT%\rule\out" --job
+  p3rulew --dev-seed 73619` F. Development seed 73619: in no line of Papers `lab/journal.jsonl`,
+  no tracked Papers file, no `design/*.md` and not `hypotheses.md` before this line (checked
+  2026-10-24). Writes `rule\out\rule_e_evidence_W.json` (what `decide` reads), `windows.jsonl`
+  (development rows), provenance, plan, summary, warm-up and raw folders. Outputs `out/rule/out/
+  rule_e_evidence_W.json`, `out/rule/out/windows.jsonl`, `out/rule/out`, `record.json`.
+  `expected_s` 975 (6 sessions of 143.31 s plus the warm-up), `timeout_s` 3,000.
+- D, on the desktop (no timing): check 2a's archive; from a clone at bcf74b4, `rule_e.py decide
+  --evidence-l <rule-e-L/rule_e_evidence_L.json from p3-raw-2026-10-05-re1-wre1-ff2679cc8.tar.gz,
+  sha256 6787824f...> --evidence-w <2a's rule_e_evidence_W.json> --out
+  lab/analysis-inputs/laptop-w/rule_e.json`; the rule E entry (rule E's choice on the laptop's IOCP;
+  the file's sha256 on a line with "rule E"; the evidence's sha256) with the file, in one commit
+  RE; the guard check with `--rule-e` in a fresh clone at RE (must clear); push 2. Blocked on the
+  open point above.
+- 2b, each at commit RE, in this order (the move's entry, item 14), after push 2:
+  - `p3-cost-w`. Plain: the cost family on the laptop's Windows, W's 10 cost cells, one-port against
+    dedicated mode, 18 sessions each; the confirmatory runs of the 7 resolved cells. Run: prefix,
+    `C:\Python314\python.exe bench\run\wjob.py run --dir "%LAB_OUT%\cost" --name p3costw --
+    C:\Python314\python.exe bench\run\wcost_run.py --out "%LAB_OUT%\cost\out" --job p3costw` F
+    `--rule-e lab\analysis-inputs\laptop-w\rule_e.json`. Writes `cost\out\windows.jsonl`,
+    `not-run-p3costw.json` (cells 10 and 12), provenance (with R 18), plan, summary, warm-up, raw.
+    Outputs `out/cost/out/windows.jsonl`, `out/cost/out`, `record.json`. `expected_s` 18,750
+    (1,035.18 s per unit of R: 2 churn, 4 keep-alive and 4 open-loop cells; times 18, plus the
+    warm-up), `timeout_s` 56,300.
+  - `p3-m1-w`. Plain: M1 on the laptop's IOCP, replay against peek in one-port mode, HTTP/1.1 and
+    h2c churn, 16 sessions each. Run: prefix, `C:\Python314\python.exe bench\run\wjob.py run --dir
+    "%LAB_OUT%\m" --name p3m1w -- C:\Python314\python.exe bench\run\wm_run.py --out
+    "%LAB_OUT%\m\out" --job p3m1w` F `--rule-e lab\analysis-inputs\laptop-w\rule_e.json`. Writes
+    `m\out\windows.jsonl` (which `p3-s10-w` reads), provenance, plan, summary, warm-up, raw.
+    Outputs `out/m/out/windows.jsonl`, `out/m/out`, `record.json`. `expected_s` 4,700 (32 churn
+    sessions of 143.31 s plus the warm-up), `timeout_s` 14,100.
+  - `p3-hard-w`. Plain: the hard cases on the laptop's IOCP, B1's table and B2's checks in replay
+    and in peek, 16 replicates per case, with `G_W` 16 ms and `GAP_SPLIT` 5 ms. Run: prefix,
+    `C:\Python314\python.exe bench\run\wjob.py run --dir "%LAB_OUT%\hard" --name p3hardw --
+    C:\Python314\python.exe bench\run\whardcase_run.py --out "%LAB_OUT%\hard\out" --job p3hardw` F
+    `--rule-e lab\analysis-inputs\laptop-w\rule_e.json`. Writes `hard\out\hardcases.jsonl`,
+    `hardcases-table-p3hardw.json`, provenance, raw. Outputs `out/hard/out/hardcases.jsonl`,
+    `out/hard/out`, `record.json`. `expected_s` 1,500 (no probe basis: the desktop's wh1, 1,475 s,
+    the move's entry, item 12), `timeout_s` 4,500.
+  - `p3-s10-w`. Plain: section 10's 9 W cells on the laptop, SSH C1 to C3, the mixed cell, TLS with
+    ALPN h2, the two IOCP forms and M1's TTFB at a fixed load, 16 sessions each. Run: prefix,
+    `C:\Python314\python.exe bench\run\wjob.py run --dir "%LAB_OUT%\s10" --name p3s10w --
+    C:\Python314\python.exe bench\run\ws_run.py --out "%LAB_OUT%\s10\out" --job p3s10w --m-rows
+    C:\lab\jobs\p3-m1-w\out\m\out\windows.jsonl` F `--rule-e
+    lab\analysis-inputs\laptop-w\rule_e.json`. Only after `p3-m1-w` exit 0 (never the desktop's
+    `m-W`). Writes `s10\out\windows.jsonl`, `not-run-p3s10w.json` (the 2-core cell, TLS
+    resumption), `ssh-rates-p3s10w.json`, provenance, plan, summary, warm-up, raw. Outputs
+    `out/s10/out/windows.jsonl`, `out/s10/out`, `record.json`. `expected_s` 19,170 (5 churn, 3
+    open-loop and 1 keep-alive cell by 16 sessions, plus the warm-up), `timeout_s` 57,600. SSH C2
+    is expected to fail every window, as in October (the keep-alive SSH defect), and to spend its
+    rerun cap of 4.
+- Hours. 2a 0.27 h; 2b 12.25 h (cost 5.21, M1 1.31, hard cases 0.41, section 10 5.32); block 2
+  12.52 h, 0.64 calendar days at 19.68 h a day (2a 0.01, 2b 0.62). At most 13.25 h if every
+  keep-alive session waits the full 30 s (88 sessions). Campaign: block 1 5.98 h by the journal
+  (03:25:45 to 09:24:45; 6.1 h to the archive at 09:42) plus 12.52 h is 18.50 h (18.62 h with
+  6.1), at most 19.35 h; inside Alex's 16.5 to 22.3 h. The move's entry's 21.41 h was at R = 28;
+  at R = 18 its formula gives 18.54 h.
+- Pushes (Alex's yes, through the coordinator): push 1, `laptop-w-bringup` 165c2dd to this
+  commit (the new pilot entry needs its public timestamp before rule E's one-port windows and
+  any block 2 data); push 2, the rule E entry, before 2b.
+- Later, not now: `paper/design_macros.py`'s W patterns (λ, `G_W`) and `CHANGE_COMMIT` now match
+  more than once in the log; the writing pack takes W's values from this entry. `lab/README.md`
+  does not list `analysis-inputs/laptop-w/` yet.
+
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
 1. Done (Papers d50a7ab, 2026-10-23). `lab/laptop/win/labjob.py` and `labjob_inner.py` (run phase): drop any `LAB_QUIET` the job's
@@ -257,6 +379,9 @@ Pending, asked in his format only when it arises:
 1. After job a0, and only if it reads TCP values other than 30 s and start 1025 with 64,510 ports: the
    administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
    before the probe.
+2. Before block 2b: how rule E's file passes the guard when the laptop keeps October's choices
+   (option (b), the desktop's CRLF file disclosed in the rule E entry, or (a), a later change of
+   `freeze_guard.py`; "The new pilot entry (bcf74b4) and block 2" above). And the two pushes.
 
 Alex's laptop-plan decisions of 2026-10-23 (relayed by the coordinator): D1, no Arch package
 upgrades until P4's Arch blocks end, extra versions side by side under `~/opt`. It touches P3 only
