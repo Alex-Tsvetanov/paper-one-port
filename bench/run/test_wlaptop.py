@@ -14,6 +14,7 @@ changes a setting of the host, and no window runs.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -366,55 +367,77 @@ class RuleELoggedAgain(unittest.TestCase):
     under section 8)" (2026-10-24), on this repository's own history."""
     ENTRY = "Rule E's file logged again after the new pilot entry"
     CODE_FREEZE = "ff2679cc89d23e08a817308c9aeba7901e056fef"
+    PILOT_ENTRY = "bcf74b4"  # the new pilot entry's commit
+    OCTOBER = "77cedae"  # the commit that first logged October's rule E file ("Rule E's choices")
 
     def test_the_entry_names_no_whole_sha256_beside_rule_e(self):
-        # The changed guard clears rule E's file by any line with "rule E" and its whole sha256
-        # added after the pilot entry; this entry must not be such a line (its item 4).
+        # The changed guard clears rule E's file by a line with "rule E" and its whole sha256 added
+        # after the pilot entry inside the rule E entry; this entry must hold no such line either.
         log = freeze_guard.revision_log((REPO / "hypotheses.md").read_text(encoding="utf-8"))
-        entry = wprobe.entry_text(log, self.ENTRY)
+        entry = wprobe.entry_text(log, self.ENTRY)  # exactly one such entry, or it raises
+        self.assertIn("### 2026-10-24: " + self.ENTRY, entry)
+        self.assertNotIn(freeze_guard.RULE_E_LAPTOP_ITEMS, entry.splitlines()[0])
         self.assertEqual([ln for ln in entry.splitlines() if "rule e" in ln.lower() and re.search(r"[0-9a-f]{64}", ln)], [])
 
     @staticmethod
     def utf8_git(repo: Path, *args: str, check: bool = True) -> str:
         """freeze_guard.git as it runs in Python's UTF-8 mode, where W's frozen runs run the guard (the
         entry "W's frozen runs in Python's UTF-8 mode (a record), after the code freeze"); the log
-        holds bytes that the locale's cp1252 cannot decode."""
+        holds bytes that Windows' cp1252 cannot decode. Used only where the locale would be cp1252."""
         p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, encoding="utf-8")
         if check and p.returncode != 0:
             raise freeze_guard.FreezeRefused(f"git {' '.join(args)}: {p.stderr.strip()[-300:]}")
         return p.stdout
 
     def test_octobers_file_refused_until_logged_again(self):
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(freeze_guard, "git", self.utf8_git):
+        utf8 = os.name != "nt" or sys.flags.utf8_mode
+        with tempfile.TemporaryDirectory() as d, \
+                (contextlib.nullcontext() if utf8 else mock.patch.object(freeze_guard, "git", self.utf8_git)):
             repo = Path(d) / "c"
             subprocess.run(["git", "clone", "-q", "-c", "core.autocrlf=false", str(REPO), str(repo)], check=True)
             git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a],  # noqa: E731
                                             check=True, capture_output=True).stdout
+            pilot_at = git("rev-parse", self.PILOT_ENTRY).decode().strip()
             files = {}
             for name, path in (("pilot", "lab/analysis-inputs/laptop-w/pilot.json"), ("rule", "lab/analysis-inputs/rule_e.json")):
                 files[name] = Path(d) / f"{name}.json"
-                files[name].write_bytes(git("show", f"HEAD:{path}"))  # the committed bytes, whatever the checkout's line endings
+                files[name].write_bytes(git("show", f"{pilot_at}:{path}"))  # committed bytes, whatever the checkout's line endings
             rule_sha = freeze_guard.sha256_file(files["rule"])
+            self.assertTrue(rule_sha.startswith("fb50302a"))  # October's file, as committed with LF line endings
             log = lambda: freeze_guard.revision_log(freeze_guard.git(repo, "show", "HEAD:hypotheses.md"))  # noqa: E731
-            pilot = freeze_guard.check_file_entry(repo, log(), files["pilot"], "pilot", self.CODE_FREEZE, "the pilot entry")
-            self.assertTrue(pilot["logged_in"].startswith("bcf74b4"))  # the new pilot entry's commit
 
             def rule_e() -> dict:
-                return freeze_guard.check_file_entry(repo, log(), files["rule"], "rule E", pilot["logged_in"], "rule E's choices", again=True)
+                pilot = freeze_guard.check_file_entry(repo, log(), files["pilot"], "pilot", self.CODE_FREEZE, "the pilot entry")
+                self.assertEqual(pilot["logged_in"], pilot_at)
+                return freeze_guard.check_file_entry(repo, log(), files["rule"], "rule E", pilot_at, "rule E's choices",
+                                                     again=freeze_guard.RULE_E_LAPTOP_ITEMS)
 
+            # Whatever the repository holds: from the new pilot entry's commit, refused, then cleared
+            # once a commit after it logs the file again in the rule E entry.
             first = freeze_guard.adding_commit(repo, rule_sha)
-            self.assertTrue(first.startswith("77cedae"))  # October's file, "Rule E's choices"
-            if freeze_guard.logged_again_in(repo, log(), "rule E", rule_sha, pilot["logged_in"]) is None:
-                with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not come after"):
-                    rule_e()
-                hyp = repo / "hypotheses.md"
-                hyp.write_bytes(hyp.read_bytes() + f"- a test's line: rule E's file sha256 {rule_sha}\n".encode())
-                git("commit", "-qam", "rule E's file logged again")
-                self.assertEqual(rule_e()["logged_in"], git("rev-parse", "HEAD").decode().strip())
-            rec = rule_e()  # whichever commit logged it again: after the pilot entry's
-            self.assertEqual(rec["first_logged_in"], first)
-            self.assertTrue(freeze_guard.is_ancestor(repo, pilot["logged_in"], rec["logged_in"]))
-            self.assertNotEqual(rec["logged_in"], pilot["logged_in"])
+            self.assertTrue(first.startswith(self.OCTOBER))
+            home = git("rev-parse", "--abbrev-ref", "HEAD").decode().strip()
+            git("checkout", "-q", "-b", "from-the-pilot-entry", pilot_at)
+            with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not come after"):
+                rule_e()
+            hyp = repo / "hypotheses.md"
+            hyp.write_bytes(hyp.read_bytes() + (f"\n### 2026-10-24: {freeze_guard.RULE_E_LAPTOP_ITEMS} (a test's entry)\n\n"
+                                                f"- rule E's file sha256 {rule_sha}\n").encode())
+            git("commit", "-qam", "a test's rule E entry")
+            self.assertEqual(rule_e(), {"file": str(files["rule"]), "sha256": rule_sha, "first_logged_in": first,
+                                        "logged_in": git("rev-parse", "HEAD").decode().strip()})
+            # At this repository's HEAD: refused, or cleared by a commit after the last change's that
+            # holds the rule E entry.
+            git("checkout", "-q", home)
+            try:
+                rec = rule_e()
+            except freeze_guard.FreezeRefused as e:
+                self.assertIn("does not come after", str(e))
+            else:
+                self.assertEqual(rec["first_logged_in"], first)
+                change = freeze_guard.change_commit(repo, log(), self.CODE_FREEZE)
+                self.assertTrue(freeze_guard.is_ancestor(repo, change, rec["logged_in"]))
+                self.assertIn(freeze_guard.RULE_E_LAPTOP_ITEMS, freeze_guard.git(repo, "show", f"{rec['logged_in']}:hypotheses.md"))
 
 
 class Deps(unittest.TestCase):

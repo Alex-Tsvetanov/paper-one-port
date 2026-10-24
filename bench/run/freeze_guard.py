@@ -31,11 +31,13 @@ looks for in them is fixed here and stated in design/status.md:
   "M2_RATE", added by a commit that descends from the pilot entry's.
 - Rule E's file logged again (the revision log's entry "Rule E's file logged again after the new
   pilot entry (a later change under section 8)", 2026-10-24): rule E's file whose sha256 was first
-  logged before the pilot entry's commit, or in it, is cleared if a commit that descends from that
-  commit, and is not it, adds a revision-log line with "rule E" and the file's whole sha256, and
-  HEAD's log holds more such lines than the log at the pilot entry's commit. The clearance names
-  that commit as logged_in and the first logging as first_logged_in. The pilot entry's output and
-  M2's rates are checked as before.
+  logged by a commit that does not come after the pilot entry's commit is cleared if a commit that
+  does (it descends from that commit and is not it; never a merge commit) adds a line with "rule E"
+  and the file's whole sha256 inside a revision-log entry whose heading holds RULE_E_LAPTOP_ITEMS
+  (the entry that records rule E's choices on the laptop's Windows and their evidence), and HEAD's
+  log holds more such lines in such entries than the log at the pilot entry's commit. The clearance
+  names that commit as logged_in and the first logging as first_logged_in. The pilot entry's output
+  and M2's rates are checked as before.
 - hypotheses.md committed and unchanged in the working tree, so every line read is committed.
 - The binaries the runner will start: each one's sha256 in a gate of bench/check_records.py that
   passed, is not a dry run and is citable (bench/check_rows.py's rule, applied before the first
@@ -85,6 +87,9 @@ M7E_ITEMS = "The job's warm-up and W's runners (M7e), before the code freeze"
 # section 8), which every frozen W run applies from then on (bench/run/wrunlib.py): the host, the
 # compiler and the records on the laptop, the placement, the power plan and the quiet check there.
 W_LAPTOP_ITEMS = "W's runs on the laptop's Windows (a later change under section 8)"
+# The title of the entry that records rule E's choices on the laptop's Windows and their evidence,
+# after the new pilot entry: the only entry whose lines log rule E's file again (see the docstring).
+RULE_E_LAPTOP_ITEMS = "Rule E's choices on the laptop's Windows"
 FROZEN_PATHS = ("bench", "tests", "CMakeLists.txt")
 HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
 # The word of a revision-log line that names a later change's commit (section 8; see the docstring),
@@ -192,34 +197,49 @@ def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
     return rec
 
 
-def logged_again_in(repo: Path, log: str, word: str, digest: str, after: str) -> str | None:
-    """The commit that logged a file again after `after` (rule E's file; see the docstring): the
-    oldest commit that descends from `after`, is not it, and adds a revision-log line with `word`
-    and `digest` (its log holds more such lines than its parent's), provided HEAD's log (`log`)
-    holds more such lines than `after`'s. None if there is none."""
-    def at(commit: str) -> int:
-        return len(lines_with(revision_log(git(repo, "show", f"{commit}:hypotheses.md")), word, digest))
+def entry_lines(log: str, title: str) -> str:
+    """The lines of every revision-log entry whose heading holds `title`, each to the next heading."""
+    out, inside = [], False
+    for ln in log.splitlines():
+        if ln.startswith("### "):
+            inside = title in ln
+        elif inside:
+            out.append(ln)
+    return "\n".join(out)
 
-    if len(lines_with(log, word, digest)) <= at(after):
+
+def logged_again_in(repo: Path, log: str, word: str, digest: str, after: str, title: str) -> str | None:
+    """The commit that logged a file again after `after` (rule E's file; see the docstring): the
+    oldest commit, never a merge, that descends from `after`, is not it, and adds a line with `word`
+    and `digest` inside an entry headed `title` (its log holds more such lines than its parent's),
+    provided HEAD's log (`log`) holds more such lines than `after`'s. None if there is none."""
+    def count(text: str) -> int:
+        return len(lines_with(entry_lines(text, title), word, digest))
+
+    def at(commit: str) -> int:
+        return count(revision_log(git(repo, "show", f"{commit}:hypotheses.md")))
+
+    if count(log) <= at(after):
         return None
-    for c in reversed(git(repo, "log", "--format=%H", "-S", digest, "--", "hypotheses.md").split()):
+    for c in reversed(git(repo, "log", "--no-merges", "--format=%H", "-S", digest, "--", "hypotheses.md").split()):
         if c != after and is_ancestor(repo, after, c) and at(c) > at(f"{c}^"):
             return c
     return None
 
 
-def check_file_entry(repo: Path, log: str, path: Path, word: str, after: str, what: str, *, again: bool = False) -> dict:
+def check_file_entry(repo: Path, log: str, path: Path, word: str, after: str, what: str, *, again: str = "") -> dict:
     """The file's sha256 on a revision-log line with `word`, first logged by a commit after `after`;
-    with `again` (rule E's file alone), or logged again after it (logged_again_in)."""
+    with `again`, an entry's title (rule E's file alone), or logged again after it in such an entry
+    (logged_again_in)."""
     digest = sha256_file(path)
     if not lines_with(log, word, digest):
         raise FreezeRefused(f"the revision log names no {what} with sha256 {digest[:16]} (a line with '{word}' and the file's sha256)")
     commit = adding_commit(repo, digest)
     if not is_ancestor(repo, after, commit) or commit == after:
-        later = logged_again_in(repo, log, word, digest, after) if again else None
+        later = logged_again_in(repo, log, word, digest, after, again) if again else None
         if later is None:
             raise FreezeRefused(f"{what} ({digest[:16]}) was logged in {commit[:12]}, which does not come after {after[:12]}"
-                                + (f", and no line with '{word}' added after it names the file again" if again else ""))
+                                + (f", and no line with '{word}' in an entry \"{again}\" added after it names the file again" if again else ""))
         return {"file": str(path), "sha256": digest, "logged_in": later, "first_logged_in": commit}
     return {"file": str(path), "sha256": digest, "logged_in": commit}
 
@@ -275,7 +295,8 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
         check_pilot_file(pilot)
         rec["pilot"] = check_file_entry(repo, log, pilot, "pilot", code_freeze, "the pilot entry")
         if rule_e is not None:
-            rec["rule_e"] = check_file_entry(repo, log, rule_e, "rule E", rec["pilot"]["logged_in"], "rule E's choices", again=True)
+            rec["rule_e"] = check_file_entry(repo, log, rule_e, "rule E", rec["pilot"]["logged_in"], "rule E's choices",
+                                             again=RULE_E_LAPTOP_ITEMS)
         if m2_rates is not None:
             rec["m2_rates"] = check_file_entry(repo, log, m2_rates, "M2_RATE", rec["pilot"]["logged_in"], "M2's rates")
     rec["gate"] = check_binaries(binaries, gates)

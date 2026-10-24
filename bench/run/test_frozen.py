@@ -983,14 +983,19 @@ class FreezeGuard(unittest.TestCase):
             self.check(pilot=p2, rule_e=r2)
 
     # Rule E's file logged again after the pilot entry (the revision log's entry of 2026-10-24,
-    # "Rule E's file logged again after the new pilot entry"): the same bytes decided again.
+    # "Rule E's file logged again after the new pilot entry"): the same bytes decided again, logged
+    # again inside the entry that records rule E's choices on the laptop's Windows.
 
     def head(self) -> str:
         return git(self.repo, "rev-parse", "HEAD")
 
+    @staticmethod
+    def rule_e_entry(title: str = freeze_guard.RULE_E_LAPTOP_ITEMS) -> str:
+        return f"\n### 2026-10-24: {title}\n\n"
+
     def rule_e_logged_before_a_pilot(self, again_in_pilot: bool = False) -> tuple[Path, Path, str]:
         """October's case: rule E's file logged (commit `first`), then a new pilot entry, whose own
-        commit names the file again if `again_in_pilot`; the same file is then decided again."""
+        commit names the file again in the rule E entry if `again_in_pilot`."""
         r2 = Path(self.tmp.name) / "rule_e_oct.json"
         r2.write_text(json.dumps(dict(RULE_E, note="october")))
         self.log(f"- rule E's file sha256 {sha(r2)}\n")
@@ -998,7 +1003,7 @@ class FreezeGuard(unittest.TestCase):
         p2 = Path(self.tmp.name) / "pilot_new.json"
         p2.write_text(json.dumps({"complete": True, "n_sim": 1000, "new": 1}))
         self.log(f"- the new pilot entry: pilot output sha256 {sha(p2)}\n"
-                 + (f"- rule E's file sha256 {sha(r2)}, in the pilot entry's commit\n" if again_in_pilot else ""))
+                 + (self.rule_e_entry() + f"- rule E's file sha256 {sha(r2)}, in the pilot entry's commit\n" if again_in_pilot else ""))
         return r2, p2, first
 
     def refused_rule_e(self, r2: Path, p2: Path) -> None:
@@ -1008,7 +1013,9 @@ class FreezeGuard(unittest.TestCase):
     def test_rule_e_logged_again_after_the_pilot_entry(self):
         r2, p2, first = self.rule_e_logged_before_a_pilot()
         self.refused_rule_e(r2, p2)  # logged only before the pilot entry
-        self.log(f"- rule E's choices again, the same file: sha256 {sha(r2)}\n")
+        self.log(self.rule_e_entry("Another entry") + f"- a quote of rule E's file of October: sha256 {sha(r2)}\n")
+        self.refused_rule_e(r2, p2)  # a line after the pilot entry, outside the rule E entry
+        self.log(self.rule_e_entry() + f"- rule E's choices again, the same file: sha256 {sha(r2)}\n")
         again = self.head()
         rec = self.check(pilot=p2, rule_e=r2).record["rule_e"]
         self.assertEqual(rec, {"file": str(r2), "sha256": sha(r2), "logged_in": again, "first_logged_in": first})
@@ -1018,9 +1025,9 @@ class FreezeGuard(unittest.TestCase):
 
     def test_rule_e_named_again_without_the_word_or_in_part_is_refused(self):
         r2, p2, _ = self.rule_e_logged_before_a_pilot()
-        self.log(f"- the same file's sha256 {sha(r2)}\n")
+        self.log(self.rule_e_entry() + f"- the same file's sha256 {sha(r2)}\n")
         self.refused_rule_e(r2, p2)
-        self.log(f"- rule E's file, sha256 {sha(r2)[:40]}\n")
+        self.log(f"- rule E's file, sha256 {sha(r2)[:40]}\n")  # a regression guard: the guard matches whole sha256s alone
         self.refused_rule_e(r2, p2)
         self.log(f"- rule E's choices again: sha256 {sha(r2)}\n")
         self.assertEqual(self.check(pilot=p2, rule_e=r2).record["rule_e"]["logged_in"], self.head())  # not the line without the word
@@ -1028,13 +1035,13 @@ class FreezeGuard(unittest.TestCase):
     def test_rule_e_logged_again_in_the_pilot_entrys_commit_is_refused(self):
         r2, p2, _ = self.rule_e_logged_before_a_pilot(again_in_pilot=True)
         self.refused_rule_e(r2, p2)
-        self.log(f"- rule E's choices again: sha256 {sha(r2)}\n")
+        self.log(f"- rule E's choices again: sha256 {sha(r2)}\n")  # inside the same rule E entry
         self.assertEqual(self.check(pilot=p2, rule_e=r2).record["rule_e"]["logged_in"], self.head())  # not the pilot's commit
 
     def test_rule_e_logged_again_then_removed_is_refused(self):
         r2, p2, _ = self.rule_e_logged_before_a_pilot()
         line = f"- rule E's choices again: sha256 {sha(r2)}\n"
-        self.log(line)
+        self.log(self.rule_e_entry() + line)
         self.check(pilot=p2, rule_e=r2)
         h = self.repo / "hypotheses.md"
         h.write_text(h.read_text().replace(line, ""))
@@ -1046,14 +1053,14 @@ class FreezeGuard(unittest.TestCase):
         r2, p2, first = self.rule_e_logged_before_a_pilot()
         main = git(r, "rev-parse", "--abbrev-ref", "HEAD")
         git(r, "checkout", "-q", "-b", "side", first)
-        line = f"- rule E's choices again: sha256 {sha(r2)}, on a branch from before the pilot entry\n"
-        self.log(line)
+        text = self.rule_e_entry() + f"- rule E's choices again: sha256 {sha(r2)}, on a branch from before the pilot entry\n"
+        self.log(text)
         git(r, "checkout", "-q", main)
         git(r, "merge", "-q", "-s", "ours", "--no-commit", "side")
         h = r / "hypotheses.md"
-        h.write_text(h.read_text() + line)  # the merge brings the side's line into HEAD's log
+        h.write_text(h.read_text() + text)  # the merge brings the side's entry into HEAD's log
         git(r, "commit", "-q", "-am", "merge")
-        self.assertIn(line, git(r, "show", "HEAD:hypotheses.md") + "\n")
+        self.assertIn(text.strip(), git(r, "show", "HEAD:hypotheses.md"))
         self.refused_rule_e(r2, p2)
 
     def test_the_pilot_and_m2_rates_logged_again_are_still_refused(self):
@@ -1064,7 +1071,7 @@ class FreezeGuard(unittest.TestCase):
         p2 = Path(self.tmp.name) / "pilot_m2.json"
         p2.write_text(json.dumps({"complete": True, "n_sim": 1000, "m2": 1}))
         self.log(f"- the new pilot entry: pilot output sha256 {sha(p2)}\n")
-        self.log(f"- M2_RATE again: sha256 {sha(m)}\n")
+        self.log(self.rule_e_entry() + f"- M2_RATE again: sha256 {sha(m)}\n")  # even inside the rule E entry
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not come after"):
             self.check(pilot=p2, rule_e=None, m2_rates=m)
         p = Path(self.tmp.name) / "pilot-early.json"
@@ -1075,7 +1082,7 @@ class FreezeGuard(unittest.TestCase):
         git(r, "commit", "-q", "-am", "a second freeze with the pilot logged in it")
         cf2 = self.head()
         self.log(f"- `CODE_FREEZE` = {cf2}\n")
-        self.log(f"- the pilot entry again: pilot sha256 {sha(p)}\n")
+        self.log(self.rule_e_entry() + f"- the pilot entry again: pilot sha256 {sha(p)}\n")
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not come after"):
             self.check(code_freeze=cf2, pilot=p, rule_e=None)
 
