@@ -8560,6 +8560,69 @@ the move's entry, item 8 (d). Its scripts are in `<A>\review\`. No CRITICAL, HIG
   35's p-value macros exist and must not be quoted as a test; the plain-text outputs write
   "R <= 32" where the frozen text writes "R ≤ 32".
 
+## The laptop set's other generated files and the writing pack, 2026-10-25
+
+STATE.md's Next item 1. The files the paper prints from that were still built from desktop rows
+get laptop versions in `results/laptop-w/`, from the laptop's archived rows and the frozen inputs,
+by the generators in `paper/laptop_w/`. October's files are not touched (the suite's
+`test_october_results_are_unchanged`). No desktop row is read: a row of wp1, wre1, wc1, wc2, wm1,
+wh1 or ws1 stops every generator. Desktop only, no timing, no laptop contact.
+
+### 1. Inputs
+
+- Working folder `C:\Users\alext\lab\p3\laptop-w-pack\`: every archive checked against its sha256
+  before extraction (`sha256-check.txt`: pc1 d18221a5, ml1 33366aa4, bk1-bs1 3bb796bb, sl3
+  0f289133, hc1 7df1d9af, st1 6aadecd3 against `lab/archives.sha256`; the laptop's p3-cost-w
+  9749e183, p3-m1-w bd5210db, p3-hard-w e8bcbcde, p3-s10-w 7eec2480, p3-pilot-w ba01c82f and a0's
+  w-read-1 62bd61a5 against their `.sha256` files), each into its own folder (`x\`, `xL\`).
+- Each generator checks its rows again: against `results/laptop-w/summary.json`'s inputs (cost,
+  M1 and section 10 rows), the new pilot entry's item 4 (the laptop's W pilot rows 9ebbf3a1), or
+  `results/laptop-w/hardcase-macros.tex`'s input lines (hl1, p3hardw).
+- Runtime: October's venv (Python 3.14.5, numpy 2.5.0), `-I -X utf8 -B`. Commands:
+  `scripts\run_all.sh` (and `run_all.sh --check`, which compares and writes nothing), with the
+  paths of `scripts\paths.sh`.
+
+### 2. What each generator does differently from its October counterpart
+
+- `not_run_lw.py`: `not_run.py`'s functions, with logged references for the laptop's W cells (cells
+  10 and 12: the move's entry and the new pilot entry, item 7; W's SSH C2 cell: this file's
+  section "The frozen analysis on the laptop's W rows", item 1; the two-core cell: the move's entry,
+  item 4 (e)); it records the blobs of `hypotheses.md` and this file that it read, so its check
+  output changes when this file grows, while its cells do not. 19 cells, the same as October's.
+- `report_lw.py`: October's counts without the four macros of `macros-provenance.json` (the desktop
+  rerun); the analysis's runs and bound rows from `results/laptop-w/provenance.json`; per-host cost
+  counts; per-group counts of the not-run cells; `CostClaimsWords`; the footprint losses' upper ends
+  at six decimals (`...HighFine`, since one prints as 1.0000 at four). Tables in paper wording;
+  every verdict worded without a typed number; a printed L, W, family label or cell key stops it.
+- `w_evidence_lw.py`: the pilot's CPU shares of W's four C1 cells and M1's switches on the laptop's
+  rows; Windows' timer resolution from every confirmatory W window (coarsest 15.625 ms in all; the
+  value in effect differed at one end of two windows; recorded only).
+- `b2_lw.py`, `ops_lw.py`: p3hardw, p3costw and p3m1w in the place of wh1, wc1 and wc2, wm1; their
+  L macro lines are checked equal to October's.
+- `design_lw.py`: `design_macros.py`'s table less the specs that are the desktop's or now match
+  more than once, plus the laptop's values from the move's entry, the new pilot entry, rule E's
+  laptop entry and a0's record; `ChangeCommit` is d22ae16 by its entry's sentence, beside
+  `ChangeCommitBOne` and `ChangeCommitPilot`.
+- `trace_tables_lw.py`: st1's three table bodies (L only) with the comparison in words; the source
+  must equal the committed file.
+- `pack_lw.py`: `pack-macros.tex`, the eight macro files of the laptop set (October's
+  `trace-macros.tex` among them, L only) with a source and sha256 line each; it refuses October's
+  `macros.tex` and `hardcase-macros.tex`, a name defined twice, `CostR`, a desktop job in an input
+  line; and `SHA256SUMS-pack`.
+
+### 3. Checks
+
+- `run_all.sh --check` exit 0 after each commit; `paper/laptop_w` suite 14 passed (13 and 1
+  skipped without `P3_LW_INPUTS`); the October paper suite unchanged (122 passed, 7 failed in
+  `test_design_macros.py`, which fail since the log names CHANGE_COMMIT four times and W's λ twice).
+
+### 4. The pack
+
+`lab/bin/writing_pack.py pull p3-one-port --macros results/laptop-w/pack-macros.tex --figures
+results/laptop-w/tables`, then claims, method, setup, threats and glossary written in Papers from
+the frozen text and the generated files. Two fresh reviews of the pack against its README; every
+real finding fixed (STATE.md, "The writing pack").
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator

@@ -473,8 +473,36 @@ Next:
 2. Later, Alex's choice of 2026-10-24: harden the freeze guard as a later section 8 change (the
    delta review's three MEDIUMs: the heading matched as a substring, no append-only check, missing
    tests; and the flaky test outside the change).
-3. A push of `laptop-w-bringup` (b0d6839 to this branch's tip: ecc4880 and the docs commits after
-   it, all `[skip ci]`) needs Alex's yes; the coordinator asks.
+3. Done: the push of `laptop-w-bringup` from b0d6839 to 7189459 (ecc4880 and the docs commits
+   after it, all `[skip ci]`), on 2026-10-25 with Alex's yes.
+
+### The writing pack (2026-10-25; Next item 1)
+
+- One-port, this branch, after 7189459: `paper/laptop_w/` (generators and `test_laptop_w.py`)
+  writes the laptop set's other files into `results/laptop-w/` from the laptop's archived rows
+  (each archive's sha256 checked first) and the frozen inputs; no October file changes, no desktop
+  row is read. `not-run.json` (`not_run_lw.py`), `report-macros.tex` and the 12 report tables
+  (`report_lw.py`; verdicts in words, no typed number; per-group not-run counts; the footprint
+  losses' upper ends at six decimals), `w-evidence-macros.tex` (`w_evidence_lw.py`: the laptop
+  pilot's CPU shares of the four C1 W cells, M1's peek-to-replay switches, Windows' timer
+  resolution from the rows), `b2-macros.tex` and `ops-macros.tex` (`b2_lw.py`, `ops_lw.py`; their
+  L lines checked equal to October's), `design-macros.tex` (`design_lw.py`: W's host, compiler,
+  quiet check, placement, TCP values, the new pilot entry's values, CHANGE_COMMIT by its entry's
+  sentence, and the OS build from a0's archive), st1's three tables in words
+  (`trace_tables_lw.py`), and `pack-macros.tex` with `SHA256SUMS-pack` (`pack_lw.py`). The
+  commands are in status.md, "The laptop set's other generated files and the writing pack".
+- Papers, `p3-one-port/writing/`: claims, method, setup, threats and glossary filled; `macros.tex`
+  is `results/laptop-w/pack-macros.tex` (eight files with a source and sha256 line each: the laptop
+  set's seven and October's L-only `trace-macros.tex`; never October's `macros.tex` or
+  `hardcase-macros.tex`), and the 17 table bodies are in `figures/`, both through
+  `lab/bin/writing_pack.py pull`. Reviewed twice by fresh Opus agents; every real finding fixed.
+- Still `\missing` in the pack: the kernel census on both systems (no generated output exists);
+  the three figures the brief asks for (none generated; the cost-interval plot can be drawn from
+  the macros); the build numbers of tools beyond those in `setup.md`. Text macros that must not be
+  printed as they are (CostClaims, the two C1 W verdicts, the B3 and some M verdicts, cell 35's
+  p-values) are listed at the top of `claims.md`.
+- Lab request (the coordinator makes it): `writing_pack.py pull` takes one macros file and no
+  table folder; see the session's final report.
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
