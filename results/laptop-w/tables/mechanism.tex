@@ -7,15 +7,15 @@ detection mode & Linux & io\_uring, h2c & \MOneLIouringHTwoCValid & \MOneLIourin
 detection mode & Windows & IOCP, h2c & \MOneWIocpHTwoCValid & \MOneWIocpHTwoCMedian & [\MOneWIocpHTwoCLow, \MOneWIocpHTwoCHigh] & a difference was not shown \\
 dispatch & Linux & epoll, HTTP/1.1 & \MTwoLEpollHttpValid & \MTwoLEpollHttpMedian & [\MTwoLEpollHttpLow, \MTwoLEpollHttpHigh] & shown \\
 dispatch & Linux & io\_uring, HTTP/1.1 & \MTwoLIouringHttpValid & \MTwoLIouringHttpMedian & [\MTwoLIouringHttpLow, \MTwoLIouringHttpHigh] & shown \\
-dispatch & Linux & epoll, TLS & \MTwoLEpollTlsValid & none & none & a difference was not shown; untested: 0 valid sessions, fewer than R = 16 \\
-dispatch & Linux & io\_uring, TLS & \MTwoLIouringTlsValid & none & none & a difference was not shown; untested: 0 valid sessions, fewer than R = 16 \\
+dispatch & Linux & epoll, TLS & \MTwoLEpollTlsValid & none & none & a difference was not shown; untested: no valid session \\
+dispatch & Linux & io\_uring, TLS & \MTwoLIouringTlsValid & none & none & a difference was not shown; untested: no valid session \\
 relay against proxy & Linux & epoll, TLS (SNI), nginx & \MThreeLEpollTlsSniNginxValid & \MThreeLEpollTlsSniNginxMedian & [\MThreeLEpollTlsSniNginxLow, \MThreeLEpollTlsSniNginxHigh] & shown \\
 relay against proxy & Linux & epoll, TLS (SNI), HAProxy & \MThreeLEpollTlsSniHaproxyValid & \MThreeLEpollTlsSniHaproxyMedian & [\MThreeLEpollTlsSniHaproxyLow, \MThreeLEpollTlsSniHaproxyHigh] & shown \\
 relay against proxy & Linux & epoll, TLS (SNI), Envoy & \MThreeLEpollTlsSniEnvoyValid & \MThreeLEpollTlsSniEnvoyMedian & [\MThreeLEpollTlsSniEnvoyLow, \MThreeLEpollTlsSniEnvoyHigh] & shown \\
 relay against proxy & Linux & epoll, TLS (SNI), caddy-l4 & \MThreeLEpollTlsSniCaddyLFourValid & \MThreeLEpollTlsSniCaddyLFourMedian & [\MThreeLEpollTlsSniCaddyLFourLow, \MThreeLEpollTlsSniCaddyLFourHigh] & shown \\
-relay against proxy & Linux & epoll, TLS (SNI), sslh-ev & \MThreeLEpollTlsSniSslhEvValid & none & none & not shown; untested: 0 valid sessions, fewer than R = 16 \\
+relay against proxy & Linux & epoll, TLS (SNI), sslh-ev & \MThreeLEpollTlsSniSslhEvValid & none & none & not shown; untested: no valid session \\
 relay against proxy & Linux & epoll, HTTP/1.1, nginx & \MThreeLEpollHttpNginxValid & \MThreeLEpollHttpNginxMedian & [\MThreeLEpollHttpNginxLow, \MThreeLEpollHttpNginxHigh] & shown \\
 relay against proxy & Linux & epoll, HTTP/1.1, HAProxy & \MThreeLEpollHttpHaproxyValid & \MThreeLEpollHttpHaproxyMedian & [\MThreeLEpollHttpHaproxyLow, \MThreeLEpollHttpHaproxyHigh] & shown \\
 relay against proxy & Linux & epoll, HTTP/1.1, Envoy & \MThreeLEpollHttpEnvoyValid & \MThreeLEpollHttpEnvoyMedian & [\MThreeLEpollHttpEnvoyLow, \MThreeLEpollHttpEnvoyHigh] & shown \\
 relay against proxy & Linux & epoll, HTTP/1.1, caddy-l4 & \MThreeLEpollHttpCaddyLFourValid & \MThreeLEpollHttpCaddyLFourMedian & [\MThreeLEpollHttpCaddyLFourLow, \MThreeLEpollHttpCaddyLFourHigh] & shown \\
-relay against proxy & Linux & epoll, HTTP/1.1, sslh-ev & \MThreeLEpollHttpSslhEvValid & none & none & not shown; untested: 0 valid sessions, fewer than R = 16 \\
+relay against proxy & Linux & epoll, HTTP/1.1, sslh-ev & \MThreeLEpollHttpSslhEvValid & none & none & not shown; untested: no valid session \\

@@ -130,6 +130,12 @@ LAPTOP_SPECS: list[D.Spec] = [
     S("MTwoBound", H, r"for M2 \"the median ratio is at least (\d+\.\d+)\"", V, "M2's bound (section 4.4)"),
     S("LossBound", H, r"\"Loss\" is used only where the 95% BCa interval of Q lies wholly below (\d+\.\d+)", V,
       "the bound below which B3's interval is called a loss (section 12)"),
+    S("RerunDivisor", H, r"and run again at the end of the order, at most ⌈R/(\d+)⌉ times per cell",
+      note="the rerun cap is R over this, rounded up (section 4.1)"),
+    S("TtfbTailPct", H, r"resident memory for every cost cell \(WL4\); p(\d+) TTFB \(WL2\)",
+      note="the percentile of the secondary time to first byte (section 10)"),
+    S("BTwoTailPct", H, r"is given by its count, minimum, median, (\d+)th percentile \(the value at rank",
+      note="the percentile of B2's distributions (the entry of 2026-10-08, item 3)"),
     # Where the laptop's analysis ran.
     S("AnalysisRunCommit", SUMMARY_LW, r"\"analysis_commit\": \"([0-9a-f]{40})\"", V, "the clone the laptop's analysis ran from"),
     S("AnalysisNumpy AnalysisPython", SUMMARY_LW, r"\"numpy\": \"([\d.]+)\", \"python\": \"([\d.]+)\"", V,

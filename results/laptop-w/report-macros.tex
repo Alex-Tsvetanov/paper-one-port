@@ -58,3 +58,15 @@
 \newcommand{\CountAnalysisRuns}{2}  % runs of the frozen analysis, outputs byte-identical
 \newcommand{\CountAnalysisRowsBound}{10{,}381}  % rows the analysis read, each bound to its gate
 \newcommand{\CostClaimsWords}{HTTP/1.1 on epoll (Linux), TLS on epoll (Linux), MQTT on epoll (Linux), HTTP/1.1 on io\_uring (Linux), TLS on io\_uring (Linux), MQTT on io\_uring (Linux) and HTTP/1.1 on IOCP (Windows)}  % CostClaims with Linux and Windows for L and W
+\newcommand{\CountListOutsideCost}{2}  % cells of not-run.json: churn h2c and MQTT on Windows, outside the cost family
+\newcommand{\CountListDispatchTls}{2}  % cells of not-run.json: the dispatch comparison's TLS cells, not run
+\newcommand{\CountListResumption}{3}  % cells of not-run.json: TLS with session resumption, not run
+\newcommand{\CountListTwoCoresIocp}{1}  % cells of not-run.json: two server cores on IOCP, not run
+\newcommand{\CountListSslh}{6}  % cells of not-run.json: sslh-ev's cells, short of their replicates
+\newcommand{\CountListSshKeepalive}{3}  % cells of not-run.json: SSH keep-alive cells, short of their replicates
+\newcommand{\CountListMixedIouring}{1}  % cells of not-run.json: the mixed-protocol cell on io_uring, short
+\newcommand{\CountListFootprintDesc}{1}  % cells of not-run.json: descriptive footprint cells short of their replicates
+\newcommand{\BThreeSilentSslhEvEpollHighFine}{0.999969}  % the interval's upper end, six decimals
+\newcommand{\BThreeSilentSslhEvIouringHighFine}{0.974578}  % the interval's upper end, six decimals
+\newcommand{\BThreePartialHelloSslhEvEpollHighFine}{0.962886}  % the interval's upper end, six decimals
+\newcommand{\BThreePartialHelloSslhEvIouringHighFine}{0.943197}  % the interval's upper end, six decimals
