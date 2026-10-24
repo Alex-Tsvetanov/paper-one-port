@@ -29,6 +29,13 @@ looks for in them is fixed here and stated in design/status.md:
   synthetic, at N_SIM = 1,000.
 - Rule E's file and M2's rates: each file's sha256 on a revision-log line that holds "rule E" or
   "M2_RATE", added by a commit that descends from the pilot entry's.
+- Rule E's file logged again (the revision log's entry "Rule E's file logged again after the new
+  pilot entry (a later change under section 8)", 2026-10-24): rule E's file whose sha256 was first
+  logged before the pilot entry's commit, or in it, is cleared if a commit that descends from that
+  commit, and is not it, adds a revision-log line with "rule E" and the file's whole sha256, and
+  HEAD's log holds more such lines than the log at the pilot entry's commit. The clearance names
+  that commit as logged_in and the first logging as first_logged_in. The pilot entry's output and
+  M2's rates are checked as before.
 - hypotheses.md committed and unchanged in the working tree, so every line read is committed.
 - The binaries the runner will start: each one's sha256 in a gate of bench/check_records.py that
   passed, is not a dry run and is citable (bench/check_rows.py's rule, applied before the first
@@ -185,13 +192,35 @@ def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
     return rec
 
 
-def check_file_entry(repo: Path, log: str, path: Path, word: str, after: str, what: str) -> dict:
+def logged_again_in(repo: Path, log: str, word: str, digest: str, after: str) -> str | None:
+    """The commit that logged a file again after `after` (rule E's file; see the docstring): the
+    oldest commit that descends from `after`, is not it, and adds a revision-log line with `word`
+    and `digest` (its log holds more such lines than its parent's), provided HEAD's log (`log`)
+    holds more such lines than `after`'s. None if there is none."""
+    def at(commit: str) -> int:
+        return len(lines_with(revision_log(git(repo, "show", f"{commit}:hypotheses.md")), word, digest))
+
+    if len(lines_with(log, word, digest)) <= at(after):
+        return None
+    for c in reversed(git(repo, "log", "--format=%H", "-S", digest, "--", "hypotheses.md").split()):
+        if c != after and is_ancestor(repo, after, c) and at(c) > at(f"{c}^"):
+            return c
+    return None
+
+
+def check_file_entry(repo: Path, log: str, path: Path, word: str, after: str, what: str, *, again: bool = False) -> dict:
+    """The file's sha256 on a revision-log line with `word`, first logged by a commit after `after`;
+    with `again` (rule E's file alone), or logged again after it (logged_again_in)."""
     digest = sha256_file(path)
     if not lines_with(log, word, digest):
         raise FreezeRefused(f"the revision log names no {what} with sha256 {digest[:16]} (a line with '{word}' and the file's sha256)")
     commit = adding_commit(repo, digest)
     if not is_ancestor(repo, after, commit) or commit == after:
-        raise FreezeRefused(f"{what} ({digest[:16]}) was logged in {commit[:12]}, which does not come after {after[:12]}")
+        later = logged_again_in(repo, log, word, digest, after) if again else None
+        if later is None:
+            raise FreezeRefused(f"{what} ({digest[:16]}) was logged in {commit[:12]}, which does not come after {after[:12]}"
+                                + (f", and no line with '{word}' added after it names the file again" if again else ""))
+        return {"file": str(path), "sha256": digest, "logged_in": later, "first_logged_in": commit}
     return {"file": str(path), "sha256": digest, "logged_in": commit}
 
 
@@ -246,7 +275,7 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
         check_pilot_file(pilot)
         rec["pilot"] = check_file_entry(repo, log, pilot, "pilot", code_freeze, "the pilot entry")
         if rule_e is not None:
-            rec["rule_e"] = check_file_entry(repo, log, rule_e, "rule E", rec["pilot"]["logged_in"], "rule E's choices")
+            rec["rule_e"] = check_file_entry(repo, log, rule_e, "rule E", rec["pilot"]["logged_in"], "rule E's choices", again=True)
         if m2_rates is not None:
             rec["m2_rates"] = check_file_entry(repo, log, m2_rates, "M2_RATE", rec["pilot"]["logged_in"], "M2's rates")
     rec["gate"] = check_binaries(binaries, gates)
