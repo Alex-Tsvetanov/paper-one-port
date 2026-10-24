@@ -1,0 +1,12 @@
+{
+ "default": {
+  "IOCP": "replay",
+  "epoll": "replay",
+  "io_uring": "replay"
+ },
+ "iocp_receive": "zero-byte",
+ "relay_copy": {
+  "epoll": "user-space",
+  "io_uring": "user-space"
+ }
+}
