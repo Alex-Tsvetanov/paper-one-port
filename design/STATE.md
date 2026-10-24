@@ -266,6 +266,12 @@ timer runs, 80 split replicates, every one valid, no rerun; all 976 rows name ch
   file's hash was logged before), with its entry, CHANGE_COMMIT, review and the laptop's runner
   tests. Recommendation: (b), disclosed in the entry; it needs no code change and the order the
   guard enforces holds (the choice is made from the laptop's evidence and logged after bcf74b4).
+  Checked for (b) on the desktop: in a throwaway clone of d313456 with a scratch commit (never
+  pushed) holding the CRLF file and a "rule E" line with 42299c5d..., a second clone with
+  `core.autocrlf=false` kept the bytes and the guard cleared it with the new pilot output. The
+  analysis reads rule E's file and the pilot output by content only (`analyse.py` binds no row to
+  their sha256), so L's October rows and the laptop's W rows can enter one run under either option.
+  `--blocks`: `wpilot_run.py` opened the same default file in block 1, so the default stands.
 
 Common to every block 2 job: a one-port clone with `core.autocrlf=false`; spec `quiet` true,
 `boost` false; the command prefix of block 1 (`cd /d "%LAB_SRC%" && set "PATH=C:\Program
