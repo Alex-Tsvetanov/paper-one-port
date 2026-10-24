@@ -458,8 +458,8 @@ Every block 2b row names change_commit d22ae16 and head 5091d9f.
   observations for the writing pack (status.md, that section, 5).
 
 Next:
-1. The writing pack (`writing/` in Papers' p3 folder), from the frozen files and the generated
-   results only. `results/laptop-w/macros.tex` has October's macro names but replaces
+1. Done 2026-10-25 (section "The writing pack" below): the writing pack (`writing/` in Papers' p3
+   folder), from the frozen files and the generated results only. `results/laptop-w/macros.tex` has October's macro names but replaces
    `results/macros.tex` (never both loaded): it drops 35 names (`CostR`, the W TLS joint power,
    C3.W.IOCP.tls's Holm macros, W's by-job macros) and adds `CostRL` and `CostRW`, so the paper's
    `\RC` and `\CostR` become those two. `results/laptop-w/hardcase-macros.tex` replaces
@@ -495,14 +495,23 @@ Next:
   is `results/laptop-w/pack-macros.tex` (eight files with a source and sha256 line each: the laptop
   set's seven and October's L-only `trace-macros.tex`; never October's `macros.tex` or
   `hardcase-macros.tex`), and the 17 table bodies are in `figures/`, both through
-  `lab/bin/writing_pack.py pull`. Reviewed twice by fresh Opus agents; every real finding fixed.
+  `lab/bin/writing_pack.py pull`. Two fresh Opus reviews against the README; the real findings of
+  both were fixed (Papers ad27ee0, 9f97faf, 8489903). The last round of fixes (8489903: the
+  statements about time now say "the Windows windows reported here"; the footprint parts' sum) was
+  not reviewed again. Open, LOW: none known.
 - Still `\missing` in the pack: the kernel census on both systems (no generated output exists);
   the three figures the brief asks for (none generated; the cost-interval plot can be drawn from
   the macros); the build numbers of tools beyond those in `setup.md`. Text macros that must not be
   printed as they are (CostClaims, the two C1 W verdicts, the B3 and some M verdicts, cell 35's
   p-values) are listed at the top of `claims.md`.
-- Lab request (the coordinator makes it): `writing_pack.py pull` takes one macros file and no
-  table folder; see the session's final report.
+- Lab request 5 below (the pack's pull).
+- For Alex, through the coordinator: the wording of the one sentence on the first campaign (the
+  move's entry, item 15, records that the October decisions, Linux included, were read before it,
+  and that entry set the joint Holm family and kept L's count). `claims.md`, section 5, keeps the
+  prescribed sentence until he answers.
+- Requests that need laptop time (the coordinator's): the kernel census on L and W (untimed); the
+  three figures need no laptop time (a generator for the cost-interval plot, the census table once
+  it exists, and the first-byte diagram).
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
@@ -525,6 +534,17 @@ Next:
    in `lab/laptop/setup-log.md`.
 2. A folder `lab/sanitizer-records/laptop-w/` for P3's laptop record (a2) and its gate, apart
    from the desktop's `oneport-ff2679cc8-W-asan.json`; the coordinator copies a2's records there.
+5. Open (2026-10-25): `lab/bin/writing_pack.py pull` copies one `--macros` file and has no slot
+   for table bodies. Change: `--macros` may be given more than once, in order; `pull` writes them
+   into the pack's `macros.tex` concatenated, each part after a line `% ---- source: <path> sha256
+   <hex>`, and refuses a `\newcommand` name defined twice; a new `--tables DIR` copies its files to
+   `writing/tables/`, and "tables" joins `PUBLISHED` so that `publish` copies it; the skeleton
+   README it writes then says that `macros.tex` is the concatenation of the paper's generated macro
+   files (not a copy of `results/macros.tex`) and that `tables/` holds generated table bodies. Until
+   then P3's pack takes one-port's `results/laptop-w/pack-macros.tex` (`paper/laptop_w/pack_lw.py`)
+   as its one macros file and the 17 table bodies through `--figures`, so they sit in `figures/`.
+   Once `--tables` exists, the bodies move to `tables/` and the writer's input paths change from
+   `../figures/` to `../tables/`; `pack_lw.py` can then be retired or kept as the file the tool reads.
 3. Before a1: the two archives (`openssl-3.5.9.tar.gz`, `nghttp2-1.70.0.tar.xz`) from the desktop's
    `C:\Users\alext\opt\src` (sha256 equal to `bench/cmake/pins.cmake`) to the laptop's
    `C:\Users\alext\opt\src`, checked again there. Desktop-only launch files (`m6b\wlaunch.ps1`,
