@@ -1,0 +1,423 @@
+{
+ "what": "P3 (one-port): the frozen analysis, analysis/analyse.py and analysis/macros.py at ANALYSIS_COMMIT e61e78f, run twice on the desktop (no timing) on L's October rows and the laptop's W rows, with the new pilot entry's output; and paper/hardcase_macros.py on L's and the laptop's hard-case rows. No desktop row is read.",
+ "entries": {
+  "move": "2026-10-24: W's runs on the laptop's Windows (a later change under section 8), items 8 (b) to (d) and 9",
+  "pilot": "2026-10-24: The new pilot entry, with W's pilot on the laptop's Windows (bcf74b4), items 6, 7 and 13",
+  "rule_e": "2026-10-24: Rule E's choices on the laptop's Windows (5091d9f)",
+  "hard_cases": "2026-10-07: B1's and B2's decisions from the hard-case runners' outputs (a reading), items 3 and 4"
+ },
+ "code": {
+  "ANALYSIS_COMMIT": "e61e78ff39ea6b9917a470843c08be866765732f",
+  "CODE_FREEZE": "ff2679cc89d23e08a817308c9aeba7901e056fef",
+  "CHANGE_COMMIT_laptop_W_rows": "d22ae16b8fa5a8fbda5c0b2bbff737241757c8d5",
+  "CHANGE_COMMIT_L_sl3_rows": "9cae2deff2b01896bfab25c5af4c610381dc3c1d",
+  "clone": "<W>\\src, git clone --no-checkout -c core.autocrlf=false of the worktree D:\\Dev\\worktrees\\p3-laptop (branch laptop-w-bringup, tip b0d6839), then checkout of ANALYSIS_COMMIT",
+  "clone_head": "e61e78ff39ea6b9917a470843c08be866765732f",
+  "clone_status_porcelain_lines": 0,
+  "core_autocrlf": "false",
+  "analysis_tree_at_clone_head": "aec0dbdacfab0f56b06e22849d477d18766eabed",
+  "analysis_tree_at_branch_tip_b0d6839": "aec0dbdacfab0f56b06e22849d477d18766eabed",
+  "bench_files_analysis_imports": {
+   "bench/check_rows.py": {
+    "clone_head": "b6f6893a1a8f09f00c9233ad22f5227a96c8fff4",
+    "b0d6839": "b6f6893a1a8f09f00c9233ad22f5227a96c8fff4",
+    "CODE_FREEZE": "b6f6893a1a8f09f00c9233ad22f5227a96c8fff4"
+   },
+   "bench/run/footprint.py": {
+    "clone_head": "6ce70525845ab77d0110cf8a30fe2e384c2d2b7d",
+    "b0d6839": "6ce70525845ab77d0110cf8a30fe2e384c2d2b7d",
+    "CODE_FREEZE": "6ce70525845ab77d0110cf8a30fe2e384c2d2b7d"
+   }
+  },
+  "hardcase_macros_py": {
+   "clone_head": "6ef1107ceb932897512bf77e4aa16f5674b13cca",
+   "b0d6839": "6ef1107ceb932897512bf77e4aa16f5674b13cca",
+   "whardcase_run_py_clone_head": "604a3ce25130719b2a27496e0f20fbd7d44d320e",
+   "whardcase_run_py_b0d6839": "604a3ce25130719b2a27496e0f20fbd7d44d320e"
+  },
+  "analysis_files_sha256": {
+   "analyse.py": "6f1b6a0c7cbbec9ff228d36692662e930b9a5f36bb17a57afcef6b4b50f00906",
+   "appendix_a_r_rule.py": "ca932e924f3342597093d728ba6694e313a9e894e80bd5c9e8445de75b5e5218",
+   "cells.py": "821b023137b23f7571e5dae440ed2acbafb8c1d3090a6aaa9ec947e3199f8103",
+   "macros.py": "ab6648c0b88af46f2c53102b9e0a971ecc764fef205da7f2672beb13630fb701",
+   "pilot.py": "065513f0bf2b6208e0a104fbf541b0d4195476c10f7e01a7d64ad91654f0f02c",
+   "rows.py": "fea47f2fc1596e462bf1d758829d6ff1e7e5f6c3f4b85007728ae1fa363feedd",
+   "stats.py": "9426da8e44145ef4d3bb17bdd25c6ad07ae37f73ce18cf2577724a66aba66f7c",
+   "synth.py": "f6f136d596584db88064dd7ddad18bd909336b831d1c0352c5c2c2f6cc7d5874",
+   "test_analyse.py": "f3ac422d59c07d0c4d06579ec5e44324493a0f6ab5b67fc7c33e691da7566349",
+   "test_cells.py": "51e192c1791670b2a746c7aa6276c55f8e3980084bd8088ae562a5f9ee6141d1",
+   "test_pilot.py": "627019b39c9f5ca47ec56c767593968ea9aee2999762787b71047a559f003a82",
+   "test_stats.py": "6cda92a29eb9079dba7ca5ebb674165bddc34e4d874715f4ee4c7766f8c06402",
+   "versions.py": "0524a06361eb619a4aa30c179b4e9115f8526b405f5a8ac7ce8ea10bfaba1828"
+  }
+ },
+ "runtime": {
+  "python": "3.14.5",
+  "python_build": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "numpy": "2.5.0",
+  "venv": "C:\\Users\\alext\\lab\\p3\\confirm1\\venv, October's (from pythoncore-3.14-64 by -m venv; numpy 2.5.0 from the win_amd64 wheel, sha256 ebb81d9d5443e0309d6c54894c3fbed74ad7da0714352a67b6d773cd189eae73, PyPI's)",
+  "python_flags": "-I -X utf8 (isolated, UTF-8 mode; October ran -s with PYTHONUTF8=1 and PYTHONNOUSERSITE=1)",
+  "host": {
+   "name": "ALEX-PC",
+   "os": "Windows-11-10.0.26200-SP0",
+   "cpu": "AMD64 Family 23 Model 113 Stepping 0, AuthenticAMD",
+   "logical_cpus": 12,
+   "role": "the desktop: orchestration and analysis only, never a measurement host"
+  }
+ },
+ "commands": {
+  "run_analysis.sh": {
+   "script": "<W>\\scripts\\run_analysis.sh",
+   "sha256": "d4345c1f9d729ffcc3b037064e197c66d0bd1717828184d7fd312bc87c8f27e5",
+   "text": "#!/usr/bin/env bash\n# P3's frozen analysis on L's October rows and the laptop's W rows, from the clone src at\n# ANALYSIS_COMMIT e61e78f: analysis/analyse.py, then analysis/macros.py, into OUT (outside the clone).\n# The row files in the order of October's run (confirm1/run_analysis2.sh), the laptop's files in W's\n# three places. Gates: L's gate-L.json and the laptop's gate-W.json (p3-gate-w-5) alone, so no desktop\n# row can bind. Python isolated (-I) in UTF-8 mode (-X utf8), the venv of October (3.14.5, numpy 2.5.0).\n# Usage: run_analysis.sh OUT\nset -euo pipefail\nW=/c/Users/alext/lab/p3/laptop-w-analysis\nOUT=$1\nPY=/c/Users/alext/lab/p3/confirm1/venv/Scripts/python.exe\nSRC=$W/src\nIN=$W/in\nmkdir -p \"$OUT\"\n\"$PY\" -I -X utf8 \"$SRC/analysis/analyse.py\" \\\n  --seeds \"$IN/seeds.json\" \\\n  --pilot \"$IN/pilot.json\" \\\n  --rule-e \"$IN/rule_e.json\" \\\n  --gate \"$IN/gate-L.json\" --gate \"$IN/gate-W.json\" \\\n  --rows \"$W/xL/2026-10-05-pc1/cost-L/windows.jsonl\" \\\n  --rows \"$W/x/p3-cost-w/p3-cost-w/out/cost/out/windows.jsonl\" \\\n  --rows \"$W/xL/2026-10-05-ml1/m-L/windows.jsonl\" \\\n  --rows \"$W/x/p3-m1-w/p3-m1-w/out/m/out/windows.jsonl\" \\\n  --rows \"$W/xL/2026-10-05-bk1-bs1/b3-L/windows.jsonl\" \\\n  --rows \"$W/xL/2026-10-07-sl3/s-L/windows.jsonl\" \\\n  --rows \"$W/x/p3-s10-w/p3-s10-w/out/s10/out/windows.jsonl\" \\\n  --out \"$OUT\"\n\"$PY\" -I -X utf8 \"$SRC/analysis/macros.py\" \"$OUT/summary.json\" --out \"$OUT/macros.tex\"\n(cd \"$OUT\" && sha256sum summary.json decisions.csv macros.tex > SHA256SUMS)\n"
+  },
+  "run_hardcase.sh": {
+   "script": "<W>\\scripts\\run_hardcase.sh",
+   "sha256": "708d0516e667593fac5b4e06f1047f9de1b0398718ed92a762c6c0d7357ff42d",
+   "text": "#!/usr/bin/env bash\n# B1's and B2's counts and decisions (paper/hardcase_macros.py, the reading of 2026-10-07) from L's\n# hl1 and the laptop's p3hardw, with summary.json's b1_failures from the laptop analysis (out1), and\n# hc1's descriptive competitors' table (L, October). From the clone src at e61e78f, whose\n# paper/hardcase_macros.py and bench/run/whardcase_run.py equal b0d6839's. Writes OUT, never under results/.\n# Usage: run_hardcase.sh OUT.tex\nset -euo pipefail\nW=/c/Users/alext/lab/p3/laptop-w-analysis\nPY=/c/Users/alext/lab/p3/confirm1/venv/Scripts/python.exe\n\"$PY\" -I -X utf8 \"$W/src/paper/hardcase_macros.py\" \\\n  --server L hl1 \"$W/xL/2026-10-05-pc1/hard-L/hardcases.jsonl\" \"$W/xL/2026-10-05-pc1/hard-L/hardcases-table-hl1.json\" \\\n  --server W p3hardw \"$W/x/p3-hard-w/p3-hard-w/out/hard/out/hardcases.jsonl\" \"$W/x/p3-hard-w/p3-hard-w/out/hard/out/hardcases-table-p3hardw.json\" \\\n  --summary \"$W/out1/summary.json\" \\\n  --competitors hc1 \"$W/xL/2026-10-07-hc1/hardcomp-L/competitor_cases.jsonl\" \\\n  --out \"$1\"\n"
+  }
+ },
+ "archives": {
+  "pc1": {
+   "file": "p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/ (copy on the desktop, C:\\Users\\alext\\lab\\p3\\confirm1\\archives\\, used)",
+   "sha256": "d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692",
+   "sha256_sidecar": "d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692",
+   "bytes": 6074812
+  },
+  "ml1": {
+   "file": "p3-raw-2026-10-05-ml1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/ (copy on the desktop, confirm1\\archives\\, used)",
+   "sha256": "33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652",
+   "sha256_sidecar": "33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652",
+   "bytes": 2091395
+  },
+  "bk1-bs1": {
+   "file": "p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/ (copy on the desktop, confirm1\\archives\\, used)",
+   "sha256": "3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8",
+   "sha256_sidecar": "3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8",
+   "bytes": 16289698
+  },
+  "sl3": {
+   "file": "p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/ (copy on the desktop, confirm1\\archives\\, used)",
+   "sha256": "0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af",
+   "sha256_sidecar": "0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af",
+   "bytes": 4848247
+  },
+  "hc1": {
+   "file": "p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz",
+   "origin": "L ~/lab/ (copy on the desktop, C:\\Users\\alext\\lab\\, used)",
+   "sha256": "7df1d9af5396f8d24d0fc5edb93f438054a3670f25250b38cb851d0f93120629",
+   "sha256_sidecar": "7df1d9af5396f8d24d0fc5edb93f438054a3670f25250b38cb851d0f93120629",
+   "bytes": 488907
+  },
+  "p3-cost-w": {
+   "file": "p3-cost-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap7-w-q1-p3-block2b)",
+   "sha256": "9749e18383afb4fa078daaf247d640c7225d56fbf6ec1d496ae9d851a20fce5b",
+   "sha256_sidecar": "9749e18383afb4fa078daaf247d640c7225d56fbf6ec1d496ae9d851a20fce5b",
+   "bytes": 4619209
+  },
+  "p3-m1-w": {
+   "file": "p3-m1-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap7-w-q1-p3-block2b)",
+   "sha256": "bd5210dba708134f8b2e31d1a0584c39b778ad13ed84fd758e1e2b9eff52aaed",
+   "sha256_sidecar": "bd5210dba708134f8b2e31d1a0584c39b778ad13ed84fd758e1e2b9eff52aaed",
+   "bytes": 698993
+  },
+  "p3-hard-w": {
+   "file": "p3-hard-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap7-w-q1-p3-block2b)",
+   "sha256": "e8bcbcde1c146bce0b2f4bc13d27b2455711aaec51f94e079e6fc8f63ae8d978",
+   "sha256_sidecar": "e8bcbcde1c146bce0b2f4bc13d27b2455711aaec51f94e079e6fc8f63ae8d978",
+   "bytes": 706695
+  },
+  "p3-s10-w": {
+   "file": "p3-s10-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap7-w-q1-p3-block2b)",
+   "sha256": "7eec24800c1c6e85e3eb934b06187a50316e246a95bc6d75691d4ec81baef65c",
+   "sha256_sidecar": "7eec24800c1c6e85e3eb934b06187a50316e246a95bc6d75691d4ec81baef65c",
+   "bytes": 3653890
+  },
+  "p3-guard-w": {
+   "file": "p3-guard-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap7-w-q1-p3-block2b); suites only, no rows",
+   "sha256": "5ee805a7b7ccfe81891e52cb49efca13864b880759b8a06e3c1b91a8f5a64cd5",
+   "sha256_sidecar": "5ee805a7b7ccfe81891e52cb49efca13864b880759b8a06e3c1b91a8f5a64cd5",
+   "bytes": 6065
+  },
+  "p3-gate-w-5": {
+   "file": "p3-gate-w-5.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap3-w-q1-p3-gate); gate-W.json",
+   "sha256": "5a226ebc8fcb9293c26fb2024cdcc215be68b82e97f06fee60d53e5d26e1c03b",
+   "sha256_sidecar": "5a226ebc8fcb9293c26fb2024cdcc215be68b82e97f06fee60d53e5d26e1c03b",
+   "bytes": 12627791
+  },
+  "p3-pilot-w": {
+   "file": "p3-pilot-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap5-w-q2-p3-block1b); checked, rows not read",
+   "sha256": "ba01c82faa474420e6fe83e5f79bedf858222c27116ee5ecf66f9dc8afcc3534",
+   "sha256_sidecar": "ba01c82faa474420e6fe83e5f79bedf858222c27116ee5ecf66f9dc8afcc3534",
+   "bytes": 4492136
+  },
+  "p3-rule-e-w": {
+   "file": "p3-rule-e-w.tar.gz",
+   "origin": "the laptop's W, lab runner's archive (queue gap6-w-q2-p3-rule-e); checked, rows not read",
+   "sha256": "5a0d5f09cbac058884ac68cb50e3e90eab832c5bdb18c99c3786f525dd7516f9",
+   "sha256_sidecar": "5a0d5f09cbac058884ac68cb50e3e90eab832c5bdb18c99c3786f525dd7516f9",
+   "bytes": 133058
+  }
+ },
+ "rows": [
+  {
+   "what": "cost family on L (lab job pc1, runner job cl1)",
+   "archive": "p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz",
+   "archive_sha256": "d18221a564196fc383d2d7f04679a618d93db3487715102410d948992033d692",
+   "path_in_archive": "cost-L/windows.jsonl",
+   "sha256": "ee257a16c954e81d6e5d93debff47e5547d5086f5be405a1ddb7878617ab8dba",
+   "rows": 2688,
+   "valid_rows": 2688,
+   "jobs": [
+    "cl1"
+   ],
+   "development_false": 2688,
+   "change_commit_values": [
+    "None"
+   ],
+   "head_values": [
+    "77cedae558f299ae6276a42386223072d3b0cbb0"
+   ]
+  },
+  {
+   "what": "cost family on the laptop's W (lab job p3-cost-w, runner job p3costw)",
+   "archive": "p3-cost-w.tar.gz",
+   "archive_sha256": "9749e18383afb4fa078daaf247d640c7225d56fbf6ec1d496ae9d851a20fce5b",
+   "path_in_archive": "p3-cost-w/out/cost/out/windows.jsonl",
+   "sha256": "e2add5ec6f725d4fe4fa192322242f3f2a063fba5214e5292de72abb80875a1b",
+   "rows": 724,
+   "valid_rows": 723,
+   "jobs": [
+    "p3costw"
+   ],
+   "development_false": 724,
+   "change_commit_values": [
+    "d22ae16b8fa5a8fbda5c0b2bbff737241757c8d5"
+   ],
+   "head_values": [
+    "5091d9f69b9456238872734a02f63ded2322a7b5"
+   ]
+  },
+  {
+   "what": "mechanism family on L (ml1)",
+   "archive": "p3-raw-2026-10-05-ml1-ff2679cc8.tar.gz",
+   "archive_sha256": "33366aa4427a2d38421f4cc7a2b371b67109ceca9e3ab3c951281adbe42f6652",
+   "path_in_archive": "m-L/windows.jsonl",
+   "sha256": "26b971a6dfc82db206764021034923a25c3323ae1be21c1e485de42780d697d9",
+   "rows": 1056,
+   "valid_rows": 976,
+   "jobs": [
+    "ml1"
+   ],
+   "development_false": 1056,
+   "change_commit_values": [
+    "None"
+   ],
+   "head_values": [
+    "7a63a08648828685ffaf6781c9e5d3154fdc9d73"
+   ]
+  },
+  {
+   "what": "M1's IOCP cells on the laptop's W (lab job p3-m1-w, runner job p3m1w)",
+   "archive": "p3-m1-w.tar.gz",
+   "archive_sha256": "bd5210dba708134f8b2e31d1a0584c39b778ad13ed84fd758e1e2b9eff52aaed",
+   "path_in_archive": "p3-m1-w/out/m/out/windows.jsonl",
+   "sha256": "54e398be87dcda483e48f87b3f2ced0ab4cade132fa607b0f5ef4eb6287b6bb7",
+   "rows": 128,
+   "valid_rows": 128,
+   "jobs": [
+    "p3m1w"
+   ],
+   "development_false": 128,
+   "change_commit_values": [
+    "d22ae16b8fa5a8fbda5c0b2bbff737241757c8d5"
+   ],
+   "head_values": [
+    "5091d9f69b9456238872734a02f63ded2322a7b5"
+   ]
+  },
+  {
+   "what": "B3 and K_BASE on L (bk1, bs1)",
+   "archive": "p3-raw-2026-10-05-bk1-bs1-ff2679cc8.tar.gz",
+   "archive_sha256": "3bb796bb9894403505dd49ff026b53c4b1ddd95bcc6876a4cdd0c9473b6106a8",
+   "path_in_archive": "b3-L/windows.jsonl",
+   "sha256": "0fcba90dd1422beeea49089bff0052ae002c1ab5451e97c88cab2c797a51feb0",
+   "rows": 2645,
+   "valid_rows": 2594,
+   "jobs": [
+    "bk1",
+    "bs1"
+   ],
+   "development_false": 2645,
+   "change_commit_values": [
+    "None"
+   ],
+   "head_values": [
+    "d29968bd52d20b139d36e99cc19184fe245a3a7f"
+   ]
+  },
+  {
+   "what": "section 10 on L (sl3)",
+   "archive": "p3-raw-2026-10-07-sl3-ff2679cc8.tar.gz",
+   "archive_sha256": "0f289133058a8e80bba2a8cec202daed815871c11ece340f4bd3fe42476938af",
+   "path_in_archive": "s-L/windows.jsonl",
+   "sha256": "77955a0c8ffa108c40ced0d5f744414ff19c50c55430df310042826dbbf672cf",
+   "rows": 2548,
+   "valid_rows": 2147,
+   "jobs": [
+    "sl3"
+   ],
+   "development_false": 2548,
+   "change_commit_values": [
+    "9cae2deff2b01896bfab25c5af4c610381dc3c1d"
+   ],
+   "head_values": [
+    "29ae2b6d83436bdb1c5f735398967344def0d9f3"
+   ]
+  },
+  {
+   "what": "section 10 on the laptop's W (lab job p3-s10-w, runner job p3s10w)",
+   "archive": "p3-s10-w.tar.gz",
+   "archive_sha256": "7eec24800c1c6e85e3eb934b06187a50316e246a95bc6d75691d4ec81baef65c",
+   "path_in_archive": "p3-s10-w/out/s10/out/windows.jsonl",
+   "sha256": "7d133493cba08bec0f3619858015af4e574fa619a866e4563f12a900cdec8c99",
+   "rows": 592,
+   "valid_rows": 512,
+   "jobs": [
+    "p3s10w"
+   ],
+   "development_false": 592,
+   "change_commit_values": [
+    "d22ae16b8fa5a8fbda5c0b2bbff737241757c8d5"
+   ],
+   "head_values": [
+    "5091d9f69b9456238872734a02f63ded2322a7b5"
+   ]
+  }
+ ],
+ "hardcase_inputs": [
+  {
+   "what": "L hl1 hardcases.jsonl",
+   "archive": "p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz",
+   "sha256": "661f1cf94b46d42a837514ffbb78d887b03f273edd8638795b222e5ab75c92e8"
+  },
+  {
+   "what": "L hl1 hardcases-table-hl1.json",
+   "archive": "p3-raw-2026-10-05-pc1-ff2679cc8.tar.gz",
+   "sha256": "958468ca63e3bd63c4286213d33fb85cefdcbee919171c3db4ef52a11d93c58c"
+  },
+  {
+   "what": "W p3hardw hardcases.jsonl",
+   "archive": "p3-hard-w.tar.gz",
+   "sha256": "9fbb7d5a049aba858e4af8d1bc2966a98e2d021dc6a9261eb62df487b995b79d"
+  },
+  {
+   "what": "W p3hardw hardcases-table-p3hardw.json",
+   "archive": "p3-hard-w.tar.gz",
+   "sha256": "c9abfb3f98ee2ee9428bb3f01aacee9804a203e5780b1657a5bbb292f7c30178"
+  },
+  {
+   "what": "L hc1 competitor_cases.jsonl",
+   "archive": "p3-raw-2026-10-07-hc1-ff2679cc8.tar.gz",
+   "sha256": "c13b5fd21e0d1d34a69c3927b4a1a2e25cecfb52cde17859c164db6aeeb02f92"
+  }
+ ],
+ "files": [
+  {
+   "path": "<W>\\in/pilot.json",
+   "origin": "git show b0d6839:lab/analysis-inputs/laptop-w/pilot.json",
+   "role": "--pilot: the new pilot entry's simulation output",
+   "logged_in": "The new pilot entry, with W's pilot on the laptop's Windows (bcf74b4), item 3",
+   "sha256": "d31d54cce5774de2ca04005ebb82ba6e1885f87ad8d4c5fecba45fca5b1728ed"
+  },
+  {
+   "path": "<W>\\in/rule_e.json",
+   "origin": "git show b0d6839:lab/analysis-inputs/laptop-w/rule_e.json",
+   "role": "--rule-e (bytes equal to lab/analysis-inputs/rule_e.json)",
+   "logged_in": "Rule E's choices on the laptop's Windows (5091d9f), item 3",
+   "sha256": "fb50302aa4e42fc453e7230ed6472e0010f7ac98f1fab96b3daf7ead5ca2dec5"
+  },
+  {
+   "path": "<W>\\in/seeds.json",
+   "origin": "git show b0d6839:design/seeds.json (equal to the clone's design/seeds.json)",
+   "role": "--seeds",
+   "logged_in": "The seeds of section 4.7 (M7d), item 7",
+   "sha256": "3a2dd43623aa96190b5b3fac737d96af5a8fabed9853a82233c3a3c9f4c35b3e"
+  },
+  {
+   "path": "<W>\\in/gate-L.json",
+   "origin": "git show b0d6839:lab/gates/gate-L.json",
+   "role": "--gate (L's rows)",
+   "logged_in": "The code freeze, item 5",
+   "sha256": "c6517177d497dc7f6951d2860926e950618a17cd6b1fc9568e0f8375ccfc1ab9"
+  },
+  {
+   "path": "<W>\\in/gate-W.json",
+   "origin": "p3-gate-w-5.tar.gz: p3-gate-w-5/out/rec/gate-W.json",
+   "role": "--gate (the laptop's W rows)",
+   "logged_in": "W's runs on the laptop's Windows, item 10; the new pilot entry, item 4",
+   "sha256": "96248c8fecbf5595ba9b99ced158317c4bb793f23176e3d87df31bc7a8371e03"
+  }
+ ],
+ "not_inputs": [
+  {
+   "what": "every row of the desktop (wp1, wre1, wc1, wc2, wm1, wh1, ws1)",
+   "why": "the move's entry, item 9: no row of the desktop enters any analysis; only the laptop's gate-W.json is given, which binds no desktop row"
+  },
+  {
+   "what": "the pilot rows (L's pl1 and the laptop's p3-pilot-w)",
+   "why": "the pilot enters only through pilot.json (4.6, section 9.2); the laptop's pilot archive was checked, its rows not read"
+  },
+  {
+   "what": "rule E's development rows (p3-rule-e-w)",
+   "why": "development sessions; rule E enters through rule_e.json"
+  },
+  {
+   "what": "mr1, bf1, sl1",
+   "why": "as in October: development data (mr1, bf1) and sl1 evidence only (9830457)"
+  },
+  {
+   "what": "hard-case rows and hc1 for analyse.py",
+   "why": "analyse.py reads none (not_produced); paper/hardcase_macros.py reads them (the 2026-10-07 reading)"
+  },
+  {
+   "what": "p3-guard-w",
+   "why": "suites and a sha256 check of rule E's file before block 2b; no rows"
+  }
+ ],
+ "runs": {
+  "out1": {
+   "summary.json": "f1daa8781a0f0b20eca2c96141503b8c9195dfe45064653298f55a8c90cedd55",
+   "decisions.csv": "82f9acdd74ebb780262c436eb20609b05939cd914c960a390842a07b36f78239",
+   "macros.tex": "525449f7a8e0a89da64a15d938a7d21084f393e1b6a0455949954b21cb20ff5f"
+  },
+  "out2": {
+   "summary.json": "f1daa8781a0f0b20eca2c96141503b8c9195dfe45064653298f55a8c90cedd55",
+   "decisions.csv": "82f9acdd74ebb780262c436eb20609b05939cd914c960a390842a07b36f78239",
+   "macros.tex": "525449f7a8e0a89da64a15d938a7d21084f393e1b6a0455949954b21cb20ff5f"
+  }
+ },
+ "runs_identical": true,
+ "hardcase_runs": {
+  "hc1": "19f7d47c811bc06a289ff98b9deb60ec34737b3a877fe7204f56e8b941eacfc9",
+  "hc2": "19f7d47c811bc06a289ff98b9deb60ec34737b3a877fe7204f56e8b941eacfc9"
+ },
+ "hardcase_runs_identical": true,
+ "results": "results/laptop-w/: summary.json, decisions.csv and macros.tex from out1; hardcase-macros.tex from hc1; this file; SHA256SUMS",
+ "working_dir": "<W> = C:\\Users\\alext\\lab\\p3\\laptop-w-analysis on the desktop (outside git); each archive extracted into its own fresh folder under <W>\\x (laptop) or <W>\\xL (L, October)",
+ "made_by": {
+  "script": "<W>\\scripts\\make_provenance.py",
+  "sha256": "73bfe795225218bef646cb29b740becdd77df03f3bf46a4b331026c2256b7df3"
+ }
+}

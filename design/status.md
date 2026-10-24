@@ -8391,6 +8391,137 @@ the release, the anonymous download check of every asset and the Papers bump) ar
 (`~/lab/`) and W (`C:\Users\alext\lab\`). They run once Alex clears W's process names and
 Defender state (section 2).
 
+## The frozen analysis on the laptop's W rows, 2026-10-25
+
+The frozen analysis (section 13) once more, as the move's entry ("W's runs on the laptop's Windows
+(a later change under section 8)"), items 8 (b) to (d) and 9, and the new pilot entry (bcf74b4),
+items 7 and 13, order it: `ANALYSIS_COMMIT` e61e78f unchanged, on L's rows of October and the
+laptop's W rows, with the new pilot entry's output, never on a desktop row. Run on the desktop
+(no timing, no laptop contact), twice. The outputs are in `results/laptop-w/`; no October file
+under `results/` changes. This section records the runs, their inputs and the outcomes in the
+frozen wording; it interprets nothing.
+
+Why a section here and no revision-log entry: no rule of the frozen text and no entry asks for an
+entry after the analysis (the move's entry, items 8 (d) and 9, and the new pilot entry, item 13,
+say only that it runs, where it writes, and that any L decision that differs from October's is
+reported with both), and every entry states that its figures are not results. October's analysis
+was recorded the same way, in "The confirmatory analysis on W, 2026-10-07".
+
+### 1. The laptop's jobs: validity counts (rows read, no arm compared)
+
+Every archive checked against its `.sha256` before extraction, each into its own fresh folder
+under `<A>` = `C:\Users\alext\lab\p3\laptop-w-analysis` (`<A>\sha256-check.txt`). Times are the
+command's, from each job's `record.json` (+0300); every job's quiet check passed, the lab plan
+active with boost 0, `LAB_QUIET=passed:<job>`, exit 0.
+
+| Job | Archive sha256 | Command | Rows | Valid | Sessions | Reruns | Invalid windows |
+|---|---|---|---|---|---|---|---|
+| `p3-pilot-w` (block 1) | ba01c82f | 10-24 03:36:06 to 09:24:43 | 768 windows; 128 timer runs; 80 split replicates | all | 192 | 0 | 0 |
+| `p3-rule-e-w` (2a) | 5a0d5f09 | 10:50:25 to 11:07:00 | 24 (development) | 24 | 6 | 0 | 0 |
+| `p3-guard-w` | 5ee805a7 | 12:20:21 to 12:21:18 | no rows | | | | |
+| `p3-cost-w` | 9749e183 | 12:23:29 to 17:24:19 | 724 | 723 | 181 | 1 | 1 |
+| `p3-m1-w` | bd5210db | 17:36:09 to 18:54:57 | 128 | 128 | 32 | 0 | 0 |
+| `p3-hard-w` | e8bcbcde | 18:56:38 to 19:19:58 | 5,248 runs, 12 server checks | 5,248 passed | | | |
+| `p3-s10-w` | 7eec2480 | 19:21:46 to 10-25 00:05:38 | 592 | 512 | 148 | 4 | 80 |
+
+- `p3-guard-w`: `test_frozen` 67 checks (2 skipped), `test_wlaptop` 43, `test_wfrozen` 26,
+  `test_wrunner` 22 of 22 with `cycle_rate_reading` run (PASS), `test_runner` 63 (13 skipped); rule
+  E's file in the clone fb50302a.
+- `p3-cost-w`: 10 cells, each 18 valid sessions (W's R). One invalid window,
+  C3.W.IOCP.http1.s08 position 0 arm B ("errors 0.128% > 0.1%", "736 connects failed"); the session
+  ran again once (`.r1`), valid. `not-run-p3costw.json`: cells 10 and 12, outside the family.
+- `p3-m1-w`: M1.W.IOCP.http1 and M1.W.IOCP.h2c, 16 of 16 each.
+- `p3-hard-w`: entries IOCP replay and IOCP peek, in-process, 2,624 runs each; no row with a
+  non-empty `b1` or `b2_failed`; 12 server checks, all ok.
+- `p3-s10-w`: 8 cells 16 of 16, no invalid window; S.ssh.C2.W.IOCP 0 of 16, its 16 sessions and the
+  4 reruns of its cap, every window invalid (opgen exit 2, no report: the logged keep-alive SSH
+  defect, as expected). Its M1 TTFB rates are from `p3-m1-w`'s rows (medians recomputed from them:
+  equal). Not run: TLS resumption and the 2-core IOCP cell (`not-run-p3s10w.json`).
+- Rows of the four block 2b jobs: every one `development` false, `change_commit` d22ae16, head
+  5091d9f, CODE_FREEZE ff2679c; no row with `misclassified` above 0.
+
+### 2. The run
+
+- Code: `<A>\src`, a clone of the worktree with `core.autocrlf` false, checked out at e61e78f
+  (`HEAD:analysis` aec0dbda, the same tree as the branch tip b0d6839's); `bench/check_rows.py`
+  (b6f6893a) and `bench/run/footprint.py` (6ce70525) are CODE_FREEZE's blobs; status clean;
+  `versions.analysis_commit` e61e78f, `analysis_dirty` false.
+- Runtime: October's venv `C:\Users\alext\lab\p3\confirm1\venv`, Python 3.14.5, numpy 2.5.0
+  (`versions.require` passed); Python with `-I -X utf8` (isolated, UTF-8 mode).
+- Command: `<A>\scripts\run_analysis.sh OUT`: `analyse.py` with the seven row files in October's
+  order (cost-L pc1, the laptop's cost, m-L ml1, the laptop's M1, b3-L bk1-bs1, s-L sl3, the
+  laptop's section 10), `--gate` L's `gate-L.json` (c6517177) and the laptop's `gate-W.json`
+  (96248c8f, from `p3-gate-w-5`) alone, `--pilot` the new pilot entry's output (d31d54cc),
+  `--rule-e` the laptop's rule E file (fb50302a), `--seeds` (3a2dd436); then `macros.py`. Run into
+  `<A>\out1` (00:53:23 to 00:53:35) and `<A>\out2` (to 00:53:47).
+- Inputs by sha256: L's rows ee257a16, 26b971a6, 0fcba90d, 77955a0c (as in October); the laptop's
+  e2add5ec (cost), 54e398be (M1), 7d133493 (section 10). The gate bound all 10,381 rows, none left
+  out.
+- Outputs, byte-identical in both runs: `summary.json`
+  f1daa8781a0f0b20eca2c96141503b8c9195dfe45064653298f55a8c90cedd55, `decisions.csv`
+  82f9acdd74ebb780262c436eb20609b05939cd914c960a390842a07b36f78239, `macros.tex`
+  525449f7a8e0a89da64a15d938a7d21084f393e1b6a0455949954b21cb20ff5f (2,135 macros). `macros.py` run
+  again on the committed `summary.json` writes the same file.
+- B1 and B2: `paper/hardcase_macros.py` (the reading of 2026-10-07, item 4; the clone's file equals
+  b0d6839's) by `<A>\scripts\run_hardcase.sh`, with L's hl1 (rows 661f1cf9, table 958468ca), the
+  laptop's p3hardw (rows 9fbb7d5a, table c9abfb3f), the new `summary.json`'s `b1_failures` and
+  hc1's descriptive table (c13b5fd2), twice, byte-identical: `hardcase-macros.tex`
+  19f7d47c811bc06a289ff98b9deb60ec34737b3a877fe7204f56e8b941eacfc9 (235 macros). Against October's
+  file only W's lines and the inputs differ; every `HardcaseL` and `CompCase` line is the same.
+- `results/laptop-w/`: `summary.json`, `decisions.csv`, `macros.tex` (from out1),
+  `hardcase-macros.tex`, `provenance.json` (made by `<A>\scripts\make_provenance.py`: every archive,
+  row file and input with its sha256, the code, the runtime, the commands, what was left out),
+  `SHA256SUMS`.
+
+### 3. What the outputs state, in the frozen wording
+
+- `analyse.py`'s lines: "C: 29 of 31 Holm cells pass under both computations"; "B3: 14 of 18";
+  "M: 15 of 20". No cell has the two computations disagreeing.
+- `summary.json`: Holm m 31, 18 and 20; `R_C_by_host` L 28, W 18 (`R_C` 18 reported);
+  `CostRL` 28 and `CostRW` 18, no `CostR`; `b1_failures` empty; all 12 `c3_rates` equal the
+  pilot's λ (W's four the new pilot entry's); K_BASE from bk1's 16 valid `ophold` windows of 17, as
+  in October; 285 section 10 entries, 173 with an interval and 112 without.
+- Cost family, 31 cells (24 L at R 28, 7 W at R 18), Holm as one family: C1 10 of 10, C2 12 of 12,
+  C3 7 of 9 "equivalent within [0.98, 1.02]". The two that do not pass are L's, as in October:
+  C3.L.epoll.h2c "equivalence not shown; a measured cost (the 95% interval lies wholly outside the
+  margin, against one-port mode)"; C3.L.io_uring.h2c "equivalence not shown". W's 7 resolved cells
+  (C1.W.IOCP.http1, C1.W.IOCP.tls, C2.W.IOCP.http1, C2.W.IOCP.h2c, C2.W.IOCP.tls, C2.W.IOCP.mqtt,
+  C3.W.IOCP.http1) all "equivalent within [0.98, 1.02]". C3.W.IOCP.h2c, C3.W.IOCP.tls and
+  C3.W.IOCP.mqtt "not resolved at R <= 32" (18 valid sessions each). C1.W.IOCP.h2c and
+  C1.W.IOCP.mqtt "outside the confirmatory cost family: generator-bound on W (Alex's decision of
+  2026-10-04; revision log, entry W before the code freeze, item 1)".
+- Section 12's claims of "no measurable cost" (`claims.C`): L epoll http1, tls, mqtt; L io_uring
+  http1, tls, mqtt; W IOCP http1 (joint power 0.7840 at R 18, the new pilot entry's item 8). No
+  claim on W for h2c, tls or mqtt (C1 outside the family, or C3 not resolved).
+- Mechanism family: M1 5 of 6 "shown"; M1.W.IOCP.http1 "shown", M1.W.IOCP.h2c "a difference was
+  not shown". M2 2 of 4 (the two TLS cells "a difference was not shown; untested: 0 valid
+  sessions, fewer than R = 16 (4.1)"); M3 8 of 10 (sslh-ev's two "not shown; untested: 0 valid
+  sessions, fewer than R = 16 (4.1)").
+- B3: 14 of 18; every B3 row of `decisions.csv` equals October's (B3 has no W cell).
+- B1 "holds" and B2 "holds" (`\BOneVerdict`, `\BTwoVerdict`): 0 deviations and 0 failed checks on
+  L (20,992 runs) and the laptop's W (5,248 runs); every server check ok (52 and 12).
+- Section 10 (secondary, deciding nothing): of W's 9 cells, 8 have 16 valid sessions and an
+  interval; S.ssh.C2.W.IOCP has none (0 valid sessions, no draw); TLS resumption and the 2-core
+  IOCP cell have none (not run). W's cost cells by lab job: one lab job, so no interval ("fewer
+  than 2 lab jobs").
+- L against October (the move's entry, item 8 (d)): no L decision differs. In every family no L
+  cell differs in `passes`, `pass_boot`, `pass_sign`, `disagree`, `tested` or `verdict`. What
+  differs, as item 8 (d) foresaw: in the cost family the Holm ranks and thresholds (m 31 for 32),
+  the Holm-adjusted p-values and the intervals at Holm's level of the L cells, and the BCa
+  p-values of the L cells drawn after cell 9 (for some of them also an end of the 95% interval);
+  the L cells before cell 9 keep their BCa values; M1.L.epoll.http1 and
+  M1.L.epoll.h2c differ in Holm rank and threshold alone. B3, M2 and M3 rows are October's. Of
+  section 10's 218 L entries, 113 equal October's and 105 differ (the stream after the first W
+  draw). Per cell: `<A>\compare-out1-october.json`.
+
+### 4. Left out, and why
+
+- Every desktop row (wp1, wre1, wc1, wc2, wm1, wh1, ws1): the move's entry, item 9. Only the
+  laptop's `gate-W.json` was given, which binds none of them.
+- The pilot rows of both hosts (the pilot enters through `pilot.json`), rule E's development rows,
+  mr1, bf1, sl1: as in October.
+- `analyse.py` reads no hard-case row and no hc1 row; `paper/hardcase_macros.py` does.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
