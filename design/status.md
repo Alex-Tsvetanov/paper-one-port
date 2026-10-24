@@ -8439,6 +8439,14 @@ active with boost 0, `LAB_QUIET=passed:<job>`, exit 0.
   equal). Not run: TLS resumption and the 2-core IOCP cell (`not-run-p3s10w.json`).
 - Rows of the four block 2b jobs: every one `development` false, `change_commit` d22ae16, head
   5091d9f, CODE_FREEZE ff2679c; no row with `misclassified` above 0.
+- What each block 2b job read (each `record.json`'s command): `--pilot
+  lab\analysis-inputs\laptop-w\pilot.json`, `--rule-e lab\analysis-inputs\laptop-w\rule_e.json`,
+  `--gate C:\lab\jobs\p3-gate-w-5\out\rec\gate-W.json`; `p3-s10-w` also `--m-rows
+  C:\lab\jobs\p3-m1-w\out\m\out\windows.jsonl`. The guard checks the pilot output against
+  CODE_FREEZE alone, so this is read from the commands, and from the rows: the cost cells ran at
+  R 18 with W's four λ of the new pilot entry, and HC7's 64 runs wrote at T_fb + 16 ms (3,015.9 to
+  3,016.9 ms after the start, `HC07.late`) and T_fb - 16 ms (2,983.6 to 2,984.6 ms, `HC07.twin`),
+  so at the new `G_W` of 16 ms.
 
 ### 2. The run
 
@@ -8453,7 +8461,9 @@ active with boost 0, `LAB_QUIET=passed:<job>`, exit 0.
   laptop's section 10), `--gate` L's `gate-L.json` (c6517177) and the laptop's `gate-W.json`
   (96248c8f, from `p3-gate-w-5`) alone, `--pilot` the new pilot entry's output (d31d54cc),
   `--rule-e` the laptop's rule E file (fb50302a), `--seeds` (3a2dd436); then `macros.py`. Run into
-  `<A>\out1` (00:53:23 to 00:53:35) and `<A>\out2` (to 00:53:47).
+  `<A>\out1` (00:53:23 to 00:53:35) and `<A>\out2` (to 00:53:47). The new pilot entry, item 13,
+  says the analysis "runs once": the second run repeats the one analysis to check its bytes, as in
+  October, and nothing was chosen between them.
 - Inputs by sha256: L's rows ee257a16, 26b971a6, 0fcba90d, 77955a0c (as in October); the laptop's
   e2add5ec (cost), 54e398be (M1), 7d133493 (section 10). The gate bound all 10,381 rows, none left
   out.
