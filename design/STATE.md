@@ -252,26 +252,51 @@ timer runs, 80 split replicates, every one valid, no rerun; all 976 rows name ch
   that cp1252 cannot decode.
 - Rule E comes first (the move's entry, item 14; section 8 rule E): every W runner of the cost,
   M1, hard-case and section 10 jobs takes `--rule-e`, and the guard clears that file only if its
-  sha256 was first logged after the pilot entry's commit. So block 2 is 2a (rule E's sessions), a
-  desktop step D (the decision and its entry), then 2b.
-- Open, blocks 2b (for the coordinator and Alex): if the laptop's sessions keep replay on IOCP
-  (October: peek's operations per connection 6.08 against 4.47), `rule_e.py decide` writes October's
-  choices again. Written with LF (as on L) its sha256 is October's fb50302a..., first logged in
-  77cedae, so the guard refuses every 2b job. On Windows, `decide` writes CRLF (`Path.write_text`):
-  October's evidence decided on the desktop gives 42299c5d..., whose LF form is fb50302a. Options:
-  (b) decide on the desktop and commit that CRLF file (git keeps its bytes: `core.autocrlf` false,
-  no `text` attribute), the rule E entry saying that its bytes differ from October's file only by
-  line endings and that this is why the guard accepts it; no code change; (a) a later change of
-  `bench/run/freeze_guard.py` (accept a rule E line added after the pilot entry even when the
-  file's hash was logged before), with its entry, CHANGE_COMMIT, review and the laptop's runner
-  tests. Recommendation: (b), disclosed in the entry; it needs no code change and the order the
-  guard enforces holds (the choice is made from the laptop's evidence and logged after bcf74b4).
-  Checked for (b) on the desktop: in a throwaway clone of d313456 with a scratch commit (never
-  pushed) holding the CRLF file and a "rule E" line with 42299c5d..., a second clone with
-  `core.autocrlf=false` kept the bytes and the guard cleared it with the new pilot output. The
+  sha256 was first logged after the pilot entry's commit, or, from d22ae16 on, is logged again
+  inside the entry "Rule E's choices on the laptop's Windows" after it. So block 2 is 2a (rule E's
+  sessions), a desktop step D (the decision and its entry), then 2b.
+- The open point on rule E's file (the laptop keeping October's choices, so October's bytes, sha256
+  fb50302a..., first logged in 77cedae, before bcf74b4) is closed by Alex's option (a) of
+  2026-10-24; option (b), committing CRLF bytes (42299c5d...) to change the hash, is rejected. The
   analysis reads rule E's file and the pilot output by content only (`analyse.py` binds no row to
-  their sha256), so L's October rows and the laptop's W rows can enter one run under either option.
-  `--blocks`: `wpilot_run.py` opened the same default file in block 1, so the default stands.
+  their sha256). `--blocks`: `wpilot_run.py` opened the same default file in block 1, so the
+  default stands.
+- The guard's change (a later change under section 8), entry "Rule E's file logged again after the
+  new pilot entry (a later change under section 8)": db52adc (items 1 to 7, committed before the
+  code), code 2244a6e, then d22ae16 (the review's fixes), item 8 in 1afcf90 (CHANGE_COMMIT
+  d22ae16b8fa5a8fbda5c0b2bbff737241757c8d5, and the corrections). `freeze_guard.py`: rule E's file
+  whose sha256 was first logged by a commit that does not come after the pilot entry's is cleared
+  only if a commit after it (never a merge) adds a line with "rule E" and the whole sha256 inside an
+  entry headed "Rule E's choices on the laptop's Windows" (`RULE_E_LAPTOP_ITEMS`), and HEAD holds
+  more such lines than the pilot entry's commit; the clearance names that commit `logged_in` and
+  the first logging `first_logged_in`. The pilot output's and M2_RATE's checks are unchanged.
+  Python under `bench/run` alone (`freeze_guard.py`, `test_frozen.py`, `test_wlaptop.py`); no
+  compiled file, so the laptop's record and `gate-W.json` stand. The entry names no sha256 in full,
+  so that it cannot clear October's file itself (a test checks it).
+  - Review (fresh Opus agent, given the diff, the entry and the problem text only): 0 CRITICAL;
+    1 HIGH, fixed in d22ae16: any later line with "rule E" and October's whole sha256 (a stray
+    quote in any later entry) would have cleared that file before the decision, so the line counts
+    only inside the entry headed with the title (item 8 (a)); 3 MEDIUM: the real-history test chose
+    its state with the function it tests and read the file at HEAD (fixed: it always starts on a
+    branch at bcf74b4 with October's bytes read from bcf74b4, and at HEAD accepts a refusal or a
+    clearance by a commit after the last change's that holds the rule E entry), a rewrite of the
+    file at HEAD would confuse it (fixed by the same), a CRLF checkout refuses the intended case
+    (a refusal, never a wrong clearance; block 2's clones are LF; item 8 (f)); 5 LOW, all taken:
+    `--no-merges` stated, item 3 (b)'s "still there" overstated (item 8 (c)), the partial-hash test
+    is a regression guard (item 8 (d)), the UTF-8 mock only where the locale is cp1252, docstring
+    and the 7-character commits (item 8 (g)). Mutation runs on the desktop: removing any one new
+    check fails a test, except `--no-merges`, which states git's default for `-S`.
+  - Checks (desktop, no timing; fresh LF clone at 1afcf90; the guard in UTF-8 mode, with the
+    laptop's `gate-W.json` 96248c8f... from `p3-gate-w-5`'s archive, checked): the guard clears with
+    the new pilot output and `wrunlib.ENTRIES`, `change_commit` d22ae16; with October's rule E file
+    it refuses (first logged in 77cedae, no line in the rule E entry); a throwaway clone with one
+    commit (002dfe3, never pushed, no remote) adding the rule E entry's heading and October's whole
+    sha256 clears it, `logged_in` 002dfe3, `first_logged_in` 77cedae. Suites from that clone, in
+    UTF-8 mode: `test_wlaptop` 43, `test_wfrozen` 26, `test_frozen` 67 (2 skipped), `test_wrunner`
+    22 of 22 (`cycle_rate_reading` laptop-only), `test_runner` 63 (13 skipped). Under Windows'
+    cp1252 locale without UTF-8 mode, `test_wlaptop`'s older `test_probe_commit_from_item_9` errors
+    at every commit (line 418 of the frozen text holds bytes cp1252 cannot decode, the guard's known
+    bug); the new real-history test handles both modes.
 
 Common to every block 2 job: a one-port clone with `core.autocrlf=false`; spec `quiet` true,
 `boost` false; the command prefix of block 1 (`cd /d "%LAB_SRC%" && set "PATH=C:\Program
@@ -286,7 +311,13 @@ probe's means (the move's entry, item 12: churn 34.01 s, open loop 34.06 s, keep
 window, 7.27 s a session's reading, 114.5 s a job's warm-up), reruns not counted; `timeout_s` three
 times that, rounded up to 100 s. Each job's whole `out` folder is archived.
 
-- 2a `p3-rule-e-w`, commit bcf74b4, after push 1. Plain: rule E's 6 development sessions of
+- 2a `p3-rule-e-w`, commit bcf74b4, after push 1. Ran (coord., 2026-10-24): exit 0, its command
+  10:50:25 to 11:07:00 by `record.json`, the job's end 11:08:30 (coord.); archive
+  `C:\Users\alext\lab\laptop-archive\gap6-w-q2-p3-rule-e-607076e4\p3-rule-e-w.tar.gz`, sha256
+  5a0d5f09cbac058884ac68cb50e3e90eab832c5bdb18c99c3786f525dd7516f9, checked; 24 windows, every one
+  valid, 6 valid sessions, no rerun; every row names change_commit 6abd28e. The evidence keeps replay
+  on IOCP (peek over replay 0.928 to 0.941 per session; operations per connection 6.02 against
+  4.02). Plain: rule E's 6 development sessions of
   HTTP/1.1 churn on the laptop's IOCP, replay against peek, which decide W's default detection
   mode. Run: prefix, then `C:\Python314\python.exe bench\run\wjob.py run --dir "%LAB_OUT%\rule"
   --name p3rulew -- C:\Python314\python.exe bench\run\wrule_e.py --out "%LAB_OUT%\rule\out" --job
@@ -296,14 +327,42 @@ times that, rounded up to 100 s. Each job's whole `out` folder is archived.
   (development rows), provenance, plan, summary, warm-up and raw folders. Outputs `out/rule/out/
   rule_e_evidence_W.json`, `out/rule/out/windows.jsonl`, `out/rule/out`, `record.json`.
   `expected_s` 975 (6 sessions of 143.31 s plus the warm-up), `timeout_s` 3,000.
-- D, on the desktop (no timing): check 2a's archive; from a clone at bcf74b4, `rule_e.py decide
-  --evidence-l <rule-e-L/rule_e_evidence_L.json from p3-raw-2026-10-05-re1-wre1-ff2679cc8.tar.gz,
-  sha256 6787824f...> --evidence-w <2a's rule_e_evidence_W.json> --out
-  lab/analysis-inputs/laptop-w/rule_e.json`; the rule E entry (rule E's choice on the laptop's IOCP;
-  the file's sha256 on a line with "rule E"; the evidence's sha256) with the file, in one commit
-  RE; the guard check with `--rule-e` in a fresh clone at RE (must clear); push 2. Blocked on the
-  open point above.
-- 2b, each at commit RE, in this order (the move's entry, item 14), after push 2:
+- D, on the desktop (no timing), done 2026-10-24: 2a's archive checked (above) and extracted into
+  a fresh scratch folder; L's evidence `rule-e-L/rule_e_evidence_L.json` (6787824f..., checked) from
+  `p3-raw-2026-10-05-re1-wre1-ff2679cc8.tar.gz` (8f9a93b4..., checked against its `.sha256` and
+  `lab/archives.sha256`); `rule_e.py decide` from a fresh LF clone at 1afcf90, run unchanged
+  through a scratch wrapper that makes `Path.write_text` write LF (no CRLF file was made): replay
+  on every backend, user-space relay buffers, the zero-byte form, so October's choices, and the
+  file is byte for byte `lab/analysis-inputs/rule_e.json` (sha256 fb50302a..., 0 CR bytes). RE =
+  5091d9f69b9456238872734a02f63ded2322a7b5: the entry "Rule E's choices on the laptop's Windows"
+  (4 items; the one line with "rule E" and the file's whole sha256; the evidence by sha256) and
+  `lab/analysis-inputs/laptop-w/rule_e.json`. RE descends from the guard's change (d22ae16) and
+  its item 8 (1afcf90). Check in a fresh LF clone at 5091d9f (guard in UTF-8 mode, the laptop's
+  `gate-W.json`): `freeze_guard.check` with `--rule-e lab/analysis-inputs/laptop-w/rule_e.json`,
+  the new pilot output and `wrunlib.ENTRIES` clears; `rule_e.logged_in` 5091d9f,
+  `first_logged_in` 77cedae, `change_commit` d22ae16; `test_wlaptop` 43 and `test_frozen` 67 (2
+  skipped) pass there.
+- `p3-guard-w`, after push 2 and before 2b, at RE 5091d9f (or the branch's later docs commit; both
+  hold the change). Plain: the freeze guard's changed tests and the other runner suites on the
+  laptop's Windows, and a check that the clone's rule E file has the committed LF bytes, so block
+  2b starts on a guard proven on this host. Run: prefix, then `set "PYTHONUTF8=1" &&
+  C:\Python314\python.exe bench\run\test_frozen.py > "%LAB_OUT%\test_frozen.log" 2>&1 &&
+  C:\Python314\python.exe bench\run\test_wlaptop.py > "%LAB_OUT%\test_wlaptop.log" 2>&1 &&
+  C:\Python314\python.exe bench\run\test_wfrozen.py > "%LAB_OUT%\test_wfrozen.log" 2>&1 &&
+  C:\Python314\python.exe bench\run\test_wrunner.py > "%LAB_OUT%\test_wrunner.log" 2>&1 &&
+  C:\Python314\python.exe bench\run\test_runner.py > "%LAB_OUT%\test_runner.log" 2>&1 &&
+  C:\Python314\python.exe -c "import hashlib,sys; d=hashlib.sha256(open(r'lab\analysis-inputs\laptop-w\rule_e.json','rb').read()).hexdigest(); print(d); sys.exit(d != 'fb50302aa4e42fc453e7230ed6472e0010f7ac98f1fab96b3daf7ead5ca2dec5')"
+  > "%LAB_OUT%\rule_e_sha256.txt" 2>&1`, all on one line, stopping at the first failure. Spec
+  `quiet` true, `boost` false, an LF clone (`core.autocrlf=false`), the block 2 prefix (VS ninja
+  first on PATH, `PYTHONPATH` the venv's site-packages, `PYTHONNOUSERSITE=1`); `PYTHONUTF8=1` is
+  set in the job's own process only (the guard's cp1252 bug; W's frozen runs use UTF-8 mode). It
+  times nothing and needs no build. Writes the six logs under `%LAB_OUT%`. Expected on the laptop:
+  `test_frozen` 67 checks (2 skipped), `test_wlaptop` 43, `test_wfrozen` 26, `test_wrunner` 22 of 22
+  with `cycle_rate_reading` run on CPU 14, `test_runner` 63 (13 skipped), the sha256 fb50302a....
+  `expected_s` 180 (desktop, this session: the five suites 59 s; plus the cycle-rate reading and
+  the clone), `timeout_s` 900. Its result goes here before 2b.
+- 2b, each at RE 5091d9f (or a later commit of this branch whose frozen paths equal d22ae16's), in
+  this order (the move's entry, item 14), after push 2 and `p3-guard-w` exit 0:
   - `p3-cost-w`. Plain: the cost family on the laptop's Windows, W's 10 cost cells, one-port against
     dedicated mode, 18 sessions each; the confirmatory runs of the 7 resolved cells. Run: prefix,
     `C:\Python314\python.exe bench\run\wjob.py run --dir "%LAB_OUT%\cost" --name p3costw --
@@ -346,9 +405,10 @@ times that, rounded up to 100 s. Each job's whole `out` folder is archived.
   (03:25:45 to 09:24:45; 6.1 h to the archive at 09:42) plus 12.52 h is 18.50 h (18.62 h with
   6.1), at most 19.35 h; inside Alex's 16.5 to 22.3 h. The move's entry's 21.41 h was at R = 28;
   at R = 18 its formula gives 18.54 h.
-- Pushes (Alex's yes, through the coordinator): push 1, `laptop-w-bringup` 165c2dd to this
-  commit (the new pilot entry needs its public timestamp before rule E's one-port windows and
-  any block 2 data); push 2, the rule E entry, before 2b.
+- Pushes (Alex's yes, through the coordinator): push 1, `laptop-w-bringup` 165c2dd to bf71179,
+  done (the new pilot entry's public timestamp before rule E's one-port windows); push 2, approved,
+  the coordinator makes it before `p3-guard-w` and 2b: bf71179 to this branch's tip (db52adc,
+  2244a6e, d22ae16, 1afcf90, RE 5091d9f and the STATE commit after it).
 - Later, not now: `paper/design_macros.py`'s W patterns (λ, `G_W`) and `CHANGE_COMMIT` now match
   more than once in the log; the writing pack takes W's values from this entry. `lab/README.md`
   does not list `analysis-inputs/laptop-w/` yet.
@@ -385,9 +445,13 @@ Pending, asked in his format only when it arises:
 1. After job a0, and only if it reads TCP values other than 30 s and start 1025 with 64,510 ports: the
    administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
    before the probe.
-2. Before block 2b: how rule E's file passes the guard when the laptop keeps October's choices
-   (option (b), the desktop's CRLF file disclosed in the rule E entry, or (a), a later change of
-   `freeze_guard.py`; "The new pilot entry (bcf74b4) and block 2" above). And the two pushes.
+
+Answered (Alex, 2026-10-24, relayed by the coordinator): how rule E's file passes the guard when the
+laptop keeps October's choices: option (a), a later change of `freeze_guard.py` (the guard accepts
+rule E's file whose sha256 is logged again in the entry, made after the new pilot entry, that
+records the new decision and its evidence); option (b), the CRLF file, rejected. Both pushes
+approved: the pilot entry's, done to bf71179; the rule E entry's, before 2b, which the coordinator
+makes (it carries the guard's change, its entry and RE 5091d9f).
 
 Alex's laptop-plan decisions of 2026-10-23 (relayed by the coordinator): D1, no Arch package
 upgrades until P4's Arch blocks end, extra versions side by side under `~/opt`. It touches P3 only
