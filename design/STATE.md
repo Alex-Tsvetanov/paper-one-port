@@ -422,6 +422,60 @@ times that, rounded up to 100 s. Each job's whole `out` folder is archived.
   more than once in the log; the writing pack takes W's values from this entry. `lab/README.md`
   does not list `analysis-inputs/laptop-w/` yet.
 
+### Block 2b ran; the frozen analysis on the laptop's W rows (2026-10-25)
+
+W's campaign on the laptop is complete (block 2b, queue `gap7-w-q1-p3-block2b-91d3c941`, each job
+exit 0, archives checked). Validity, read from the rows: `p3-guard-w` the five suites passed
+(`cycle_rate_reading` run) and rule E's file fb50302a; `p3-cost-w` 724 rows, 723 valid, 10 cells
+at 18 valid sessions, one rerun (C3.W.IOCP.http1.s08, error share and failed connects);
+`p3-m1-w` 128 of 128, 16 and 16; `p3-hard-w` 5,248 runs passed, 12 server checks ok;
+`p3-s10-w` 592 rows, 512 valid, 8 cells at 16, SSH C2 0 of 16 after its cap of 4 (as expected).
+Every block 2b row names change_commit d22ae16 and head 5091d9f.
+
+- The analysis (desktop, no timing), status.md "The frozen analysis on the laptop's W rows,
+  2026-10-25": `ANALYSIS_COMMIT` e61e78f unchanged, a fresh LF clone, Python 3.14.5 and numpy 2.5.0
+  (October's venv), L's October rows (pc1, ml1, bk1-bs1, sl3; archives checked against
+  `lab/archives.sha256`) and the laptop's (cost, M1, section 10), the new pilot output and the
+  laptop's rule E file and `gate-W.json`; no desktop row. Run twice, byte-identical. Committed in
+  ecc4880 (`results/laptop-w/`: `summary.json` f1daa878, `decisions.csv` 82f9acdd, `macros.tex`
+  525449f7, `hardcase-macros.tex` 19f7d47c, `provenance.json`, `SHA256SUMS`); no October file
+  changed. Working folder `C:\Users\alext\lab\p3\laptop-w-analysis\` (extracted archives, clone,
+  scripts, both runs, the comparison with October, the review's scripts).
+- Outcomes, in the frozen wording: C 29 of 31 (C1 10 of 10, C2 12 of 12, C3 7 of 9); the two not
+  passing are L's, as in October (C3.L.epoll.h2c "equivalence not shown; a measured cost ...",
+  C3.L.io_uring.h2c "equivalence not shown"); W's 7 resolved cells "equivalent within
+  [0.98, 1.02]"; cells 34 to 36 "not resolved at R <= 32"; claims of "no measurable cost" on L
+  epoll and io_uring for http1, tls, mqtt, and on W IOCP for http1 (joint power 0.7840). M 15 of 20:
+  M1 5 of 6 (M1.W.IOCP.http1 "shown", M1.W.IOCP.h2c "a difference was not shown"). B3 14 of 18,
+  rows equal to October's. B1 "holds", B2 "holds". Section 10: 8 of W's 9 cells have an interval.
+  No L decision differs from October's (item 8 (d)); Holm ranks, thresholds and the L cells' BCa
+  values after cell 9 move, as foreseen.
+- Results entry: none in the revision log. No rule or entry asks for one, and entries hold no
+  results; the record is the status.md section, as October's was.
+- Review (fresh Opus agent, frozen text, inputs and outputs only): cells 9, 13, 35, M1.W.IOCP.http1
+  and both Holm families recomputed from the rows; all agree. One LOW (cells 10 and 12's verdict
+  text names the desktop's reason; frozen `analysis/cells.py`, recorded, not changed) and four
+  observations for the writing pack (status.md, that section, 5).
+
+Next:
+1. The writing pack (`writing/` in Papers' p3 folder), from the frozen files and the generated
+   results only. `results/laptop-w/macros.tex` has October's macro names but replaces
+   `results/macros.tex` (never both loaded): it drops 35 names (`CostR`, the W TLS joint power,
+   C3.W.IOCP.tls's Holm macros, W's by-job macros) and adds `CostRL` and `CostRW`, so the paper's
+   `\RC` and `\CostR` become those two. `results/laptop-w/hardcase-macros.tex` replaces
+   `results/hardcase-macros.tex` (its L and CompCase lines are October's). Still built from desktop
+   rows and needing laptop versions: `results/report-macros.tex` and its tables,
+   `results/w-evidence-macros.tex` (the pilot's CPU shares of cells 10 and 12; M1's
+   peek-to-replay counts on IOCP), `results/not-run.json`, and W's parts of `b2-macros.tex` and
+   `ops-macros.tex`; also `paper/design_macros.py`'s W patterns (λ, `G_W`) and CHANGE_COMMIT, which
+   now match more than once in the log. The review's LOW and observations go into the pack's
+   method and threats.
+2. Later, Alex's choice of 2026-10-24: harden the freeze guard as a later section 8 change (the
+   delta review's three MEDIUMs: the heading matched as a substring, no append-only check, missing
+   tests; and the flaky test outside the change).
+3. A push of `laptop-w-bringup` (b0d6839 to this branch's tip: ecc4880 and the STATE commit after
+   it) needs Alex's yes; the coordinator asks.
+
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
 1. Done (Papers d50a7ab, 2026-10-23). `lab/laptop/win/labjob.py` and `labjob_inner.py` (run phase): drop any `LAB_QUIET` the job's

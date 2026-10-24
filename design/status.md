@@ -8522,6 +8522,34 @@ active with boost 0, `LAB_QUIET=passed:<job>`, exit 0.
   mr1, bf1, sl1: as in October.
 - `analyse.py` reads no hard-case row and no hc1 row; `paper/hardcase_macros.py` does.
 
+### 5. The review
+
+A fresh Opus agent, given the frozen sections (4, 5.1, 5.3, 6, 12, 13, the move's entry and the
+new pilot entry), the inputs and the outputs, recomputed from the rows: C1.W.IOCP.http1 (cell 9),
+C2.L.epoll.http1 (cell 13, drawn after the first W cell), C3.W.IOCP.tls (cell 35, not resolved),
+M1.W.IOCP.http1, and both families' Holm step-down (31 and 20 cells). It wrote its own ratio,
+median, sign test, BCa (z0 with ties as half, jackknife acceleration, clipping, the p-value as the
+level at which the interval's end meets the bound), Holm and wording from the frozen text, and read
+from `analysis/` only the resampling call, the generator and the sessions' sort. Everything agrees:
+session values bit for bit in all tested cells; medians, sign-test counts and exact p-values, z0,
+intervals, ranks, thresholds, Holm-adjusted p-values, pass flags and verdicts equal; BCa upper-tail
+p-values apart by about 1e-13 relative (its own Φ⁻¹ form). A negative control: without W cells 9
+and 11's draws, cell 13's z0 and p differ, so the committed values match only the joint stream of
+the move's entry, item 8 (d). Its scripts are in `<A>\review\`. No CRITICAL, HIGH or MEDIUM finding.
+
+- LOW, recorded, nothing changed (the text is `analysis/cells.py`'s, at ANALYSIS_COMMIT): the
+  verdict of cells 10 and 12, "outside the confirmatory cost family: generator-bound on W (Alex's
+  decision of 2026-10-04; ...)", names a reason found on the desktop, while on the laptop these
+  cells stay out by their frozen treatment alone (the new pilot entry, item 7; their laptop
+  Power_c 1.000); their `why_untested` cites 4.1 though no cost session was scheduled for them. The
+  writing pack words them from the new pilot entry, item 7.
+- Observations for the writing pack, deciding nothing: section 4.2's floor paragraph says the
+  jackknife acceleration of a median is 0 at even R, which does not hold when session values tie
+  (M2.L.epoll.http1, R 16, a = 0.0589; it passes either way), so the methods do not repeat it
+  unqualified; the intervals use the `inverted_cdf` quantile, which the text does not name; cell
+  35's p-value macros exist and must not be quoted as a test; the plain-text outputs write
+  "R <= 32" where the frozen text writes "R ≤ 32".
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
