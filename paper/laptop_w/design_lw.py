@@ -126,6 +126,10 @@ LAPTOP_SPECS: list[D.Spec] = [
     S("RuleEWSessions RuleEWWindows", H,
       r"(\d+) sessions of HTTP/1\.1 churn on IOCP for the detection mode \(arm A replay, arm B peek, in-process\); (\d+) windows, "
       r"every one valid", note="rule E's entry on the laptop, item 2"),
+    # Two bounds of the frozen text that design_macros.py's table does not name.
+    S("MTwoBound", H, r"for M2 \"the median ratio is at least (\d+\.\d+)\"", V, "M2's bound (section 4.4)"),
+    S("LossBound", H, r"\"Loss\" is used only where the 95% BCa interval of Q lies wholly below (\d+\.\d+)", V,
+      "the bound below which B3's interval is called a loss (section 12)"),
     # Where the laptop's analysis ran.
     S("AnalysisRunCommit", SUMMARY_LW, r"\"analysis_commit\": \"([0-9a-f]{40})\"", V, "the clone the laptop's analysis ran from"),
     S("AnalysisNumpy AnalysisPython", SUMMARY_LW, r"\"numpy\": \"([\d.]+)\", \"python\": \"([\d.]+)\"", V,
