@@ -473,8 +473,8 @@ Next:
 2. Later, Alex's choice of 2026-10-24: harden the freeze guard as a later section 8 change (the
    delta review's three MEDIUMs: the heading matched as a substring, no append-only check, missing
    tests; and the flaky test outside the change).
-3. A push of `laptop-w-bringup` (b0d6839 to this branch's tip: ecc4880 and the STATE commit after
-   it) needs Alex's yes; the coordinator asks.
+3. A push of `laptop-w-bringup` (b0d6839 to this branch's tip: ecc4880 and the docs commits after
+   it, all `[skip ci]`) needs Alex's yes; the coordinator asks.
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
