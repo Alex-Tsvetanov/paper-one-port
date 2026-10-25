@@ -587,7 +587,7 @@ Next:
   the pack was pulled again (`macros.tex`, new `figures/census.tex`, the other 17 bodies
   unchanged; committed blobs byte-equal to `pack-macros.tex`). Pack text: the census `\missing`
   markers are gone from `claims.md` and `threats.md`, `method.md` and `setup.md` describe the
-  census, the glossary says "the kernel's census of listening sockets" (Papers 8ee260d, 3de7cb5).
+  census, the glossary says "the kernel's census of listening sockets" (Papers 8ee260d, 3de7cb5; wording fixes 371e8c2).
   Worktree commits 10483e3 (outputs), edf1ba1 (pack), 37ff87d (status.md, "The kernel census on
   the laptop, 2026-10-25"), 24c4744 (`not-run.json` and the manifest, as after any status.md
   edit). `paper/laptop_w`: 63 passed, 1 skipped (the collector on p3-gate-w-5's oneport.exe,
