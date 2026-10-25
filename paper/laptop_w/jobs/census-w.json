@@ -1,0 +1,30 @@
+{
+ "about": "P3's kernel census on the laptop's Windows, one untimed job (paper/laptop_w/census_host.py at e886724). Read-only on the host; about a minute.",
+ "jobs": [
+  {
+   "id": "p3-census-w",
+   "paper": "P3",
+   "os": "windows",
+   "repo": {
+    "name": "one-port",
+    "path": "p3-one-port/one-port"
+   },
+   "commit": "e886724deca99cb96353293a4355eec9036a32e5",
+   "build": "",
+   "run": "cd /d \"%LAB_SRC%\" && %LAB_PYTHON% -I paper\\laptop_w\\census_host.py windows --binary C:\\lab\\jobs\\p3-gate-w-5\\out\\rec\\build-release\\bench\\server\\oneport.exe --gate C:\\lab\\jobs\\p3-gate-w-5\\out\\rec\\gate-W.json --gate-sha256 96248c8fecbf5595ba9b99ced158317c4bb793f23176e3d87df31bc7a8371e03 --out \"%LAB_OUT%\\census\"",
+   "outputs": [
+    "out/census/census.json",
+    "out/census",
+    "record.json"
+   ],
+   "expected_s": 60,
+   "timeout_s": 900,
+   "quiet": false,
+   "boost": false,
+   "poll_s": 30,
+   "run_label": "P3's kernel census on the laptop's Windows (untimed, descriptive, decides nothing): the gated Release oneport of p3-gate-w-5 started with no client and no load, IOCP one-port and dedicated; netstat counts its listening sockets, checked against GetExtendedTcpTable",
+   "note": "read-only on the host: builds nothing, installs nothing, changes no setting, no wjob.py and no plan switch; the binary and gate are p3-gate-w-5's, which bound block 2b's rows (gate-W.json sha256 96248c8f, oneport eb810f4e); the collector refuses (exit 2) if either is missing or differs, or if a port is in an excluded range, and exits 3 if a row fails; standard library only, so the base Python; expected_s: no measured basis on the laptop (the desktop's functional run of this collector on the same binary, copied from p3-gate-w-5's archive, took 1.2 s; not a result); timeout_s: the collector's own caps give at most 161 s (two rows, each at most 15 s to its ready line, 0.2 s settle, 20 s for each of two netstat calls, 10 s to stop and 5 s to kill; 20 s for netsh)",
+   "plain": "Ask Windows' kernel how many listening sockets P3's measured server opens in each layout, with no traffic"
+  }
+ ]
+}
