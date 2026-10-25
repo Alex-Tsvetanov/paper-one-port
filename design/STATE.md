@@ -596,8 +596,8 @@ Next:
   `P3_CENSUS_W_REC` unset). `run_all.sh --check` exits 0; it has no line for `census_lw.py`.
 - Reviewed (2026-10-25, read only; two HIGH, three MEDIUM, four LOW), and settled by "The claim's
   wording and the new pull" below.
-- Next: the push of `laptop-w-bringup` from 36052e3 to this branch's tip (Alex's yes, through the
-  coordinator).
+- Next: the push of `laptop-w-bringup` from 9e275cb (pushed) to this branch's tip, after "The
+  claim's wording and the new pull" below (Alex's yes, through the coordinator).
 
 ### The claim's wording and the new pull (2026-10-25)
 
