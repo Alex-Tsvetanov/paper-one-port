@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""The writing pack's one macros file for the laptop set (results/laptop-w/pack-macros.tex), and the
+"""The laptop set's macro files in one checked file (results/laptop-w/pack-macros.tex), and the
 manifest of the files this folder's generators wrote (results/laptop-w/SHA256SUMS-pack).
 
     python paper/laptop_w/pack_lw.py [--check]
 
-Papers' lab/bin/writing_pack.py pull copies one macros file into the pack. The paper's numbers are
-in nine generated files, so this file concatenates them, in a fixed order, each after a comment line
-that names it and its sha256:
+The paper's numbers are in nine generated files. This file concatenates them after a three-line
+head, in a fixed order, each after a comment line that names it and its sha256:
   results/laptop-w/design-macros.tex, hardcase-macros.tex, macros.tex, report-macros.tex,
   w-evidence-macros.tex, b2-macros.tex, ops-macros.tex, October's results/trace-macros.tex
   (lab job st1 on L alone, no W input), and results/laptop-w/census-macros.tex (the kernel census,
@@ -17,6 +16,12 @@ two. It also refuses a name defined twice, the macro CostR (R is per host: CostR
 missing CostRL or CostRW, an input line that names a desktop job, a source whose sha256 differs from
 results/laptop-w/SHA256SUMS where that file lists it, and a value that names the desktop's
 processor or compiler. It changes no byte of any source.
+
+The pack itself no longer copies this file. Since Papers 792906b, lab/bin/writing_pack.py pull takes
+the nine files as nine --macros parts, in this order, and writes the same source lines and the same
+bytes with no head, so the pack's macros.tex equals pack-macros.tex without its first three lines
+(design/status.md, "The new pull and the claim's wording, 2026-10-25"). This file stays for the
+refusals above (the pull refuses only a name defined twice) and for the manifest.
 """
 
 from __future__ import annotations
