@@ -506,10 +506,18 @@ Next:
   printed as they are (CostClaims, the two C1 W verdicts, the B3 and some M verdicts, cell 35's
   p-values) are listed at the top of `claims.md`.
 - Lab request 5 below (the pack's pull).
-- For Alex, through the coordinator: the wording of the one sentence on the first campaign (the
-  move's entry, item 15, records that the October decisions, Linux included, were read before it,
-  and that entry set the joint Holm family and kept L's count). `claims.md`, section 5, keeps the
-  prescribed sentence until he answers.
+- Answered (Alex, 2026-10-25, relayed by the coordinator): the one sentence on the first campaign
+  takes option (b), "and the Linux decisions that used them" (the move's entry, item 15, records
+  that the October decisions, Linux included, were read before it, and that entry set the joint
+  Holm family and kept L's count). It stays one sentence with no number. Done in Papers 6a77acf
+  (`claims.md` twice, the glossary, `threats.md`) and 815e1d2 (the brief).
+- Pack items of 2026-10-25, done: `WTimerWindows`' description in `w_evidence_lw.py` now names "W
+  windows of the cost, detection-mode and secondary cells" (cafcd21, docstring 61eba55; regenerated,
+  no macro value changed, 3,707 of 3,707 equal); the pack's `macros.tex` pulled again with the
+  command of status.md, "The laptop set's other generated files and the writing pack", section 4,
+  and byte-equal to `pack-macros.tex` (bc1ca668; Papers 3ed8832; the tables unchanged); the brief's
+  Redo scope names ANALYSIS_COMMIT e61e78f, which `results/laptop-w/summary.json` names, and the
+  last change's commit d22ae16 (Papers 815e1d2, 446572b).
 - Requests that need laptop time (the coordinator's): the kernel census on L and W (untimed); the
   three figures need no laptop time (a generator for the cost-interval plot, the census table once
   it exists, and the first-byte diagram).
@@ -532,12 +540,39 @@ Next:
 - Specs: `paper/laptop_w/jobs/census-l.json` (`p3-census-l`, bash, `python3 -I`; binary
   `/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport`, which this session
   could not check exists) and `census-w.json` (`p3-census-w`, cmd, `%LAB_PYTHON% -I`; p3-gate-w-5's
-  build and gate). Both at e886724, quiet and boost false, no build, expected_s 60 (no measured
+  build and gate). Both at e886724 (since 36350d5 at 8660df2, below), quiet and boost false, no build, expected_s 60 (no measured
   basis), timeout_s 900; both pass Papers `labqueue.load_queue`.
 - After both jobs: `python -X utf8 paper/laptop_w/census_lw.py --l-archive <p3-census-l.tar.gz>
   --w-archive <p3-census-w.tar.gz>`; then add `census-macros.tex` to `pack_lw.py`'s sources and the
   table to the pack (not done: no data yet), and record the reading in status.md.
-- Draft entry for option (b) below: `design/census-entry-draft.md`.
+- Logged (2026-10-25, Alex's option (b), "entry first"): the revision-log entry "The kernel census
+  on the laptop (a descriptive reading)", 51c343c, appended at the true end of the log; nothing
+  above it changed. It brings the 2026-10-22 entry's definition onto this branch, names the
+  binaries (W: p3-gate-w-5's gate 96248c8f, oneport eb810f4e; L: `gate-L.json` c6517177, oneport
+  4c64edc2), the rows, the two added kernel checks and every other condition that fails a run,
+  before either job runs. The draft `design/census-entry-draft.md` is history now.
+- Before the entry, a fresh Opus review of the draft, the collector, the generator and the pack
+  diffs; its confirmed findings were fixed, then a delta review of the entry and the fixed code
+  (no HIGH; its wording fixes made). Code fixes in 8660df2: a run fails unless the kernel lists
+  each of its ports at 127.0.0.1 and no other (a count of 0 passed before); `census_lw.py` checks
+  W's binary against the analysis's covered oneports (it compared the record with itself), the
+  clone's commit against the job spec, and each row's port and kernel addresses; a gate that is
+  not JSON or an unreadable excluded-range list refuses; any other error is recorded and exits 3.
+  Each new check fails its test when removed. The specs clone 8660df2 (36350d5) and pass Papers
+  `labqueue.load_queue`; their notes say the lab runner's run phase sets and restores its usual
+  settings.
+- Checks after the entry, desktop, no timing: in a fresh LF clone at 51c343c, the guard
+  (`guard_check.py` of `C:\Users\alext\lab\p3\laptop-w-rule-e-guard\`, UTF-8 mode, p3-gate-w-5's
+  gate, the laptop's pilot and rule E files) clears, with the 2026-10-24 record: last change
+  d22ae16, pilot bcf74b4, rule E logged in 5091d9f, first in 77cedae. `test_frozen` 67 (2
+  skipped), `test_wfrozen` 26, `test_wlaptop` 43, as before the entry. `paper/laptop_w` 63 passed
+  with `P3_LW_INPUTS` and `P3_CENSUS_W_REC` (the collector on p3-gate-w-5's oneport.exe, a
+  functional test, with the new port check). `paper` and `analysis` together: the same 7 known
+  failures of `test_design_macros.py` before and after. `run_all.sh --check` flagged only
+  `not-run.json` (its hypotheses.md blob), regenerated in a3f4261, cells unchanged.
+- Next: the push of `laptop-w-bringup` from 7189459 to this branch's tip (Alex's yes, through the
+  coordinator), then the two jobs: L in today's Arch visit (before about 20:00, else a later Arch
+  visit), W in a later Windows visit. The entry names their clone commit 8660df2.
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
@@ -571,10 +606,11 @@ Next:
    as its one macros file and the 17 table bodies through `--figures`, so they sit in `figures/`.
    Once `--tables` exists, the bodies move to `tables/` and the writer's input paths change from
    `../figures/` to `../tables/`; `pack_lw.py` can then be retired or kept as the file the tool reads.
-6. Open (2026-10-25): the kernel census, two untimed jobs from one-port e886724,
+6. Open (2026-10-25): the kernel census, two untimed jobs from one-port 8660df2 (specs at
+   36350d5; e886724 before the review),
    `paper/laptop_w/jobs/census-l.json` in an Arch visit and `census-w.json` in a Windows one (each
-   about a minute, no measured basis). Collect each job's archive with its `.sha256`. Wait for
-   Alex's answer on "The census's place in the revision log" first. Before queuing L: `sha256sum
+   about a minute, no measured basis). Collect each job's archive with its `.sha256`. Alex answered
+   (b): the entry is logged (51c343c); the jobs wait for the push of this branch. Before queuing L: `sha256sum
    /home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport` should give 4c64edc2...
    (a missing file costs only seconds, exit 2, but loses the visit's L slot). `census_lw.py` needs
    the ids `p3-census-l` and `p3-census-w` (an optional `-N` suffix), the archive's top folder equal
@@ -590,7 +626,9 @@ Pending, asked in his format only when it arises:
 1. After job a0, and only if it reads TCP values other than 30 s and start 1025 with 64,510 ports: the
    administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
    before the probe.
-2. The census's place in the revision log (2026-10-25). The census is defined only in the entry of
+2. Answered (Alex, 2026-10-25, relayed by the coordinator): option (b), entry first; logged in
+   51c343c ("The kernel census on the laptop" above). The question as it was put:
+   The census's place in the revision log (2026-10-25). The census is defined only in the entry of
    2026-10-22 on comcom-manuscript; this branch's log lacks it, and the pack builds from frozen
    files only. bb473a4 is pushed, so the definition has had a public timestamp since 22 October,
    before any laptop data. Laptop time: about a minute per job, no measured basis; no added
