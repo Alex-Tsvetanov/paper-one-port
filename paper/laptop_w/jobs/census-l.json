@@ -1,5 +1,5 @@
 {
- "about": "P3's kernel census on the laptop's Arch, one untimed job (paper/laptop_w/census_host.py at e886724). Read-only on the host; about a minute.",
+ "about": "P3's kernel census on the laptop's Arch, one untimed job (paper/laptop_w/census_host.py at 8660df2). Read-only on the host; about a minute.",
  "jobs": [
   {
    "id": "p3-census-l",
@@ -9,7 +9,7 @@
     "name": "one-port",
     "path": "p3-one-port/one-port"
    },
-   "commit": "e886724deca99cb96353293a4355eec9036a32e5",
+   "commit": "8660df20c00eddf288208c7572e9052ce4a950d7",
    "build": "",
    "run": "cd \"$LAB_SRC\" && python3 -I paper/laptop_w/census_host.py linux --binary /home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport --gate lab/gates/gate-L.json --gate-sha256 c6517177d497dc7f6951d2860926e950618a17cd6b1fc9568e0f8375ccfc1ab9 --out \"$LAB_OUT/census\"",
    "outputs": [
@@ -23,7 +23,7 @@
    "boost": false,
    "poll_s": 30,
    "run_label": "P3's kernel census on Arch (untimed, descriptive, decides nothing): the gated October Release oneport started with no client and no load in five layouts (epoll one-port, dedicated, SO_REUSEPORT with two workers; io_uring one-port, dedicated); ss -Hltnp counts its listening sockets, checked against /proc/net/tcp",
-   "note": "read-only on the host: builds nothing, installs nothing, changes no setting, no package manager; the binary is the October measured build that lab/gates/gate-L.json (sha256 c6517177) names, oneport 4c64edc2, at the path the census of 2026-10-22 used; the collector refuses (exit 2) if the gate or the binary is missing or differs, and exits 3 if a row fails; expected_s: no measured basis on the laptop (the desktop's functional run of the Windows rows took 1.2 s for two rows); timeout_s: the collector's own caps give at most 251 s (five rows, each at most 15 s to its ready line, 0.2 s settle, 20 s for ss, 10 s to stop and 5 s to kill); the io_uring check stays on (two rows use io_uring)",
+   "note": "the collector is read-only on the host: it builds nothing, installs nothing and changes no setting (the lab runner's run phase sets and restores its usual settings), no package manager; the binary is the October measured build that lab/gates/gate-L.json (sha256 c6517177) names, oneport 4c64edc2, at the path the census of 2026-10-22 used; the collector refuses (exit 2) if the gate or the binary is missing or differs, and exits 3 if a row fails; expected_s: no measured basis on the laptop (the desktop's functional run of the Windows rows took 1.2 s for two rows); timeout_s: the collector's own caps give at most 251 s (five rows, each at most 15 s to its ready line, 0.2 s settle, 20 s for ss, 10 s to stop and 5 s to kill); the io_uring check stays on (two rows use io_uring)",
    "plain": "Ask Arch's kernel how many listening sockets P3's measured server opens in each layout, with no traffic"
   }
  ]
