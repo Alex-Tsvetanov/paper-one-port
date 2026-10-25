@@ -8623,6 +8623,100 @@ results/laptop-w/tables`, then claims, method, setup, threats and glossary writt
 the frozen text and the generated files. Two fresh reviews of the pack against its README; every
 real finding fixed (STATE.md, "The writing pack").
 
+## The kernel census on the laptop, 2026-10-25
+
+The census of the revision-log entry "2026-10-25: The kernel census on the laptop (a descriptive
+reading)" (51c343c). Two untimed lab jobs ran from the clone at 8660df2 (specs at 36350d5) on the
+laptop, both exit 0 and both with `complete` true, `functional_test` false and `lab_phase` run. It
+decides nothing and changes no decision. Desktop only for this reading, no ssh, no timing.
+
+### 1. Inputs
+
+- p3-census-l, the laptop's Arch, started 2026-10-25 13:49:07 (+02:00), ended 13:49:08:
+  `C:\Users\alext\lab\laptop-archive\gap11-a-q1-p3-census-7fee3069\p3-census-l.tar.gz`, sha256
+  390b463d58155d8e1c18a6f0a836ed07be75cd608c3ff98fbef3897fa3a5e15f.
+- p3-census-w, the laptop's Windows, started 13:51:40, ended 13:51:41:
+  `C:\Users\alext\lab\laptop-archive\gap12-w-q1-p3-census-ff5cb6b8\p3-census-w.tar.gz`, sha256
+  5ee151caa09ff645ae0613bde849081508b5f234a3c2509aa97b081f7740f9e1.
+- Each sha256 was compared with the value in the request and with the `.sha256` sidecar. The
+  sidecars end their lines with CRLF, so `sha256sum -c` matched only after the carriage return was
+  stripped (`tr -d '\r'`); `census_lw.py` checks the sidecar itself and accepted both. Both archives
+  were also extracted into a scratch folder outside the worktree to read `census.json`; the
+  generator reads the `.tar.gz` files, not the extracted folders.
+- The records name the entry's binaries. Linux: gate `lab/gates/gate-L.json` c6517177, oneport
+  4c64edc2, at the path the entry names. Windows: p3-gate-w-5's `gate-W.json` 96248c8f, oneport
+  eb810f4e, not the desktop's 749d0209. Each record's gate sha256 and binary sha256 are the entry's,
+  and the binary equals its gate's oneport. Windows' excluded port range is one range, 50000 to
+  50059, which holds none of the census ports.
+
+### 2. The command and the outputs
+
+- `C:\Users\alext\lab\p3\confirm1\venv\Scripts\python.exe -I -X utf8 -B paper/laptop_w/census_lw.py
+  --l-archive <p3-census-l.tar.gz> --w-archive <p3-census-w.tar.gz>`, from this worktree, with the
+  archives copied to a scratch folder. October's venv is needed because `lw_common` imports the
+  analysis (numpy); the system Python has no numpy. Exit 0: "census: 7 rows to
+  results/laptop-w/tables/census.tex and results/laptop-w/census-macros.tex". The same command with
+  `--check` exits 0. No check was weakened; the generator refused nothing.
+- `census-macros.tex` sha256 9cd6ee38cfb04140825872a69496be8ef0b2c7e0bb02f1aec47905577aca5e2b;
+  `tables/census.tex` 0ade384a7f4eeefbf8add49d802ebe7e685cddfc251e3f82bb6fdf6b19678051. Committed
+  in 10483e3.
+- `run_all.sh` does not run `census_lw.py` (it needs the two census archives, which are not in
+  `paths.sh`). The command above is its own record. `run_all.sh --check` exits 0 with the census
+  files in place.
+
+### 3. The counts
+
+The kernel's, from `ss` and `netstat`. Each is a macro of `census-macros.tex`.
+
+- Linux, epoll, one-port mode with a shared listener and one worker: the kernel lists one listening
+  socket (`CensusLEpollOnePort`), and the server printed one listening line.
+- Linux, epoll, dedicated mode: six listening sockets (`CensusLEpollDedicated`), one per protocol
+  on six consecutive ports; the server printed six lines.
+- Linux, epoll, one-port mode with `SO_REUSEPORT` and two workers: two listening sockets
+  (`CensusLEpollReuseport`) on the one port, and the server printed one listening line
+  (`CensusLEpollReuseportLines`). This is the only row where the kernel's count and the server's
+  lines differ.
+- Linux, io_uring, one-port mode: one socket; dedicated mode: six sockets. The server's lines equal
+  both.
+- Windows on the same laptop, IOCP, one-port mode: one socket; dedicated mode: six sockets. The
+  server's lines equal both.
+- Both kernel sources agreed in every run, no run held an IPv6 listening socket, every run stopped
+  on its harness's stop with exit code 0, and no run failed, so `census.json` holds no failed run.
+  Both dates are 25 October 2026 (`CensusDateL`, `CensusDateW`).
+- The reading: one listening socket in one-port mode with a shared listener on every backend, one
+  per protocol in dedicated mode, and two sockets for the two workers of the `SO_REUSEPORT` group.
+  It is descriptive. The words in the pack come from the macros only (section 4).
+
+### 4. The pack
+
+- `pack_lw.py` lists `census-macros.tex` as its ninth and last source, so every earlier part keeps
+  its bytes, and its manifest lists the file and `tables/census.tex` (`SHA256SUMS-pack`).
+  `pack-macros.tex` went from bc1ca668 to c00b52af. A `diff` of the old and the new file shows only
+  the appended part (20 lines). `test_laptop_w.py` expects 18 table bodies (it said 17) and has a
+  test that the census macros are the pack's last part. Commit edf1ba1.
+- Tests: `paper/laptop_w` 63 passed and 1 skipped (the collector on p3-gate-w-5's oneport.exe,
+  which needs `P3_CENSUS_W_REC`; not set here), with `P3_LW_INPUTS` set. Run with the system
+  Python and October's venv `Lib\site-packages` on `PYTHONPATH`. Under the venv's own `python.exe`
+  six of the collector tests in `test_census_lw.py` failed (the Windows stand-in run read no
+  kernel rows); they pass under the system interpreter. The cause is not investigated; the venv's
+  `python.exe` is a launcher that starts a child process, which may be why. Nothing in the census
+  files or the pack changed between the two runs.
+- The pull, from this worktree at edf1ba1, as section 4 of "The laptop set's other generated files
+  and the writing pack" records it: `python -B -X utf8 D:\Dev\GitHub\Papers\lab\bin\writing_pack.py
+  pull p3-one-port --macros results/laptop-w/pack-macros.tex --figures results/laptop-w/tables`.
+  Only `writing/macros.tex` changed (20 lines added) and `writing/figures/census.tex` is
+  new; the other 17 bodies are byte-equal to the worktree's. The committed blob of `writing/macros.tex`
+  and of `results/laptop-w/pack-macros.tex` have the same sha256, c00b52af (compared from
+  `git show`, since line endings differ in the Windows working tree). Papers 8ee260d.
+- The pack's text (Papers 3de7cb5): `claims.md`, section 4, gives the counts as macros;
+  `threats.md` replaces its census limit; `method.md`, section 3, describes the census (the kernel
+  tools, the rows, what fails a run) and `setup.md` its two runs; `glossary.md` says "the kernel's
+  census of listening sockets", not "descriptors and sockets", since the census counts listening
+  sockets only; `figures/README.md` lists `census.tex` and no longer marks the table as missing.
+  No number is typed: counts and dates are macros, the layout words are the table's. The writer
+  note says the census gives counts only and that the wording of the `SO_REUSEPORT` row against the
+  claim of one listening socket per transport and accept model is the writer's.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
