@@ -87,7 +87,7 @@ def timer_macros(mc: AM.Macros, rows: list[dict]) -> None:
     usual = max(set(both), key=both.count)
     other = [(a, b) for a, b in ends if not (a == usual and b == usual)]
     other_values = sorted({v for a, b in other for v in (a, b) if v != usual})
-    mc.add("WTimerWindows", AM.count(len(ends)), "confirmatory W windows whose timer resolution was read at start and end")
+    mc.add("WTimerWindows", AM.count(len(ends)), "W windows of the cost, detection-mode and secondary cells whose timer resolution was read at start and end")
     mc.add("WTickMs", AM.fixed(coarsest.pop(), 3), "Windows' coarsest timer resolution, ms, in every such window")
     mc.add("WTimerCurrentMs", AM.fixed(usual, 3), "the resolution in effect at both ends of all but WTimerOtherWindows windows, ms")
     mc.add("WTimerOtherWindows", AM.count(len(other)), "windows with another resolution in effect at one end")
