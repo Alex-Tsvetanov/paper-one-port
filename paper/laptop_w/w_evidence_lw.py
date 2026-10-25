@@ -14,9 +14,10 @@ paper/w_evidence_macros.py's two readings, on the laptop's rows, and one more:
 2. How often M1's peek on IOCP switched to replay (frozen section 5.3): per M1 cell on the laptop's
    W, the switches and the connections accepted in the valid windows of each detection mode. The
    rows are named by their sha256 in results/laptop-w/summary.json's inputs.
-3. Windows' timer resolution as each confirmatory W window recorded it at its start and end (the
-   move's entry, item 3 (d): Windows' default, recorded): the coarsest and current values, which
-   must be one value each over every window of the cost, M1 and section 10 rows.
+3. Windows' timer resolution as each W window of the cost, detection-mode and secondary cells
+   recorded it at its start and end (the move's entry, item 3 (d): Windows' default, recorded): the
+   coarsest and current values, which must be one value each over every window of the cost, M1 and
+   section 10 rows.
 Nothing is decided or compared. It reuses w_evidence_macros.py's functions unchanged.
 """
 
