@@ -499,7 +499,8 @@ Next:
   both were fixed (Papers ad27ee0, 9f97faf, 8489903). The last round of fixes (8489903: the
   statements about time now say "the Windows windows reported here"; the footprint parts' sum) was
   not reviewed again. Open, LOW: none known.
-- Still `\missing` in the pack: the kernel census on both systems (no generated output exists);
+- Still `\missing` in the pack: the kernel census on both systems (no generated output exists;
+  its jobs are built, "The kernel census on the laptop" below);
   the three figures the brief asks for (none generated; the cost-interval plot can be drawn from
   the macros); the build numbers of tools beyond those in `setup.md`. Text macros that must not be
   printed as they are (CostClaims, the two C1 W verdicts, the B3 and some M verdicts, cell 35's
@@ -512,6 +513,31 @@ Next:
 - Requests that need laptop time (the coordinator's): the kernel census on L and W (untimed); the
   three figures need no laptop time (a generator for the cost-interval plot, the census table once
   it exists, and the first-byte diagram).
+
+### The kernel census on the laptop (2026-10-25)
+
+- Definition: the entry "2026-10-22: Computer Communications, and the kernel listening-descriptor
+  census", item 2, which is in the revision log of comcom-manuscript (bb473a4) only, not of this
+  branch; its rows are those of `paper/census_listen.py` at bb473a4. Listening sockets per process
+  only, not "descriptors and sockets" as the pack's glossary says (that wording should narrow).
+- Built (one-port, this branch): `paper/laptop_w/census_host.py` (the collector: read-only,
+  untimed, standard library; L `ss -Hltnp` checked against `/proc/net/tcp`, W netstat checked
+  against GetExtendedTcpTable; the gated binary in place, refused if it or its gate differs),
+  `paper/laptop_w/census_lw.py` (the generator: `results/laptop-w/census-macros.tex` and
+  `tables/census.tex` from the two jobs' archives; a date per system), `test_census_lw.py` with
+  `fixtures/census/` (34 tests on the desktop, one of them the collector on p3-gate-w-5's oneport.exe
+  copied from its archive; the Linux collector also ran in WSL against the stand-in). Commits
+  c92c847, e886724 (the spec commit), 9ec6aa2 (the specs). Outside `bench/`, which the freeze guard
+  covers. Desktop and WSL runs are functional tests, never results.
+- Specs: `paper/laptop_w/jobs/census-l.json` (`p3-census-l`, bash, `python3 -I`; binary
+  `/home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport`, which this session
+  could not check exists) and `census-w.json` (`p3-census-w`, cmd, `%LAB_PYTHON% -I`; p3-gate-w-5's
+  build and gate). Both at e886724, quiet and boost false, no build, expected_s 60 (no measured
+  basis), timeout_s 900; both pass Papers `labqueue.load_queue`.
+- After both jobs: `python -X utf8 paper/laptop_w/census_lw.py --l-archive <p3-census-l.tar.gz>
+  --w-archive <p3-census-w.tar.gz>`; then add `census-macros.tex` to `pack_lw.py`'s sources and the
+  table to the pack (not done: no data yet), and record the reading in status.md.
+- Draft entry for option (b) below: `design/census-entry-draft.md`.
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
@@ -545,6 +571,10 @@ Next:
    as its one macros file and the 17 table bodies through `--figures`, so they sit in `figures/`.
    Once `--tables` exists, the bodies move to `tables/` and the writer's input paths change from
    `../figures/` to `../tables/`; `pack_lw.py` can then be retired or kept as the file the tool reads.
+6. Open (2026-10-25): the kernel census, two untimed jobs from one-port e886724,
+   `paper/laptop_w/jobs/census-l.json` in an Arch visit and `census-w.json` in a Windows one (each
+   about a minute, no measured basis). Collect each job's archive with its `.sha256`. Wait for
+   Alex's answer on "The census's place in the revision log" first.
 3. Before a1: the two archives (`openssl-3.5.9.tar.gz`, `nghttp2-1.70.0.tar.xz`) from the desktop's
    `C:\Users\alext\opt\src` (sha256 equal to `bench/cmake/pins.cmake`) to the laptop's
    `C:\Users\alext\opt\src`, checked again there. Desktop-only launch files (`m6b\wlaunch.ps1`,
@@ -556,6 +586,16 @@ Pending, asked in his format only when it arises:
 1. After job a0, and only if it reads TCP values other than 30 s and start 1025 with 64,510 ports: the
    administrator step that sets them (his own run, like `alex-admin.ps1`, a restart, a read-back),
    before the probe.
+2. The census's place in the revision log (2026-10-25). The census is defined only in the entry of
+   2026-10-22 on comcom-manuscript; this branch's log lacks it, and the pack builds from frozen
+   files only. (a) Run both jobs now; afterwards a short entry here names the 2026-10-22 entry and
+   the laptop's binaries (as the 2026-10-22 entry itself came after its census). (b) Log
+   `design/census-entry-draft.md` here first, then run: the lab's entry-before-data practice; it
+   needs a paper session and Alex's yes before the L job, or L waits for a later Arch visit.
+   (c) Run W only and reuse the L census of 2026-10-22 (same laptop and binary; made over ssh
+   outside the lab runner, on the other branch). Recommended: (b), since the definition then sits
+   on this branch before any laptop data, and the entry is short. Either way, the census decides
+   nothing.
 
 Answered (Alex, 2026-10-24, relayed by the coordinator): how rule E's file passes the guard when the
 laptop keeps October's choices: option (a), a later change of `freeze_guard.py` (the guard accepts
