@@ -55,7 +55,7 @@ def test_printed_label_scan_catches_labels():
 
 def test_no_table_prints_an_internal_label():
     tables = sorted(C.TABLES.glob("*.tex"))
-    assert len(tables) == 17
+    assert len(tables) == 18
     for p in tables:
         assert not C.printed_label_hits(p.read_text(encoding="utf-8")), p.name
 
@@ -79,6 +79,15 @@ def test_pack_refuses_a_name_defined_twice(monkeypatch):
     monkeypatch.setattr(pack_lw, "SOURCES", pack_lw.SOURCES + [C.LW / "b2-macros.tex"])
     with pytest.raises(ValueError, match="defined in"):
         pack_lw.build_pack()
+
+
+def test_pack_ends_with_the_census_macros_and_keeps_the_earlier_parts():
+    text = (C.LW / "pack-macros.tex").read_text(encoding="utf-8")
+    parts = re.findall(r"^% ---- source: (\S+) sha256 (\w+)$", text, flags=re.M)
+    assert [p for p, _ in parts][-2:] == ["results/trace-macros.tex", "results/laptop-w/census-macros.tex"]
+    assert len(parts) == 9
+    for name in ("CensusLEpollOnePort", "CensusLEpollReuseportLines", "CensusWIocpDedicated", "CensusDateL"):
+        assert "\\newcommand{\\" + name + "}" in text, name
 
 
 def test_pack_holds_r_per_host_and_no_pooled_r():

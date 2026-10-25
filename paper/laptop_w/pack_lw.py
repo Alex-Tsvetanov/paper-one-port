@@ -5,11 +5,12 @@ manifest of the files this folder's generators wrote (results/laptop-w/SHA256SUM
     python paper/laptop_w/pack_lw.py [--check]
 
 Papers' lab/bin/writing_pack.py pull copies one macros file into the pack. The paper's numbers are
-in eight generated files, so this file concatenates them, in a fixed order, each after a comment line
+in nine generated files, so this file concatenates them, in a fixed order, each after a comment line
 that names it and its sha256:
   results/laptop-w/design-macros.tex, hardcase-macros.tex, macros.tex, report-macros.tex,
-  w-evidence-macros.tex, b2-macros.tex, ops-macros.tex, and October's results/trace-macros.tex
-  (lab job st1 on L alone, no W input).
+  w-evidence-macros.tex, b2-macros.tex, ops-macros.tex, October's results/trace-macros.tex
+  (lab job st1 on L alone, no W input), and results/laptop-w/census-macros.tex (the kernel census,
+  census_lw.py, last so that the earlier parts keep their bytes).
 results/laptop-w/macros.tex and hardcase-macros.tex replace October's results/macros.tex and
 results/hardcase-macros.tex: the two sets are never loaded together, and this file refuses October's
 two. It also refuses a name defined twice, the macro CostR (R is per host: CostRL and CostRW), a
@@ -33,11 +34,11 @@ import lw_common as C  # noqa: E402
 OUT = C.LW / "pack-macros.tex"
 MANIFEST = C.LW / "SHA256SUMS-pack"
 SOURCES = [C.LW / f for f in ("design-macros.tex", "hardcase-macros.tex", "macros.tex", "report-macros.tex",
-                              "w-evidence-macros.tex", "b2-macros.tex", "ops-macros.tex")] + [C.RESULTS / "trace-macros.tex"]
+                              "w-evidence-macros.tex", "b2-macros.tex", "ops-macros.tex")] + [C.RESULTS / "trace-macros.tex", C.LW / "census-macros.tex"]
 REFUSED = (C.RESULTS / "macros.tex", C.RESULTS / "hardcase-macros.tex")
 # The files of results/laptop-w/ that this folder's generators write, for the manifest.
 GENERATED = ("not-run.json", "report-macros.tex", "w-evidence-macros.tex", "b2-macros.tex", "ops-macros.tex",
-             "design-macros.tex", "pack-macros.tex")
+             "design-macros.tex", "census-macros.tex", "pack-macros.tex")
 HEAD = ("% macros.tex of P3's writing pack: the laptop set's generated macro files, concatenated by\n"
         "% paper/laptop_w/pack_lw.py (one-port repository). Every number of the paper is one of these macros.\n"
         "% Do not edit. Each part starts with a line naming its source file and that file's sha256.\n")
