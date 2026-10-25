@@ -558,7 +558,10 @@ Next:
   W's binary against the analysis's covered oneports (it compared the record with itself), the
   clone's commit against the job spec, and each row's port and kernel addresses; a gate that is
   not JSON or an unreadable excluded-range list refuses; any other error is recorded and exits 3.
-  Each new check fails its test when removed. The specs clone 8660df2 (36350d5) and pass Papers
+  Each new check fails its test when removed. Left open, LOW: `census-w.json` calls `%LAB_PYTHON%`
+  unquoted (it works: the laptop's Python path has no space); `one_run`'s IPv6, non-zero-exit and
+  killed paths have no test of their own; the IPv6 table's row offsets are tested only against the
+  test's own packer. The specs clone 8660df2 (36350d5) and pass Papers
   `labqueue.load_queue`; their notes say the lab runner's run phase sets and restores its usual
   settings.
 - Checks after the entry, desktop, no timing: in a fresh LF clone at 51c343c, the guard
