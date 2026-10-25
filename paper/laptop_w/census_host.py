@@ -26,9 +26,11 @@ and paper/laptop_w/census_lw.py refuses it.
     python3 -I paper/laptop_w/census_host.py linux --binary B --gate G --gate-sha256 S --out DIR
     python -I paper\\laptop_w\\census_host.py windows --binary B --gate G --gate-sha256 S --out DIR
 
-Exit 0: every run listened and its two kernel sources agree. Exit 2: refused before any run (the
-binary or the gate is not the expected one, or the wrong OS). Exit 3: a run failed or its sources
-disagree. census.json is written in every case.
+Exit 0: every run listened on each of its ports, at 127.0.0.1 only, and its two kernel sources
+agree. Exit 2: refused before any run (the binary or the gate is not the expected one, the wrong OS,
+or on Windows a port in an excluded range or an unreadable list of them), or census.json already
+exists (nothing is written then). Exit 3: a run failed or its sources disagree, or another error
+stopped the census (recorded in census.json as "error"). census.json is written in every other case.
 """
 
 from __future__ import annotations
@@ -138,7 +140,12 @@ def check_gate(os_name: str, binary: Path, gate: Path, gate_sha256: str) -> dict
     got_gate = sha256_file(gate)
     if got_gate != gate_sha256:
         raise Refused(f"the gate {gate} has sha256 {got_gate}, not {gate_sha256}")
-    doc = json.loads(gate.read_text(encoding="utf-8"))
+    try:
+        doc = json.loads(gate.read_text(encoding="utf-8"))
+    except ValueError as e:
+        raise Refused(f"the gate {gate} is not JSON: {e}") from e
+    if not isinstance(doc, dict):
+        raise Refused(f"the gate {gate} is not a JSON object")
     if doc.get("host") != HOST[os_name]:
         raise Refused(f"the gate names host {doc.get('host')!r}, not {HOST[os_name]}")
     if doc.get("passed") is not True or doc.get("citable") is not True or doc.get("dry_run") is not False:
@@ -319,9 +326,14 @@ def read_windows(pid: int, raw: Path, tag: str) -> dict:
 
 
 def excluded_ranges() -> list[list[int]]:
-    """netsh's excluded IPv4 TCP port ranges (read only)."""
-    p = subprocess.run(["netsh", "int", "ipv4", "show", "excludedportrange", "protocol=tcp"],
-                       capture_output=True, timeout=TOOL_TIMEOUT_S, check=False)
+    """netsh's excluded IPv4 TCP port ranges (read only). A failed read refuses the census."""
+    cmd = ["netsh", "int", "ipv4", "show", "excludedportrange", "protocol=tcp"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=TOOL_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise Refused(f"{' '.join(cmd)}: {type(e).__name__}: {e}") from e
+    if p.returncode != 0:
+        raise Refused(f"{' '.join(cmd)} exited {p.returncode}: the excluded port ranges are not known")
     text = p.stdout.decode("oem", errors="replace")
     return [[int(a), int(b)] for a, b in re.findall(r"^\s*(\d+)\s+(\d+)\s*\*?\s*$", text, re.M)]
 
@@ -409,8 +421,11 @@ def one_run(os_name: str, binary: Path, run: Run, raw: Path, reader, launcher: t
     if kernel is not None:
         rec.update(kernel)
         locals_ = {r["local"] for r in kernel.get("ss", kernel.get("netstat", []))}
+        ports = sorted({int(a.rsplit(":", 1)[1]) for a in locals_})
         if not locals_ <= {f"{LOOPBACK}:{p}" for p in run.ports()}:
             problem = f"listening addresses outside {LOOPBACK} and the run's ports: {sorted(locals_)}"
+        elif ports != run.ports():
+            problem = f"the kernel lists the ports {ports}, not each of the run's ports {run.ports()}"
         elif not kernel["agree"]:
             problem = "the two kernel sources disagree"
         elif kernel["v6_rows"]:
@@ -473,6 +488,10 @@ def census(os_name: str, binary: Path, gate: Path, gate_sha256: str, out_dir: Pa
     except Refused as e:
         doc["refused"] = str(e)
         rc = 2
+    except Exception as e:  # recorded, never swallowed: the census is not complete and the job exits 3
+        doc["error"] = f"{type(e).__name__}: {e}"
+        doc["complete"] = False
+        rc = 3
     doc["ended"] = now()
     write_json(target, doc)
     for r in doc["runs"]:
@@ -481,6 +500,8 @@ def census(os_name: str, binary: Path, gate: Path, gate_sha256: str, out_dir: Pa
               f"ok {r['ok']}" + (f" ({r['problem']})" if r["problem"] else ""))
     if doc.get("refused"):
         print(f"census refused: {doc['refused']}", file=sys.stderr)
+    if doc.get("error"):
+        print(f"census stopped: {doc['error']}", file=sys.stderr)
     return rc
 
 

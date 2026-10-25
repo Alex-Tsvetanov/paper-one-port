@@ -9,9 +9,13 @@ exactly one <job>/out/census/census.json. A record is refused unless:
   test, its host and OS are the archive's, and it says that no load was sent and 127.0.0.1 was bound;
 - its gate is the gate the laptop set's analysis read for that host (results/laptop-w/provenance.json)
   and its binary is that gate's oneport; on Linux the repository's lab/gates/gate-L.json names the
-  same binary; the desktop's W binary (lab/gates/gate-W.json) is refused by name;
-- it is complete, and every row of census_host.RUNS ran once: ready, stopped as the harnesses stop
-  it, both kernel sources agreeing, the count equal to its kernel rows, no IPv6 row.
+  same binary; on Windows the binary is the one W oneport that the analysis's gates cover
+  (results/laptop-w/summary.json, gate.covered_binaries, less gate-L.json's); the desktop's W binary
+  (lab/gates/gate-W.json) is refused by name;
+- its clone's commit is the one its job spec clones (paper/laptop_w/jobs/census-l.json or -w.json);
+- it is complete, and every row of census_host.RUNS ran once, on that row's port: ready, stopped as
+  the harnesses stop it, both kernel sources agreeing, the kernel's rows at 127.0.0.1 on each of the
+  row's ports and on no other, the count equal to its kernel rows, no IPv6 row.
 
 The macros give each count (the kernel's) and the server's own listening lines beside it, and each
 system's date (the two jobs run on different days). The table prints paper wording only ("Linux",
@@ -40,6 +44,7 @@ MEMBER = "out/census/census.json"
 JOB_RE = {"L": re.compile(r"^p3-census-l(-\d+)?$"), "W": re.compile(r"^p3-census-w(-\d+)?$")}
 PROVENANCE_ROLE = {"L": "--gate (L's rows)", "W": "--gate (the laptop's W rows)"}
 OS_OF = {"L": "linux", "W": "windows"}
+JOBS = Path(__file__).resolve().parent / "jobs"
 
 # (host, backend, mode, listener, workers) -> macro name, layout words. The rows of census_host.RUNS.
 ROWS = (
@@ -58,6 +63,19 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augus
 def spell_date(iso: str) -> str:
     year, month, day = iso.split("-")
     return f"{int(day)} {MONTHS[int(month) - 1]} {year}"
+
+
+def covered_oneports(summary: dict) -> set[str]:
+    """The oneport binaries that the gates of the laptop set's analysis cover (summary.json)."""
+    return {line.split()[1] for line in summary["gate"]["covered_binaries"] if line.split()[0] == "oneport"}
+
+
+def spec_commit(host: str, jobs_dir: Path) -> str:
+    """The commit that the host's census job spec clones (paper/laptop_w/jobs/census-l.json or -w.json)."""
+    jobs = json.loads((jobs_dir / f"census-{host.lower()}.json").read_text(encoding="utf-8"))["jobs"]
+    if len(jobs) != 1:
+        raise ValueError(f"census-{host.lower()}.json holds {len(jobs)} jobs, not one")
+    return jobs[0]["commit"]
 
 
 def gate_sha256(host: str, provenance: dict) -> str:
@@ -83,9 +101,12 @@ def read_archive(archive: Path) -> tuple[dict, str, str]:
     return rec, folder, digest
 
 
-def check_record(host: str, rec: dict, folder: str, provenance: dict, gates_dir: Path) -> dict:
+def check_record(host: str, rec: dict, folder: str, provenance: dict, gates_dir: Path,
+                 summary: dict | None = None, jobs_dir: Path = JOBS) -> dict:
     """The rows of one host's record, by (host, backend, mode, listener, workers), after every check."""
     where = f"the census of {host}"
+    if summary is None:
+        summary = json.loads((C.LW / "summary.json").read_text(encoding="utf-8"))
     job = rec.get("job")
     if not job or not JOB_RE[host].match(str(job)):
         raise ValueError(f"{where}: job {job!r} is not a lab job p3-census-{host.lower()}")
@@ -107,12 +128,22 @@ def check_record(host: str, rec: dict, folder: str, provenance: dict, gates_dir:
         raise ValueError(f"{where}: gate {str(rec.get('gate_sha256'))[:8]}, not the analysis's {want_gate[:8]}")
     if rec.get("binary_sha256") != rec.get("gate_oneport_sha256"):
         raise ValueError(f"{where}: the binary is not its gate's oneport")
+    gate_l = gates_dir / "gate-L.json"
+    l_oneport = json.loads(gate_l.read_text(encoding="utf-8"))["binaries"]["oneport"]
     if host == "L":
-        gate_l = gates_dir / "gate-L.json"
         if C.sha256_file(gate_l) != want_gate:
             raise ValueError(f"{where}: lab/gates/gate-L.json is not the analysis's gate")
-        if json.loads(gate_l.read_text(encoding="utf-8"))["binaries"]["oneport"] != rec["binary_sha256"]:
+        if l_oneport != rec["binary_sha256"]:
             raise ValueError(f"{where}: the binary is not lab/gates/gate-L.json's oneport")
+    else:
+        w_oneports = covered_oneports(summary) - {l_oneport}
+        if len(w_oneports) != 1 or rec.get("binary_sha256") not in w_oneports:
+            raise ValueError(f"{where}: the binary {str(rec.get('binary_sha256'))[:8]} is not the W oneport that "
+                             "the analysis's gates cover (results/laptop-w/summary.json)")
+    want_commit = spec_commit(host, jobs_dir)
+    if rec.get("src_commit") != want_commit:
+        raise ValueError(f"{where}: the clone's commit {str(rec.get('src_commit'))[:12]} is not the job spec's {want_commit[:12]}")
+    expected = {(host, r.backend, r.mode, r.listener, r.workers): r for r in H.RUNS[OS_OF[host]]}
     rows = {}
     for run in rec.get("runs", []):
         key = (host, run["backend"], run["mode"], run["listener"], run["workers"])
@@ -120,6 +151,17 @@ def check_record(host: str, rec: dict, folder: str, provenance: dict, gates_dir:
         problems = []
         if key in rows:
             problems.append("ran twice")
+        spec = expected.get(key)
+        if spec is not None and run.get("port") != spec.port:
+            problems.append(f"port {run.get('port')}, not {spec.port}")
+        if spec is not None:
+            allowed = {f"{H.LOOPBACK}:{p}" for p in spec.ports()}
+            locals_ = {r.get("local") for r in kernel}
+            ports = sorted({int(str(a).rsplit(":", 1)[1]) for a in locals_ if a in allowed})
+            if not locals_ <= allowed:
+                problems.append(f"kernel addresses outside {H.LOOPBACK} and its ports: {sorted(map(str, locals_ - allowed))}")
+            elif ports != spec.ports():
+                problems.append(f"the kernel lists the ports {ports}, not each of {spec.ports()}")
         if not run.get("ok") or run.get("problem") or run.get("exit_code") != 0:
             problems.append(f"failed ({run.get('problem')}, exit {run.get('exit_code')})")
         if run.get("stopped_by") not in ("SIGTERM", "stop event"):

@@ -104,9 +104,12 @@ def test_tcp_tables_are_read_by_row():
     assert H.parse_tcp_table(raw6, 23, 4242) == [{"local": "[::1]:19080", "state": "LISTEN"}]
 
 
-def test_read_head_of_this_checkout_is_a_commit():
-    head = H.read_head(C.ROOT)
-    assert head is None or (len(head) == 40 and int(head, 16) >= 0)
+def test_read_head_of_this_checkout_is_its_commit():
+    import subprocess
+    git = subprocess.run(["git", "-C", str(C.ROOT), "rev-parse", "HEAD"], capture_output=True, text=True)
+    if git.returncode != 0:
+        pytest.skip("not a git checkout")
+    assert H.read_head(C.ROOT) == git.stdout.strip()
 
 
 # ---- the collector's refusals -------------------------------------------------------------
@@ -132,6 +135,33 @@ def test_a_wrong_gate_or_binary_is_refused_before_any_run(tmp_path):
     assert H.census("windows", FAKE, gate_l, sha_l, tmp_path / "c", skip_os_check=True) == 2
     gate_d, sha_d = fake_gate(tmp_path, "W", FAKE, citable=False)
     assert H.census("windows", FAKE, gate_d, sha_d, tmp_path / "d", skip_os_check=True) == 2
+
+
+def test_a_gate_that_is_not_json_is_refused(tmp_path):
+    gate = tmp_path / "gate-W.json"
+    gate.write_text("not json", encoding="utf-8")
+    assert H.census("windows", FAKE, gate, H.sha256_file(gate), tmp_path / "j", skip_os_check=True) == 2
+    assert "not JSON" in json.loads((tmp_path / "j" / "census.json").read_text(encoding="utf-8"))["refused"]
+
+
+def test_an_unreadable_excluded_range_list_is_refused(tmp_path, monkeypatch):
+    class Done:
+        returncode, stdout, stderr = 1, b"", b"no"
+
+    gate, sha = fake_gate(tmp_path, "W", FAKE)
+    monkeypatch.setattr(H.subprocess, "run", lambda *a, **k: Done())
+    assert H.census("windows", FAKE, gate, sha, tmp_path / "x", skip_os_check=True) == 2
+    doc = json.loads((tmp_path / "x" / "census.json").read_text(encoding="utf-8"))
+    assert "excluded port ranges" in doc["refused"] and doc["runs"] == []
+
+
+def test_another_error_is_recorded_and_exits_3(tmp_path):
+    os_name = "windows" if sys.platform == "win32" else "linux"
+    gate, sha = fake_gate(tmp_path, H.HOST[os_name], FAKE)
+    runs = (H.Run("one-port", "IOCP" if os_name == "windows" else "epoll", "shared", 1, 19880),)
+    rc = H.census(os_name, FAKE, gate, sha, tmp_path / "e", runs=runs, launcher=(str(tmp_path / "no-such-launcher"),))
+    doc = json.loads((tmp_path / "e" / "census.json").read_text(encoding="utf-8"))
+    assert rc == 3 and doc["complete"] is False and doc["error"]
 
 
 def test_the_wrong_os_is_refused(tmp_path):
@@ -177,6 +207,33 @@ def test_a_server_that_never_gets_ready_fails_its_run(tmp_path, monkeypatch, how
     doc = json.loads((tmp_path / "out" / "census.json").read_text(encoding="utf-8"))
     assert rc == 3 and doc["complete"] is False
     assert doc["runs"][0]["ok"] is False and "ready" in doc["runs"][0]["problem"]
+
+
+def kernel_reader(rows):
+    """A reader for one_run that returns the given netstat rows as the kernel's, both sources agreeing."""
+    def read(pid, raw, tag):
+        return {"netstat": rows, "netstat_other_rows": [], "get_extended_tcp_table": rows,
+                "kernel_listen_count": len(rows), "v6_rows": [], "agree": True}
+    return read
+
+
+@windows_only
+@pytest.mark.parametrize("rows,match", [
+    ([], "not each of the run's ports"),
+    ([{"local": "127.0.0.1:19980"}], "not each of the run's ports"),  # dedicated: five ports missing
+    ([{"local": f"127.0.0.1:{19980 + i}"} for i in range(6)] + [{"local": "0.0.0.0:19980"}], "outside"),
+    ([{"local": f"127.0.0.1:{19980 + i}"} for i in range(6)] + [{"local": "127.0.0.1:20990"}], "outside"),
+])
+def test_a_run_whose_kernel_rows_miss_or_exceed_its_ports_fails(tmp_path, monkeypatch, rows, match):
+    monkeypatch.delenv("FAKE_ONEPORT", raising=False)
+    run = H.Run("dedicated", "IOCP", "shared", 1, 19980)
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    rec = H.one_run("windows", FAKE, run, raw, kernel_reader(rows), launcher=(sys.executable,))
+    assert rec["ok"] is False and match in rec["problem"]
+    good = H.one_run("windows", FAKE, run, raw, kernel_reader([{"local": f"127.0.0.1:{19980 + i}"} for i in range(6)]),
+                     launcher=(sys.executable,))
+    assert good["ok"] is True, good
 
 
 W_REC = Path(os.environ["P3_CENSUS_W_REC"]) if os.environ.get("P3_CENSUS_W_REC") else None
@@ -227,6 +284,7 @@ def record(host: str) -> dict:
                 run_record("IOCP", "dedicated", "shared", 1, 19100, "netstat", 6)]
         gate, binary, job, date = W_GATE_SHA, W_ONEPORT, "p3-census-w-2", "2026-10-27"
     return {"host": host, "os": G.OS_OF[host], "job": job, "functional_test": False, "load": False,
+            "src_commit": G.spec_commit(host, G.JOBS),
             "bind": "127.0.0.1", "date": date, "gate_sha256": gate, "binary_sha256": binary,
             "gate_oneport_sha256": binary, "runs": runs, "complete": True}
 
@@ -285,6 +343,14 @@ def mutate(host: str, fn):
     ("W", lambda r: r["runs"][0].update(stopped_by="killed"), "stopped by"),
     ("W", lambda r: r["runs"][0].update(v6_rows=[{"local": "[::1]:19080"}]), "IPv6"),
     ("L", lambda r: r.update(host="W"), "names host"),
+    ("W", lambda r: r.update(binary_sha256="1" * 64, gate_oneport_sha256="1" * 64), "not the W oneport"),
+    ("W", lambda r: r.update(binary_sha256=L_ONEPORT, gate_oneport_sha256=L_ONEPORT), "not the W oneport"),
+    ("L", lambda r: r.update(src_commit="0" * 40), "job spec"),
+    ("W", lambda r: r.pop("src_commit"), "job spec"),
+    ("L", lambda r: r["runs"][0].update(port=19081), "port 19081"),
+    ("W", lambda r: r["runs"][0]["netstat"].append({"local": "0.0.0.0:1"}), "outside"),
+    ("L", lambda r: r["runs"][0].update(ss=[], kernel_listen_count=0), "not each of"),
+    ("L", lambda r: (r["runs"][1]["ss"].pop(), r["runs"][1].update(kernel_listen_count=5)), "not each of"),
 ])
 def test_the_generator_refuses(tmp_path, host, fn, match):
     rec = mutate(host, fn)
