@@ -8717,6 +8717,80 @@ The kernel's, from `ss` and `netstat`. Each is a macro of `census-macros.tex`.
   note says the census gives counts only and that the wording of the `SO_REUSEPORT` row against the
   claim of one listening socket per transport and accept model is the writer's.
 
+## The new pull and the claim's wording, 2026-10-25
+
+Desktop only, no ssh, no timing, no laptop contact. Nothing under `bench`, `tests`, `analysis/` or
+`CMakeLists.txt` changes.
+
+### 1. The claim's wording
+
+- Alex's decision of 2026-10-25, relayed by the coordinator: the claim is "one listening port per
+  transport and accept model", in place of "one listening socket per transport and accept model".
+  Logged as the revision-log entry "The claim's wording, one listening port per transport and accept
+  model (a record)", f9a1c92, appended at the end of the log; the diff adds 10 lines and removes
+  none. It decides nothing and changes no decision, rule or frozen path.
+- Checks at f9a1c92, in a fresh clone with `core.autocrlf=false` (LF): `guard_check.py` of
+  `C:\Users\alext\lab\p3\laptop-w-rule-e-guard\`, UTF-8 mode, with p3-gate-w-5's `gate-W.json`
+  (96248c8f, the copy in `C:\Users\alext\lab\p3\laptop-w-analysis\in\`) and the clone's
+  `lab/analysis-inputs/laptop-w/rule_e.json`, clears: change_commit d22ae16, pilot logged in
+  bcf74b4, rule E logged in 5091d9f and first in 77cedae, the three W entries found, as at 51c343c.
+  From that clone, `C:\Python314\python.exe` with `PYTHONUTF8=1`, `PYTHONNOUSERSITE=1` and
+  October's venv `C:\Users\alext\lab\p3\confirm1\venv\Lib\site-packages` on `PYTHONPATH` (the
+  `venv-numpy` folder is the laptop's; the desktop has none): `test_frozen` 67 checks (2 skipped),
+  `test_wfrozen` 26, `test_wlaptop` 43, all passed, as before the entry.
+- `run_all.sh --check` then flagged `not-run.json` (its `hypotheses.md` blob) and, once that was
+  regenerated, `SHA256SUMS-pack` (the digest of `not-run.json`); both regenerated, the 19 cells
+  unchanged, `pack-macros.tex` unchanged (c00b52af). After that `run_all.sh --check` exits 0.
+- The pack's wording (Papers 5a1f09e): claims, method, glossary, threats and the brief say "port"
+  where the claim said "socket"; "socket" keeps the kernel's sense; method, section 1, defines the
+  accept model per backend and the two listener layouts (the shared listener, `EPOLLEXCLUSIVE` on
+  each worker's epoll set and a multishot accept on each worker's ring, `bench/server/worker.cpp`
+  and `uring.cpp`; the group, one socket per worker on the same port, `server.cpp`); the writer
+  note beside the group's census row is replaced by the claim's scope: every one-port arm of the
+  three families ran the shared listener (`--listener reuseport` appears only in `s_run.py`'s
+  two-core group cells and in `m_run.py`'s M2 backend), and no family result is claimed for the
+  group.
+
+### 2. The census review's findings
+
+The read-only review of 2026-10-25 (two HIGH, three MEDIUM, four LOW), each checked against the
+pack, the frozen text and the Linux census record before it was fixed. HIGH-1 and HIGH-2 are
+settled by section 1 (Papers 5a1f09e). The rest in Papers 338dbf8: threats names the census's
+configurations by `method.md`, section 3, with no typed count, and the group on epoll only, while
+section 10 runs it on epoll and io_uring; method's failure rule says no count for either system;
+the census rows say replay in one-port mode only; the dispatch comparison's backend is said to run
+in a `SO_REUSEPORT` group (the M7d entry, item 1); claims words the group's row with no typed count
+and says, from `census.json` of p3-census-l, that the server prints one listening line per port
+while `ss` lists both sockets of the group at 127.0.0.1 on the one port; the census table's
+caption is to say Windows on the same laptop.
+
+### 3. The new pull
+
+- Papers' `lab/bin/writing_pack.py` at 792906b takes several `--macros` parts and `--tables`. From
+  this worktree: `python -B -X utf8 D:\Dev\GitHub\Papers\lab\bin\writing_pack.py pull p3-one-port
+  --macros results/laptop-w/design-macros.tex --macros results/laptop-w/hardcase-macros.tex
+  --macros results/laptop-w/macros.tex --macros results/laptop-w/report-macros.tex --macros
+  results/laptop-w/w-evidence-macros.tex --macros results/laptop-w/b2-macros.tex --macros
+  results/laptop-w/ops-macros.tex --macros results/trace-macros.tex --macros
+  results/laptop-w/census-macros.tex --tables results/laptop-w/tables`, exit 0.
+- The record of the pack's `macros.tex`: sha256
+  a89795632cd768194fbfcfcf35689701dafef986483a676021374a94af707083, both the written file and the
+  committed blob (Papers bbbd6be, read with `git show`). It no longer equals `pack-macros.tex`
+  (c00b52af): the tool writes the same nine parts with the same source lines and no head, so it
+  equals `pack-macros.tex` without its first three lines (`tail -n +4 | cmp`, equal). 9 source
+  lines, 3,723 macros.
+- The 18 table bodies are in `writing/tables/`, each byte-equal to `results/laptop-w/tables/` (the
+  committed blobs checked too). Pull never deletes, so the 18 bodies the old pull put in
+  `writing/figures/` were removed by hand; claims and method read `tables/`; the table-body list
+  moved to `writing/tables/README.md` with the census caption note; `writing/figures/README.md`
+  lists the figures only; the pack README's macros, figures and tables rows and `CLAUDE.md`'s
+  sources follow. `writing_pack.py check p3-one-port`: settings current, guard current.
+- `pack_lw.py` stays for its refusals and its manifest; its docstring now says the pull takes the
+  nine files itself. `pack_lw.py --check` exits 0 (system Python, October's venv on
+  `PYTHONPATH`). `paper/laptop_w`: 63 passed, 1 skipped (`P3_CENSUS_W_REC` unset), with
+  `P3_LW_INPUTS` set. `paper` and `analysis` together: 200 passed, 2 skipped and the same 7 known
+  failures of `test_design_macros.py`.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator

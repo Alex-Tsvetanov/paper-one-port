@@ -592,11 +592,28 @@ Next:
   the laptop, 2026-10-25"), 24c4744 (`not-run.json` and the manifest, as after any status.md
   edit). `paper/laptop_w`: 63 passed, 1 skipped (the collector on p3-gate-w-5's oneport.exe,
   `P3_CENSUS_W_REC` unset). `run_all.sh --check` exits 0; it has no line for `census_lw.py`.
-- Open: the new pack text has no fresh review (the earlier two reviews did not cover it). For Alex
-  or the writer: how the `SO_REUSEPORT` row reads beside the claim of one listening socket per
-  transport and accept model (`claims.md`, section 4, writer note).
+- Reviewed (2026-10-25, read only; two HIGH, three MEDIUM, four LOW), and settled by "The claim's
+  wording and the new pull" below.
 - Next: the push of `laptop-w-bringup` from 36052e3 to this branch's tip (Alex's yes, through the
   coordinator).
+
+### The claim's wording and the new pull (2026-10-25)
+
+- Alex's decision (relayed by the coordinator): the claim is "one listening port per transport and
+  accept model", not "one listening socket ...". "Socket" keeps the kernel's sense: the shared
+  listener is one listening socket on the port, a `SO_REUSEPORT` group one per worker on it. Logged
+  as the revision-log entry "The claim's wording, one listening port per transport and accept model
+  (a record)", f9a1c92 (after the census counts were seen; decides nothing, changes no decision,
+  rule or frozen path). Guard and suites at f9a1c92 as before the entry (status.md, "The new pull
+  and the claim's wording, 2026-10-25", section 1).
+- Papers: the wording across the pack and the brief (5a1f09e); the census review's other findings
+  (338dbf8); the new pull of `lab/bin/writing_pack.py` 792906b (bbbd6be): the pack's `macros.tex`
+  is the nine parts with source lines and no head, a8979563, which is `pack-macros.tex` (c00b52af)
+  without its three head lines; the 18 table bodies are in `writing/tables/` and gone from
+  `writing/figures/`; the writer reads `../tables/`.
+- `pack_lw.py` is kept for its refusals and manifest (docstring updated). `not-run.json` and
+  `SHA256SUMS-pack` regenerated for the new `hypotheses.md` and status.md blobs, cells unchanged.
+- Open: none known beyond the fresh review of these changes (below, when done).
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
@@ -619,7 +636,8 @@ Next:
    in `lab/laptop/setup-log.md`.
 2. A folder `lab/sanitizer-records/laptop-w/` for P3's laptop record (a2) and its gate, apart
    from the desktop's `oneport-ff2679cc8-W-asan.json`; the coordinator copies a2's records there.
-5. Open (2026-10-25): `lab/bin/writing_pack.py pull` copies one `--macros` file and has no slot
+5. Done (Papers 792906b; P3's pack switched to it in Papers bbbd6be, "The claim's wording and the
+   new pull" above). As it was asked: `lab/bin/writing_pack.py pull` copies one `--macros` file and has no slot
    for table bodies. Change: `--macros` may be given more than once, in order; `pull` writes them
    into the pack's `macros.tex` concatenated, each part after a line `% ---- source: <path> sha256
    <hex>`, and refuses a `\newcommand` name defined twice; a new `--tables DIR` copies its files to
