@@ -498,9 +498,11 @@ Next:
   `lab/bin/writing_pack.py pull`. Two fresh Opus reviews against the README; the real findings of
   both were fixed (Papers ad27ee0, 9f97faf, 8489903). The last round of fixes (8489903: the
   statements about time now say "the Windows windows reported here"; the footprint parts' sum) was
-  not reviewed again. Open, LOW: none known.
+  not reviewed again. Open, LOW: none known. Superseded for the layout by "The claim's wording and
+  the new pull" below: the pack's `macros.tex` is now the nine parts concatenated by the pull, and
+  the 18 table bodies are in `tables/`.
 - Still `\missing` in the pack: the three figures the brief asks for (none generated; the
-  cost-interval plot can be drawn from the macros; the census table is now `figures/census.tex`,
+  cost-interval plot can be drawn from the macros; the census table is now `tables/census.tex`,
   "The kernel census on the laptop" below); the build numbers of tools beyond those in `setup.md`. Text macros that must not be
   printed as they are (CostClaims, the two C1 W verdicts, the B3 and some M verdicts, cell 35's
   p-values) are listed at the top of `claims.md`.
@@ -613,7 +615,14 @@ Next:
   `writing/figures/`; the writer reads `../tables/`.
 - `pack_lw.py` is kept for its refusals and manifest (docstring updated). `not-run.json` and
   `SHA256SUMS-pack` regenerated for the new `hypotheses.md` and status.md blobs, cells unchanged.
-- Open: none known beyond the fresh review of these changes (below, when done).
+- A fresh Opus review of all of it (read only): no CRITICAL; one HIGH (the pack said no family
+  result involves the group, but M2's relay arm counts a dedicated backend in a group), two MEDIUM
+  (the writer was not told that "port" was chosen after the census counts; the dedicated census
+  rows did not name their layout), seven LOW. Confirmed ones fixed: Papers 705f237; the entry's
+  item 6, appended (three precisions to items 2 and 4, nothing changed); the stale lines above.
+  Every point of the review was fixed (status.md, the same section, section 4).
+- For Alex: whether the manuscript says that the word "port" was chosen after the census counts
+  were seen (`claims.md`, "How to read", background for the writer).
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 

@@ -8791,6 +8791,24 @@ caption is to say Windows on the same laptop.
   `P3_LW_INPUTS` set. `paper` and `analysis` together: 200 passed, 2 skipped and the same 7 known
   failures of `test_design_macros.py`.
 
+### 4. The review
+
+A fresh Opus review, read only, of the entry, the reworded claim across the pack and the brief, the
+census fixes and the new layout. No CRITICAL. HIGH: the pack said no family result involves the
+group, but M2's relay arm counts the CPU of a dedicated backend that ran in a group (`m_run.py`,
+`M2_BACKEND_LISTENER`); now the scope is one-port mode with the group, and that result is called a
+result about dispatch. MEDIUM: the writer was not told that "port" was chosen after the census
+counts (now background for the writer in `claims.md`; whether the manuscript says it is Alex's
+call); the dedicated census rows did not name their layout (now "shared listener, one worker", from
+`census_host.py`'s rows and `census.json`). LOW: two counts drawn from the census in words; the
+census's own one-port group run left out of "only in secondary cells"; two precisions to the
+entry's item 2 (appended as its item 6); STATE.md's stale lines on the old layout; the brief's
+list of the pack. All fixed: Papers 705f237, the entry's item 6, STATE.md. Passed: the entry is
+append-only and every quote matches its line; the guard sees no hash, no guarded title and no
+seed, pilot, rule E or M2_RATE line; the runners match the scope; method's accept model and
+listener text match the code; the census findings are fixed; no dash, no internal label outside
+the allowed places, no library name; both byte checks and the committed blobs.
+
 ## M7 checklist
 
 The code freeze needs these, in this order. Where the order differs from the list the coordinator
