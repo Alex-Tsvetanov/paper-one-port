@@ -574,7 +574,11 @@ Next:
 6. Open (2026-10-25): the kernel census, two untimed jobs from one-port e886724,
    `paper/laptop_w/jobs/census-l.json` in an Arch visit and `census-w.json` in a Windows one (each
    about a minute, no measured basis). Collect each job's archive with its `.sha256`. Wait for
-   Alex's answer on "The census's place in the revision log" first.
+   Alex's answer on "The census's place in the revision log" first. Before queuing L: `sha256sum
+   /home/alex/lab/p3/m7g/records-ff2679c/build-release/bench/server/oneport` should give 4c64edc2...
+   (a missing file costs only seconds, exit 2, but loses the visit's L slot). `census_lw.py` needs
+   the ids `p3-census-l` and `p3-census-w` (an optional `-N` suffix), the archive's top folder equal
+   to the id, and each archive's `.sha256`: a renamed id is refused.
 3. Before a1: the two archives (`openssl-3.5.9.tar.gz`, `nghttp2-1.70.0.tar.xz`) from the desktop's
    `C:\Users\alext\opt\src` (sha256 equal to `bench/cmake/pins.cmake`) to the laptop's
    `C:\Users\alext\opt\src`, checked again there. Desktop-only launch files (`m6b\wlaunch.ps1`,
@@ -588,10 +592,15 @@ Pending, asked in his format only when it arises:
    before the probe.
 2. The census's place in the revision log (2026-10-25). The census is defined only in the entry of
    2026-10-22 on comcom-manuscript; this branch's log lacks it, and the pack builds from frozen
-   files only. (a) Run both jobs now; afterwards a short entry here names the 2026-10-22 entry and
-   the laptop's binaries (as the 2026-10-22 entry itself came after its census). (b) Log
-   `design/census-entry-draft.md` here first, then run: the lab's entry-before-data practice; it
-   needs a paper session and Alex's yes before the L job, or L waits for a later Arch visit.
+   files only. bb473a4 is pushed, so the definition has had a public timestamp since 22 October,
+   before any laptop data. Laptop time: about a minute per job, no measured basis; no added
+   calendar day (each job fits a visit already planned). (a) Run both jobs now; afterwards a short
+   entry here names the 2026-10-22 entry and the laptop's binaries (as the 2026-10-22 entry itself
+   came after its census). Risk: the two added kernel checks (`/proc/net/tcp`; the IPv6 tables)
+   are then in no entry before the data, and they can fail a run the 2026-10-22 definition
+   accepts. (b) Log `design/census-entry-draft.md` here first, commit, push with Alex's yes, then
+   run: the lab's entry-before-data practice, as this branch's other entries were; all of it
+   before about 20:00 today, or L waits for a later Arch visit.
    (c) Run W only and reuse the L census of 2026-10-22 (same laptop and binary; made over ssh
    outside the lab runner, on the other branch). Recommended: (b), since the definition then sits
    on this branch before any laptop data, and the entry is short. Either way, the census decides

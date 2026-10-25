@@ -3,7 +3,10 @@
 A draft for the paper session, not an entry. It is logged only if Alex chooses option (b) of the
 decision in `design/STATE.md` section 0, "The kernel census on the laptop", and only by a paper
 session, appended at the true end of the revision log of `laptop-w-bringup`. Nothing above the log
-is edited. If it is logged, it is logged before the first census job runs.
+is edited. If it is logged, it is logged before the first census job runs. After logging, run
+the guard suites (`bench/run/test_frozen.py`, `test_wlaptop.py`), `paper/laptop_w/design_lw.py
+--check` and `pack_lw.py --check`: the guard matches entry headings by substring, and
+`paper/design_macros.py`'s W patterns and CHANGE_COMMIT already match more than once in the log.
 
 ### 2026-10-25: The kernel census on the laptop (a descriptive reading)
 
