@@ -499,10 +499,9 @@ Next:
   both were fixed (Papers ad27ee0, 9f97faf, 8489903). The last round of fixes (8489903: the
   statements about time now say "the Windows windows reported here"; the footprint parts' sum) was
   not reviewed again. Open, LOW: none known.
-- Still `\missing` in the pack: the kernel census on both systems (no generated output exists;
-  its jobs are built, "The kernel census on the laptop" below);
-  the three figures the brief asks for (none generated; the cost-interval plot can be drawn from
-  the macros); the build numbers of tools beyond those in `setup.md`. Text macros that must not be
+- Still `\missing` in the pack: the three figures the brief asks for (none generated; the
+  cost-interval plot can be drawn from the macros; the census table is now `figures/census.tex`,
+  "The kernel census on the laptop" below); the build numbers of tools beyond those in `setup.md`. Text macros that must not be
   printed as they are (CostClaims, the two C1 W verdicts, the B3 and some M verdicts, cell 35's
   p-values) are listed at the top of `claims.md`.
 - Lab request 5 below (the pack's pull).
@@ -518,9 +517,9 @@ Next:
   and byte-equal to `pack-macros.tex` (bc1ca668; Papers 3ed8832; the tables unchanged); the brief's
   Redo scope names ANALYSIS_COMMIT e61e78f, which `results/laptop-w/summary.json` names, and the
   last change's commit d22ae16 (Papers 815e1d2, 446572b).
-- Requests that need laptop time (the coordinator's): the kernel census on L and W (untimed); the
-  three figures need no laptop time (a generator for the cost-interval plot, the census table once
-  it exists, and the first-byte diagram).
+- Requests that need laptop time (the coordinator's): none for the pack. The kernel census ran on
+  2026-10-25 (below). The figures need no laptop time (a generator for the cost-interval plot and
+  the first-byte diagram; the census table exists).
 
 ### The kernel census on the laptop (2026-10-25)
 
@@ -542,9 +541,10 @@ Next:
   could not check exists) and `census-w.json` (`p3-census-w`, cmd, `%LAB_PYTHON% -I`; p3-gate-w-5's
   build and gate). Both at e886724 (since 36350d5 at 8660df2, below), quiet and boost false, no build, expected_s 60 (no measured
   basis), timeout_s 900; both pass Papers `labqueue.load_queue`.
-- After both jobs: `python -X utf8 paper/laptop_w/census_lw.py --l-archive <p3-census-l.tar.gz>
-  --w-archive <p3-census-w.tar.gz>`; then add `census-macros.tex` to `pack_lw.py`'s sources and the
-  table to the pack (not done: no data yet), and record the reading in status.md.
+- After both jobs (done 2026-10-25, "Ran" below): `python -X utf8 paper/laptop_w/census_lw.py
+  --l-archive <p3-census-l.tar.gz> --w-archive <p3-census-w.tar.gz>` (with October's venv, whose
+  Python has numpy); then add `census-macros.tex` to `pack_lw.py`'s sources and the table to the
+  pack, and record the reading in status.md.
 - Logged (2026-10-25, Alex's option (b), "entry first"): the revision-log entry "The kernel census
   on the laptop (a descriptive reading)", 51c343c, appended at the true end of the log; nothing
   above it changed. It brings the 2026-10-22 entry's definition onto this branch, names the
@@ -573,9 +573,30 @@ Next:
   functional test, with the new port check). `paper` and `analysis` together: the same 7 known
   failures of `test_design_macros.py` before and after. `run_all.sh --check` flagged only
   `not-run.json` (its hypotheses.md blob), regenerated in a3f4261, cells unchanged.
-- Next: the push of `laptop-w-bringup` from 7189459 to this branch's tip (Alex's yes, through the
-  coordinator), then the two jobs: L in today's Arch visit (before about 20:00, else a later Arch
-  visit), W in a later Windows visit. The entry names their clone commit 8660df2.
+- Ran (2026-10-25): p3-census-l (Arch, 13:49) and p3-census-w (Windows, 13:51), both exit 0 from
+  8660df2, with the entry's binaries and gates (L: gate c6517177, oneport 4c64edc2; W: gate
+  96248c8f, oneport eb810f4e). Archives: `C:\Users\alext\lab\laptop-archive\gap11-a-q1-p3-census-7fee3069\`
+  (sha256 390b463d) and `...\gap12-w-q1-p3-census-ff5cb6b8\` (5ee151ca), each checked against its
+  sidecar (CRLF). `census_lw.py` accepted both: seven rows, no run failed. The kernel's counts, in
+  words: on Linux, epoll with one-port mode and a shared listener has one listening socket,
+  dedicated mode has six, and the `SO_REUSEPORT` group of two workers has two on the one port while
+  the server printed one line (the only row where the kernel and the server differ); io_uring has
+  one in one-port mode and six in dedicated mode; on Windows, IOCP has one in one-port mode and six
+  in dedicated mode. Descriptive, it decides nothing. `pack_lw.py` lists `census-macros.tex` last
+  (`pack-macros.tex` c00b52af, earlier parts byte-equal), the suite expects 18 table bodies, and
+  the pack was pulled again (`macros.tex`, new `figures/census.tex`, the other 17 bodies
+  unchanged; committed blobs byte-equal to `pack-macros.tex`). Pack text: the census `\missing`
+  markers are gone from `claims.md` and `threats.md`, `method.md` and `setup.md` describe the
+  census, the glossary says "the kernel's census of listening sockets" (Papers 8ee260d, 3de7cb5).
+  Worktree commits 10483e3 (outputs), edf1ba1 (pack), 37ff87d (status.md, "The kernel census on
+  the laptop, 2026-10-25"), 24c4744 (`not-run.json` and the manifest, as after any status.md
+  edit). `paper/laptop_w`: 63 passed, 1 skipped (the collector on p3-gate-w-5's oneport.exe,
+  `P3_CENSUS_W_REC` unset). `run_all.sh --check` exits 0; it has no line for `census_lw.py`.
+- Open: the new pack text has no fresh review (the earlier two reviews did not cover it). For Alex
+  or the writer: how the `SO_REUSEPORT` row reads beside the claim of one listening socket per
+  transport and accept model (`claims.md`, section 4, writer note).
+- Next: the push of `laptop-w-bringup` from 36052e3 to this branch's tip (Alex's yes, through the
+  coordinator).
 
 ### Lab requests (the coordinator makes them; this session touches nothing in Papers `lab/`)
 
@@ -609,7 +630,8 @@ Next:
    as its one macros file and the 17 table bodies through `--figures`, so they sit in `figures/`.
    Once `--tables` exists, the bodies move to `tables/` and the writer's input paths change from
    `../figures/` to `../tables/`; `pack_lw.py` can then be retired or kept as the file the tool reads.
-6. Open (2026-10-25): the kernel census, two untimed jobs from one-port 8660df2 (specs at
+6. Done (2026-10-25; both jobs exit 0, archives collected, "Ran" in "The kernel census on the
+   laptop" above): the kernel census, two untimed jobs from one-port 8660df2 (specs at
    36350d5; e886724 before the review),
    `paper/laptop_w/jobs/census-l.json` in an Arch visit and `census-w.json` in a Windows one (each
    about a minute, no measured basis). Collect each job's archive with its `.sha256`. Alex answered
