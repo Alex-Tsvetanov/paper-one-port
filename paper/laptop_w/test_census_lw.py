@@ -260,7 +260,7 @@ def test_the_generator_writes_the_table_and_macros(tmp_path):
     assert len(body) == len(G.ROWS) and body[0].startswith("Linux & epoll & ")
     assert body[-1].startswith("Windows & IOCP & dedicated")
     assert C.printed_label_hits(table) == []
-    assert "–" not in macros + table and "—" not in macros + table
+    assert not any(chr(c) in macros + table for c in (0x2012, 0x2013, 0x2014, 0x2015))  # no dash
 
 
 def mutate(host: str, fn):
