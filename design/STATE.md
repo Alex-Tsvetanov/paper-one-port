@@ -12,6 +12,8 @@ descriptive data are in; no job is open on L or W.
 
 ## 0. W moves to the laptop's Windows (2026-10-23; supersedes the W parts below where they differ)
 
+Reporting (Alex, 2026-10-29): this paper's sessions report to the coordinator session, as the root CLAUDE.md section "Coordinator" says (Papers 3ed3cd1): every question to Alex goes to the coordinator first, and his answer back to it verbatim; laptop work goes through the coordinator only.
+
 Alex's decision of 2026-10-23 (Papers plan v2, Q3 option A): W's cells run again on the laptop's
 Windows (Ryzen 7 5800H, 8 cores, MSVC 19.51.36248); L's rows stand; the desktop's rows enter no
 analysis. Work on the local branch `laptop-w-bringup` (worktree `D:\Dev\worktrees\p3-laptop`),
