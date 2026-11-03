@@ -1039,17 +1039,38 @@ class FreezeGuard(unittest.TestCase):
             self.log(f"   CHANGE_COMMIT = {change}\n")
             self.refused("other than the Python of bench/run")
 
+    def rebuild_gate(self, commit: str, name: str = "gate-L-new.json", binaries: dict | None = None) -> Path:
+        """A gate whose records were made at `commit` (record names as the records jobs write them)."""
+        g = Path(self.tmp.name) / name
+        g.write_text(json.dumps({"passed": True, "citable": True, "binaries": binaries or BINS,
+                                 "oneport": {"coverage": {"oneport": {"asan": [f"oneport-{commit[:9]}-L-asan.json"],
+                                                                      "tsan": [f"oneport-{commit[:9]}-L-tsan.json"]}}}}))
+        return g
+
     def test_a_rebuild_runs_on_the_commit_the_log_names_and_checks_the_build(self):
         """The entry of 2026-11-03, item 6 (a): a compiled change named by REBUILD_COMMIT; the run's
-        build must come from that commit (or a descendant with its frozen paths), clean."""
+        build must come from that commit (or a descendant differing in bench/run's Python), clean,
+        and its binaries must be in a gate of records made at or after it."""
         rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
         self.refused("changed since CODE_FREEZE")
         self.log(f"- The change's commit:\n   REBUILD_COMMIT = {rebuild}\n")
         built = {"commit": rebuild, "dirty": False, "source_dir": "/src"}
-        c = self.check(build_prov=built)
+        new = self.rebuild_gate(rebuild)
+        c = self.check(build_prov=built, gates=[self.gate, new])
         self.assertEqual(c.record["freeze"]["change_commit"], rebuild)
         self.assertEqual(c.record["freeze"]["rebuild_commit"], rebuild)
         self.assertEqual(c.record["freeze"]["build"], {"commit": rebuild, "source_dir": "/src"})
+        self.assertEqual(c.record["gate"]["gates"], ["gate-L-new.json"])
+        self.assertEqual(c.record["gate"]["left_out_before_the_rebuild"], ["gate-L.json"])
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "no gate of records made at REBUILD_COMMIT"):
+            self.check(build_prov=built)  # the old build's gate alone: a binary it covers is not the rebuild's
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "no gate of records made at REBUILD_COMMIT"):
+            self.check(build_prov=built, gates=[self.rebuild_gate(self.cf, "gate-old.json")])
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "not the gated one"):
+            self.check(build_prov=built, gates=[self.gate, self.rebuild_gate(rebuild, "gate-other.json", {"oneport": "e" * 64})])
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "no source tree"):
+            self.check(build_prov=dict(built, source_dir="."), gates=[new])
+        self.gate = new  # the checks below are about the build alone
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "build's provenance"):
             self.check()
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not descend"):
@@ -1071,9 +1092,11 @@ class FreezeGuard(unittest.TestCase):
         self.log(f"   REBUILD_COMMIT = {rebuild}\n")
         py = self.later_change("bench/run/y.py", "y = 1\n")
         self.log(f"   CHANGE_COMMIT = {py}\n")
-        c = self.check(build_prov={"commit": rebuild, "dirty": False})
+        self.gate = self.rebuild_gate(rebuild)
+        c = self.check(build_prov={"commit": rebuild, "dirty": False, "source_dir": "/src"})
         self.assertEqual((c.record["freeze"]["change_commit"], c.record["freeze"]["rebuild_commit"]), (py, rebuild))
-        self.assertEqual(self.check(build_prov={"commit": py, "dirty": False}).record["freeze"]["build"]["commit"], py)  # Python alone
+        built_py = {"commit": py, "dirty": False, "source_dir": "/src"}
+        self.assertEqual(self.check(build_prov=built_py).record["freeze"]["build"]["commit"], py)  # Python alone
         compiled = self.later_change("bench/server/x.cpp", "int x = 3;\n")
         self.log(f"   CHANGE_COMMIT = {compiled}\n")
         self.refused("other than the Python of bench/run since REBUILD_COMMIT")
@@ -1092,12 +1115,25 @@ class FreezeGuard(unittest.TestCase):
                 else:
                     change = self.later_change()
                     self.log(f"   CHANGE_COMMIT = {change}\n   REBUILD_COMMIT = {change}\n")
-                    self.refused("named before as CHANGE_COMMIT")
+                    self.refused("which a CHANGE_COMMIT line named")
         self.tearDown()
         self.setUp()
         rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
         self.log(f"   REBUILD_COMMIT = {rebuild} after {self.cf}\n")
         self.refused("names 2 commits")
+
+    def test_an_io_uring_only_run_waits_for_the_rebuild(self):
+        """HIGH 2 of the review: the entry's heading alone does not clear its io_uring-only runs."""
+        title = freeze_guard.IO_URING_REBUILD_ITEMS
+        self.log(f"\n### 2026-11-03: {title}\n")
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "waits for its REBUILD_COMMIT"):
+            self.check(entries=(title,))
+        rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
+        self.log(f"   REBUILD_COMMIT = {rebuild}\n")
+        self.gate = self.rebuild_gate(rebuild)
+        c = self.check(entries=(title,), build_prov={"commit": rebuild, "dirty": False, "source_dir": "/src"})
+        self.assertTrue(c.record["io_uring_only"])
+        self.assertEqual(c.record["entries"], [title])
 
     def test_without_a_rebuild_the_build_is_not_read(self):
         change = self.later_change()
@@ -1233,6 +1269,53 @@ class FreezeGuard(unittest.TestCase):
         self.log(self.rule_e_entry() + f"- the pilot entry again: pilot sha256 {sha(p)}\n")
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not come after"):
             self.check(code_freeze=cf2, pilot=p, rule_e=None)
+
+    def test_every_runner_gives_the_guard_its_build(self):
+        """Every call of the guard in the runners passes the build's provenance (read after a
+        REBUILD_COMMIT; without it such a run is refused)."""
+        import re  # noqa: PLC0415
+        for f in sorted(HERE.glob("*.py")):
+            if f.name.startswith("test_") or f.name == "freeze_guard.py":
+                continue
+            text = f.read_text(encoding="utf-8")
+            for m in re.finditer(r"freeze_guard\.check\(", text):
+                depth, i = 1, m.end()
+                while depth:
+                    depth += {"(": 1, ")": -1}.get(text[i], 0)
+                    i += 1
+                with self.subTest(f.name):
+                    self.assertIn("build_prov=", text[m.end():i], f"{f.name}: a guard call without the build's provenance")
+
+    def test_the_guard_asks_git_for_utf8(self):
+        seen = {}
+
+        def run(*a, **k):
+            seen.update(k)
+            return subprocess.CompletedProcess(a[0], 0, stdout="", stderr="")
+
+        with mock.patch.object(freeze_guard.subprocess, "run", run):
+            freeze_guard.git(self.repo, "status")
+        self.assertEqual((seen.get("text"), seen.get("encoding")), (True, "utf-8"))
+
+    def test_hardcase_run_frozen_backend_runs_the_four_io_uring_entries(self):
+        seen, guard = {}, {}
+
+        def part_server(a, pilot, rule_e, prov, clearance, emit):
+            seen["entries"] = list(a.entries)
+            return {}
+
+        with mock.patch.object(freeze_guard, "check", lambda **kw: guard.update(kw) or Clear()), \
+                mock.patch.object(runlib, "job_provenance", lambda *a, **k: {"binaries_all": BINS, "commit": "c" * 40, "dirty": False}), \
+                mock.patch.object(runlib, "arm_provenance", lambda *a, **k: {}), \
+                mock.patch.object(HR, "part_server", part_server), \
+                mock.patch.object(HR.window, "stop_on_signals", lambda: None), \
+                tempfile.TemporaryDirectory() as d:
+            HR.main(["--build", d, "--out", d, "--job", "j", "--seeds", str(self.seeds), "--code-freeze", self.cf, "--gate", str(self.gate),
+                     "--pilot", str(self.pilot), "--rule-e", str(self.rule_e), "--backend", "io_uring"])
+        self.assertEqual(seen["entries"], [e for e in HR.ENTRIES if e.startswith("io_uring.")])
+        self.assertEqual(len(seen["entries"]), 4)
+        self.assertEqual(guard["entries"], (freeze_guard.IO_URING_REBUILD_ITEMS,))
+        self.assertIn("build_prov", guard)
 
     def test_cost_run_with_backend_names_the_entry_and_the_build(self):
         seen = {}

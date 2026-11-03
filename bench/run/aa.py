@@ -45,7 +45,7 @@ PORT_OFFSET = 100
 
 
 def cache_value(build: Path, key: str) -> str | None:
-    for line in (build / "CMakeCache.txt").read_text().splitlines():
+    for line in (build / "CMakeCache.txt").read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith(key + ":"):
             return line.split("=", 1)[1]
     return None

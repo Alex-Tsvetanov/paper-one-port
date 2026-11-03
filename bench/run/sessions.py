@@ -226,7 +226,8 @@ class Engine:
     log: Callable[[str], None] = lambda s: print(s, flush=True)
     stop_after_sessions: int | None = None  # a development limit: run at most this many sessions in this job
     # The cells whose sessions run (runlib.backend_keep); None: all. The plan is the whole runner's,
-    # so each kept session keeps the id, order index and X the whole order gives it.
+    # so each kept base session keeps the id, order index and X the whole order gives it; a rerun
+    # keeps its id and X (its cell's slot), and its order index counts the reruns run, as always.
     keep: frozenset[str] | None = None
     sessions_run: int = 0
     # The job's warm-up (the module's docstring). The runners never set these; the tests give 0

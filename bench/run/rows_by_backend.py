@@ -10,7 +10,7 @@ the kept rows out of the archived files, unchanged, line for line.
 A row belongs to the backend when its field `backend` names it; a row without the field (an ophold
 row of K_BASE, a fault row) when a dot-separated part of its `cell` or of its hard-case `entry` names
 it; any other row is kept with the others. Each output's lines are the input lines unchanged, in
-their order.
+their order, each ending in a newline (a last line without one gets it).
 
     rows_by_backend.py --backend io_uring --out-backend IO.jsonl --out-others REST.jsonl ROWS.jsonl [...]
 
@@ -44,6 +44,8 @@ def sha256_bytes(b: bytes) -> str:
 def split(paths: list[Path], backend: str) -> tuple[list[bytes], list[bytes], list[dict]]:
     """The lines of `backend`'s rows, the other lines, and a record per input."""
     mine, others, inputs = [], [], []
+    if len({Path(p).resolve() for p in paths}) != len(paths):
+        raise SystemExit("rows_by_backend: a file is given twice")
     for p in paths:
         data = Path(p).read_bytes()
         lines = data.splitlines(keepends=True)
@@ -56,6 +58,8 @@ def split(paths: list[Path], backend: str) -> tuple[list[bytes], list[bytes], li
                 row = json.loads(ln)
             except json.JSONDecodeError as e:
                 raise SystemExit(f"rows_by_backend: {p} line {i + 1} is not JSON: {e}") from e
+            if not isinstance(row, dict):
+                raise SystemExit(f"rows_by_backend: {p} line {i + 1} is not a row (a JSON object)")
             (mine if of_backend(row, backend) else others).append(ln)
         inputs.append({"file": str(p), "sha256": sha256_bytes(data), "lines": sum(1 for ln in lines if ln.strip())})
     return mine, others, inputs

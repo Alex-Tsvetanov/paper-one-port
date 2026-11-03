@@ -36,8 +36,16 @@ looks for in them is fixed here and stated in design/status.md:
   tree its CMake cache names), and the build's commit must be the last REBUILD_COMMIT or a
   descendant of it whose frozen paths differ from it only in Python files directly under bench/run
   (which no target compiles), with a clean tree, so a binary built before the rebuild, or from
-  compiled inputs after it, does not pass with a gate of the old build. With no REBUILD_COMMIT line, nothing of this applies and the build's
-  provenance is not read.
+  compiled inputs after it, does not pass with a gate of the old build. The source tree can be moved
+  after a build, so the binaries are bound too: only gates whose records were made at the
+  REBUILD_COMMIT or a commit after it (the commit's first nine hex digits in each record's name,
+  as bench/records_job.sh and records_job_w.ps1 name them) count for the binaries' sha256; a gate
+  of the old build is left out and named in the record. A frozen run that applies the entry of
+  2026-11-03 (its io_uring-only runs, IO_URING_REBUILD_ITEMS among its entries) is refused until
+  the log names a REBUILD_COMMIT. With no REBUILD_COMMIT line, nothing of this applies and the
+  build's provenance is not read. What a REBUILD_COMMIT changes is not checked here: the entry
+  that names it says which files, its review checked them, and test_wlaptop.py pins them on this
+  repository's history.
 - The seeds entry: the sha256 of the seeds file (the 14 seeds of 4.7, as analysis/ reads them) on
   a revision-log line that holds the word "seed".
 - The pilot entry: the sha256 of pilot.py's output on a revision-log line that holds the word
@@ -190,7 +198,7 @@ def change_commit(repo: Path, log: str, code_freeze: str) -> tuple[str | None, s
         c, before = hashes[0], found or code_freeze
         if c == found:
             if is_rebuild and rebuild != c:
-                raise FreezeRefused(f"REBUILD_COMMIT {c[:12]} was named before as CHANGE_COMMIT")
+                raise FreezeRefused(f"REBUILD_COMMIT {c[:12]} names the last commit the log named, which a CHANGE_COMMIT line named")
             continue  # the last one, named again
         if c == before or not is_ancestor(repo, before, c):
             raise FreezeRefused(f"{word} {c[:12]} does not descend from {before[:12]} (section 8, the rule for a later change)")
@@ -211,12 +219,33 @@ def change_commit(repo: Path, log: str, code_freeze: str) -> tuple[str | None, s
     return found, rebuild
 
 
+RECORD_COMMIT = re.compile(r"-([0-9a-f]{9})-[LW]-")
+
+
+def gate_commit(repo: Path, gate: Path) -> str | None:
+    """The commit a gate's records were made at: the one nine-digit prefix every record name of its
+    coverage holds (bench/gate_lib.py's coverage, records named <target>-<commit9>-<host>-<kind>),
+    resolved in `repo`; None if the names give no single commit."""
+    try:
+        g = json.loads(Path(gate).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    names = [n for kinds in ((g.get("oneport") or {}).get("coverage") or {}).values() for ns in (kinds or {}).values() for n in ns]
+    prefixes = {m.group(1) for n in names for m in [RECORD_COMMIT.search(str(n))] if m}
+    if not names or any(not RECORD_COMMIT.search(str(n)) for n in names) or len(prefixes) != 1:
+        return None
+    out = git(repo, "rev-parse", "--verify", "--quiet", f"{prefixes.pop()}^{{commit}}", check=False).strip()
+    return out if HEX40.fullmatch(out) else None
+
+
 def check_build(repo: Path, rebuild: str, build_prov: dict | None) -> dict:
     """After a REBUILD_COMMIT: the build's source commit is `rebuild` or a descendant whose frozen
     paths differ from it only in the Python of bench/run, and its tree is clean (see the docstring)."""
     if not build_prov or not HEX40.fullmatch(str(build_prov.get("commit") or "")):
         raise FreezeRefused("after a REBUILD_COMMIT a run gives its build's provenance with the build's source commit")
     b = build_prov["commit"]
+    if str(build_prov.get("source_dir") or ".") in ("", "."):
+        raise FreezeRefused("the build names no source tree (its CMake cache has no CMAKE_HOME_DIRECTORY)")
     if build_prov.get("dirty") is not False:
         raise FreezeRefused(f"the build's source tree at {b[:12]} has changes that are not committed (or its state is unknown)")
     if b != rebuild:
@@ -341,6 +370,11 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
     if hyp.read_text(encoding="utf-8").replace("\r\n", "\n") != git(repo, "show", "HEAD:hypotheses.md").replace("\r\n", "\n"):
         raise FreezeRefused("hypotheses.md differs from HEAD's")
     rec: dict = {"freeze": check_code_freeze(repo, log, code_freeze, build_prov)}
+    rebuild = rec["freeze"].get("rebuild_commit")
+    if IO_URING_REBUILD_ITEMS in entries:
+        if rebuild is None:
+            raise FreezeRefused("an io_uring-only run of the entry of 2026-11-03 waits for its REBUILD_COMMIT line (item 11)")
+        rec["io_uring_only"] = True
     if entries:
         rec["entries"] = check_entries(log, entries)
     s = sha256_file(seeds)
@@ -357,5 +391,13 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
                                              again=RULE_E_LAPTOP_ITEMS)
         if m2_rates is not None:
             rec["m2_rates"] = check_file_entry(repo, log, m2_rates, "M2_RATE", rec["pilot"]["logged_in"], "M2's rates")
-    rec["gate"] = check_binaries(binaries, gates)
+    if rebuild is None:
+        rec["gate"] = check_binaries(binaries, gates)
+    else:
+        made = {str(g): gate_commit(repo, g) for g in gates}
+        ours = [g for g in gates if made[str(g)] and is_ancestor(repo, rebuild, made[str(g)])]
+        if not ours:
+            raise FreezeRefused(f"no gate of records made at REBUILD_COMMIT {rebuild[:12]} or after it: {sorted(Path(g).name for g in gates)}")
+        rec["gate"] = check_binaries(binaries, ours)
+        rec["gate"]["left_out_before_the_rebuild"] = sorted(Path(g).name for g in gates if g not in ours)
     return Clearance(rec)

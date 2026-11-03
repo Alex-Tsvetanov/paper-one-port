@@ -268,7 +268,7 @@ def main(argv=None) -> int:
         if gi == 1:
             got = {}
             for c in eng.cells:
-                if c.id.startswith("S.ssh.C3."):
+                if c.id.startswith("S.ssh.C3.") and (eng.keep is None or c.id in eng.keep):
                     c1 = c.id.replace("S.ssh.C3.", "S.ssh.C1.")
                     rr = slower_median_rate(eng.rows(), c1)
                     c.shared["rate"] = rr["rate"]
