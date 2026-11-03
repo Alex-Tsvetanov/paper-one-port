@@ -34,6 +34,8 @@
 #include <ws2tcpip.h>
 #include <mswsock.h>
 #include <windows.h>
+
+#include <latch>
 #endif
 
 #include "apps.hpp"
@@ -532,6 +534,10 @@ namespace oneport::server::detail
 #if defined(_WIN32)
 		IocpReceive iocp_receive = IocpReceive::zero_byte;  // the receive form (config.hpp)
 		IocpAccept iocp_accept = IocpAccept::no_buffer;     // the AcceptEx form
+		/// Counted down once by each worker when its listeners' AcceptEx requests are posted, or when
+		/// it fails before that; Server::start() waits for it (the revision log's entry of 2026-11-03,
+		/// item 3). Null: nothing waits.
+		std::latch* started = nullptr;
 #endif
 	};
 

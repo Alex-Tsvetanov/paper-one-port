@@ -14,6 +14,7 @@
 
 #include "worker.hpp"
 
+#include <latch>
 #include <random>
 #include <stdexcept>
 #include <system_error>
@@ -108,6 +109,7 @@ namespace oneport::server
 		tls::Ctx ssl_ctx;  // the server's TLS context (bench/tls)
 		std::vector<std::unique_ptr<Worker>> workers;
 		std::vector<std::thread> threads;
+		std::unique_ptr<std::latch> posted;  // the workers' AcceptEx requests posted (start())
 		bool started = false;
 		bool stopped = false;
 
@@ -201,12 +203,19 @@ namespace oneport::server
 		}
 		m.fds = m.bind_all(want);
 		for (const int fd : m.fds) m.ports.push_back(bound_port(sock(fd)));
+		// Each worker posts its listeners' AcceptEx requests itself (iocp.cpp, run_iocp); start()
+		// returns only once every worker has posted them or failed before that, so a client that
+		// connects as soon as start() returns finds a request posted (the revision log's entry of
+		// 2026-11-03, item 3).
+		m.posted = std::make_unique<std::latch>(static_cast<std::ptrdiff_t>(m.config.workers));
+		m.shared.started = m.posted.get();
 		for (std::uint32_t w = 0; w < m.config.workers; ++w) m.workers.push_back(std::make_unique<Worker>(w, m.shared, m.specs, m.fds));
 		for (std::uint32_t w = 0; w < m.config.workers; ++w)
 		{
 			Worker* worker = m.workers[w].get();
 			m.threads.emplace_back([worker] { worker->run(); });
 		}
+		m.posted->wait();
 	}
 
 	void Server::stop()

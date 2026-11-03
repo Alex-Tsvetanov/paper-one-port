@@ -84,6 +84,14 @@ namespace oneport::server::detail
 
 	void Worker::run_iocp()
 	{
+		// Server::start() returns once every worker has posted its AcceptEx requests or failed before
+		// that: counted down once, after the posts or on a failure (the entry of 2026-11-03, item 3).
+		bool signalled = false;
+		auto signal_started = [this, &signalled] {
+			if (signalled || shared_.started == nullptr) return;
+			signalled = true;
+			shared_.started->count_down();
+		};
 		try
 		{
 			ic_->start();
@@ -105,6 +113,7 @@ namespace oneport::server::detail
 					post_accept(l, *l.accepts.back());
 				}
 			}
+			signal_started();
 			prev_return_ = Clock::now();
 			while (!ic_->stopped())
 			{
@@ -115,6 +124,7 @@ namespace oneport::server::detail
 		{
 			error_ = std::string("worker ") + std::to_string(index_) + ": " + e.what();
 		}
+		signal_started();  // a failure before the posts: start() still returns, and error() reports it
 		try
 		{
 			stop_iocp();

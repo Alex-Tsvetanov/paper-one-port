@@ -668,6 +668,46 @@ namespace oneport::test
 			return std::nullopt;
 		}
 
+		/// start() returns only after every worker has posted its AcceptEx requests (the revision
+		/// log's entry of 2026-11-03, item 3). Without the suite's wait after start() (Running), a
+		/// client connects at once, writes HC22's partial "GE" and resets: with no request posted
+		/// at its connect, its connection can end with no close reported; with the requests posted
+		/// it is accepted and closed with a report. Runs many servers, since the window is short.
+		Result start_posts_accepts()
+		{
+			Winsock ws;
+			CHECK(ws.ok, "WSAStartup");
+			constexpr int kRuns = 200;
+			for (int run = 0; run < kRuns; ++run)
+			{
+				Collector col;
+				server::Options o;
+				o.hooks = col.hooks();
+				ServerArgs a;
+				server::Server s(make_config(a), o);
+				s.start();  // no wait: the client connects at once
+				Sock c(overlapped_socket());
+				sockaddr_in addr = loopback(s.ports().at(0));
+				CHECK(::connect(c.s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0, "run " << run << ": connect");
+				sockaddr_in local{};
+				int n = sizeof(local);
+				CHECK(::getsockname(c.s, reinterpret_cast<sockaddr*>(&local), &n) == 0, "getsockname");
+				CHECK(send_text(c.s, "GE") == 2, "run " << run << ": send");
+				const linger hard{1, 0};
+				::setsockopt(c.s, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&hard), sizeof(hard));
+				::closesocket(c.s);  // a reset
+				c.s = INVALID_SOCKET;
+				std::vector<server::DetectionReport> det;
+				const bool closed = col.wait_close(ntohs(local.sin_port), 5000ms, det);
+				s.stop();
+				CHECK(!s.error(), "run " << run << ": a worker failed: " << *s.error());
+				CHECK(closed, "run " << run << " of " << kRuns << ": the server reported no close of a connection made at once after start()");
+				const server::Counters t = s.totals();
+				CHECK(t.accepted == 1 && t.closed == 1, "run " << run << ": accepted " << t.accepted << ", closed " << t.closed);
+			}
+			return std::nullopt;
+		}
+
 		/// The binary on IOCP: it starts, answers an HTTP/1.1 request, stops when its stop event is
 		/// set (main.cpp), exits 0 and prints its counters.
 		Result binary_smoke()
@@ -810,6 +850,7 @@ namespace oneport::test
 		r["iocp.stop_with_pending"] = on_iocp(stop_with_pending);
 		r["iocp.binary_smoke"] = on_iocp(binary_smoke);
 		r["iocp.not_served"] = on_iocp(not_served);
+		r["iocp.start_posts_accepts"] = on_iocp(start_posts_accepts);
 	}
 
 }  // namespace oneport::test

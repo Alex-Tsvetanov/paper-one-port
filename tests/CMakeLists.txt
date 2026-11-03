@@ -125,7 +125,7 @@ if(WIN32)
     endforeach()
     foreach(_test iocp.receive_forms iocp.silent_buffer iocp.check_byte_wins.replay_zero_byte iocp.check_byte_wins.replay_posted
                   iocp.check_byte_wins.peek iocp.peek_switch iocp.accept_forms iocp.stub_mode iocp.stop_with_pending
-                  iocp.not_served)
+                  iocp.not_served iocp.start_posts_accepts)
         add_test(NAME ${_test} COMMAND oneport_tests test ${_test})
         set_tests_properties(${_test} PROPERTIES TIMEOUT 300 LABELS "server;IOCP")
     endforeach()
