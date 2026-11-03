@@ -433,8 +433,9 @@ class RuleELoggedAgain(unittest.TestCase):
             git("commit", "-qam", "a test's rule E entry")
             self.assertEqual(rule_e(), {"file": str(files["rule"]), "sha256": rule_sha, "first_logged_in": first,
                                         "logged_in": git("rev-parse", "HEAD").decode().strip()})
-            # At this repository's HEAD: refused, or cleared by a commit after the last change's that
-            # holds the rule E entry.
+            # At this repository's HEAD: refused, or cleared by a commit after the last CHANGE_COMMIT
+            # named before any REBUILD_COMMIT (the guard's change that the rule E entry follows; the
+            # rebuild of 2026-11-03 comes after it) that holds the rule E entry.
             git("checkout", "-q", home)
             try:
                 rec = rule_e()
@@ -442,7 +443,13 @@ class RuleELoggedAgain(unittest.TestCase):
                 self.assertIn("does not come after", str(e))
             else:
                 self.assertEqual(rec["first_logged_in"], first)
-                change, _ = freeze_guard.change_commit(repo, log(), self.CODE_FREEZE)
+                change = None
+                for ln in log().splitlines():
+                    if freeze_guard.REBUILD_COMMIT.search(ln) and freeze_guard.HEX40.search(ln):
+                        break
+                    if freeze_guard.CHANGE_COMMIT.search(ln) and freeze_guard.HEX40.search(ln):
+                        change = freeze_guard.HEX40.findall(ln)[0]
+                self.assertIsNotNone(change)
                 self.assertTrue(freeze_guard.is_ancestor(repo, change, rec["logged_in"]))
                 self.assertIn(freeze_guard.RULE_E_LAPTOP_ITEMS, freeze_guard.git(repo, "show", f"{rec['logged_in']}:hypotheses.md"))
 
