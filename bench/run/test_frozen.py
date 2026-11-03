@@ -1068,6 +1068,11 @@ class FreezeGuard(unittest.TestCase):
             self.check(build_prov=built, gates=[self.rebuild_gate(self.cf, "gate-old.json")])
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "not the gated one"):
             self.check(build_prov=built, gates=[self.gate, self.rebuild_gate(rebuild, "gate-other.json", {"oneport": "e" * 64})])
+        git(self.repo, "checkout", "-q", "-b", "side")  # records made at a later compiled commit off HEAD's history
+        side = self.later_change("bench/server/x.cpp", "int x = 9;\n")
+        git(self.repo, "checkout", "-q", "-")
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "no gate of records made at REBUILD_COMMIT"):
+            self.check(build_prov=built, gates=[self.rebuild_gate(side, "gate-side.json")])
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "no source tree"):
             self.check(build_prov=dict(built, source_dir="."), gates=[new])
         self.gate = new  # the checks below are about the build alone

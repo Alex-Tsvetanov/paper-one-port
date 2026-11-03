@@ -39,7 +39,8 @@ looks for in them is fixed here and stated in design/status.md:
   compiled inputs after it, does not pass with a gate of the old build. The source tree can be moved
   after a build, so the binaries are bound too: only gates whose records were made at the
   REBUILD_COMMIT or a commit after it (the commit's first nine hex digits in each record's name,
-  as bench/records_job.sh and records_job_w.ps1 name them) count for the binaries' sha256; a gate
+  as bench/records_job.sh and records_job_w.ps1 name them), whose frozen paths differ from it only
+  in the Python of bench/run, count for the binaries' sha256; a gate
   of the old build is left out and named in the record. A frozen run that applies the entry of
   2026-11-03 (its io_uring-only runs, IO_URING_REBUILD_ITEMS among its entries) is refused until
   the log names a REBUILD_COMMIT. With no REBUILD_COMMIT line, nothing of this applies and the
@@ -238,6 +239,15 @@ def gate_commit(repo: Path, gate: Path) -> str | None:
     return out if HEX40.fullmatch(out) else None
 
 
+def compiled_like(repo: Path, rebuild: str, c: str) -> list[str]:
+    """The frozen files beyond the Python of bench/run in which `c` differs from `rebuild`; `c` must
+    be `rebuild` or descend from it (the caller checks)."""
+    if c == rebuild:
+        return []
+    diff = git(repo, "diff", "--name-only", "--no-renames", rebuild, c, "--", *FROZEN_PATHS).split()
+    return [p for p in diff if not CHANGE_PATHS.fullmatch(p)]
+
+
 def check_build(repo: Path, rebuild: str, build_prov: dict | None) -> dict:
     """After a REBUILD_COMMIT: the build's source commit is `rebuild` or a descendant whose frozen
     paths differ from it only in the Python of bench/run, and its tree is clean (see the docstring)."""
@@ -251,8 +261,7 @@ def check_build(repo: Path, rebuild: str, build_prov: dict | None) -> dict:
     if b != rebuild:
         if not is_ancestor(repo, rebuild, b):
             raise FreezeRefused(f"the build's commit {b[:12]} does not descend from REBUILD_COMMIT {rebuild[:12]}: a build made before the change")
-        diff = git(repo, "diff", "--name-only", "--no-renames", rebuild, b, "--", *FROZEN_PATHS).split()
-        other = [p for p in diff if not CHANGE_PATHS.fullmatch(p)]
+        other = compiled_like(repo, rebuild, b)
         if other:
             raise FreezeRefused(f"the build's commit {b[:12]} differs from REBUILD_COMMIT {rebuild[:12]} in {len(other)} frozen files "
                                 f"beyond the Python of bench/run: {other[:5]}")
@@ -395,7 +404,7 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
         rec["gate"] = check_binaries(binaries, gates)
     else:
         made = {str(g): gate_commit(repo, g) for g in gates}
-        ours = [g for g in gates if made[str(g)] and is_ancestor(repo, rebuild, made[str(g)])]
+        ours = [g for g in gates if made[str(g)] and is_ancestor(repo, rebuild, made[str(g)]) and not compiled_like(repo, rebuild, made[str(g)])]
         if not ours:
             raise FreezeRefused(f"no gate of records made at REBUILD_COMMIT {rebuild[:12]} or after it: {sorted(Path(g).name for g in gates)}")
         rec["gate"] = check_binaries(binaries, ours)
