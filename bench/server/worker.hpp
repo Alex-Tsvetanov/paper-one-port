@@ -95,9 +95,12 @@ namespace oneport::server::detail
 	/// io_uring: the provided-buffer group of the handlers' receive buffers, and how many buffers
 	/// its ring holds free. A design choice of M2b: 128, twice WL1's 64 connection slots per
 	/// server core, so one pass's receives rarely empty it; a receive that finds it empty fails
-	/// with ENOBUFS and is posted again (counted, recv_retries). Each buffer the ring gives a
-	/// connection is replaced at once from the pool, so the ring's buffers are a fixed count per
-	/// worker, allocated at start, and a connection holds a buffer only from its first byte.
+	/// with ENOBUFS (counted, recv_retries), and the connection then takes a buffer from the pool
+	/// and its receive is posted again into that buffer, so it cannot lose the ring's race again
+	/// (the revision log's entry of 2026-11-03, item 2). Each buffer the ring gives a connection is
+	/// replaced at once from the pool, so the ring's buffers are a fixed count per worker,
+	/// allocated at start, and a connection holds a buffer only from its first byte or from an
+	/// empty ring.
 	constexpr std::uint16_t kBufferGroup = 0;
 	constexpr unsigned kRingBuffers = 128;
 

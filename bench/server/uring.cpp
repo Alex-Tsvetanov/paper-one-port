@@ -405,6 +405,28 @@ namespace oneport::server::detail
 			return rr;
 		}
 		if (selected != nullptr) pool_.put(selected);  // a READ that took a buffer and returned 0 or failed (io_uring/rw.c at v7.2.6)
+		if (x.res == -ENOBUFS || x.res == -EINTR || x.res == -EAGAIN)
+		{
+			++c_.recv_again;
+			rr.retry = true;
+			if (x.res == -ENOBUFS && buf == nullptr)
+			{
+				// The ring was empty when this connection's data came (more receives completed in
+				// one io_uring_enter than the ring holds). Posting the same buffer-selecting receive
+				// again could lose the same race without bound, so the connection takes a buffer
+				// from the pool now, and the receive posted again goes into it and completes as soon
+				// as data is there (the revision log's entry of 2026-11-03, item 2).
+				buf = pool_.get();
+				len = 0;
+				if (&buf == &c->buf) c->beg = 0;
+				else if (c->relay && &buf == &c->relay->down.buf) c->relay->down.beg = 0;
+			}
+			return rr;
+		}
+		// A connection in detection that took a pool buffer after an empty ring and then reads no
+		// byte gives the empty buffer back in detect_after_read or proxy_after_read
+		// (drop_empty_buffer), so B2(d) holds: a connection that has received no byte holds no data
+		// buffer once its receive has completed.
 		if (x.res == 0)
 		{
 			++c_.recv_eof;
@@ -414,12 +436,6 @@ namespace oneport::server::detail
 				c->eof_seen = true;
 				c->observe_pass = pass_;
 			}
-			return rr;
-		}
-		if (x.res == -ENOBUFS || x.res == -EINTR || x.res == -EAGAIN)
-		{
-			++c_.recv_again;
-			rr.retry = true;
 			return rr;
 		}
 		rr.error = true;

@@ -36,6 +36,7 @@
 #include <signal.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -450,6 +451,149 @@ namespace oneport::test
 			}
 			CHECK(ring.enter_calls() > 0 && ring.submissions()[IORING_OP_READ] == 5 && ring.submissions()[IORING_OP_RECV] == 0 && ring.submissions()[IORING_OP_ACCEPT] == 1,
 			      "the counters");
+			return std::nullopt;
+		}
+
+		// ---- io_uring: a receive that finds the provided-buffer ring empty ----
+
+		/// A blocking loopback client of `port`, with a receive timeout; -1 on failure.
+		int ring_client(std::uint16_t port, int timeout_s)
+		{
+			const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+			if (fd < 0) return -1;
+			sockaddr_in addr{};
+			addr.sin_family = AF_INET;
+			addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+			addr.sin_port = htons(port);
+			const timeval limit{timeout_s, 0};
+			const int one = 1;
+			if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0)
+			{
+				::close(fd);
+				return -1;
+			}
+			::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
+			::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+			return fd;
+		}
+
+		/// Reads one 200 response from `fd`; false on any failure.
+		bool ring_reply(int fd)
+		{
+			const std::string_view want = http1::kResponse200;
+			std::string got;
+			std::array<char, 1024> b{};
+			while (got.size() < want.size())
+			{
+				const ssize_t n = ::recv(fd, b.data(), b.size(), 0);
+				if (n <= 0) return false;
+				got.append(b.data(), static_cast<std::size_t>(n));
+			}
+			return got == want;
+		}
+
+		/// Holds the worker inside a pass (before its expiries) while `hold` is set.
+		struct HoldPass
+		{
+			std::atomic<bool> hold{false};
+			std::atomic<bool> held{false};
+			static void hook(void* ctx, unsigned, server::TimePoint, std::optional<server::TimePoint>)
+			{
+				auto* self = static_cast<HoldPass*>(ctx);
+				while (self->hold.load())
+				{
+					self->held.store(true);
+					std::this_thread::sleep_for(1ms);
+				}
+			}
+		};
+
+		/// The revision log's entry of 2026-11-03, item 2. The worker is held inside a pass while
+		/// kConns keep-alive connections, far more than the ring's 128 buffers, each send one
+		/// request; released, its next io_uring_enter completes all of their receives at once, so
+		/// all but 128 complete with ENOBUFS. A receive that fails with ENOBUFS is followed by a
+		/// receive into a buffer the connection takes from the pool, which cannot fail so, so each
+		/// connection's one request fails at most once: recv_retries is at most kConns. When the
+		/// receive is posted again into the ring instead (the frozen code), the next pass's 128
+		/// buffers serve 128 of the failed receives and the others fail again, pass after pass, so
+		/// recv_retries exceeds kConns (472 + 344 + 216 + 88 for 600 connections). Every request is
+		/// answered, and the server's books balance at the end.
+		Result uring_empty_ring()
+		{
+			constexpr std::size_t kConns = 600;
+			rlimit nofile{};
+			CHECK(::getrlimit(RLIMIT_NOFILE, &nofile) == 0, "getrlimit");
+			const rlim_t want = 2 * kConns + 64;
+			if (nofile.rlim_cur < want && nofile.rlim_max >= want)
+			{
+				nofile.rlim_cur = want;
+				::setrlimit(RLIMIT_NOFILE, &nofile);
+			}
+			CHECK(::getrlimit(RLIMIT_NOFILE, &nofile) == 0 && nofile.rlim_cur >= want, "this test needs " << want << " descriptors");
+			ServerArgs a;
+			a.mode = Mode::dedicated;
+			a.t_fb = 60000ms;
+			a.t_dec = 60000ms;
+			a.t_hdr = 60000ms;
+			HoldPass hp;
+			server::Hooks extra;
+			extra.ctx = &hp;
+			extra.before_expiries = &HoldPass::hook;
+			Running srv(a, extra);
+			const std::uint16_t port = srv.port_of(detect::Proto::http1);
+			std::vector<int> fds;
+			auto close_all = [&fds] {
+				for (const int fd : fds) ::close(fd);
+				fds.clear();
+			};
+			for (std::size_t i = 0; i < kConns; ++i)
+			{
+				const int fd = ring_client(port, 10);
+				if (fd < 0)
+				{
+					close_all();
+					return "connect " + std::to_string(i);
+				}
+				fds.push_back(fd);
+			}
+			std::this_thread::sleep_for(300ms);  // every connection accepted, its receive posted
+			hp.hold.store(true);
+			auto send_one = [](int fd) {
+				return ::send(fd, kGetKeepAlive.data(), kGetKeepAlive.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(kGetKeepAlive.size());
+			};
+			bool sent = send_one(fds[0]);  // this exchange's pass holds the worker
+			for (int i = 0; i < 5000 && !hp.held.load(); ++i) std::this_thread::sleep_for(1ms);
+			const bool held = hp.held.load();
+			for (std::size_t i = 1; i < fds.size() && sent; ++i) sent = send_one(fds[i]);
+			std::this_thread::sleep_for(200ms);  // every request queued at the server's sockets
+			hp.hold.store(false);
+			if (!held || !sent)
+			{
+				close_all();
+				return held ? "send" : "the worker was never held";
+			}
+			for (std::size_t i = 0; i < fds.size(); ++i)
+			{
+				if (!ring_reply(fds[i]))
+				{
+					close_all();
+					return "connection " + std::to_string(i) + ": no 200 response";
+				}
+			}
+			// The ends come a few at a time, so their receives (which select a buffer too, at
+			// the end of the stream) do not empty the ring again and the count stays the requests'.
+			for (std::size_t i = 0; i < fds.size(); ++i)
+			{
+				::close(fds[i]);
+				if (i % 16 == 15) std::this_thread::sleep_for(5ms);
+			}
+			fds.clear();
+			std::this_thread::sleep_for(200ms);  // the server sees each end and closes
+			if (auto bad = srv.stop_and_check()) return *bad;
+			const server::Counters t = srv.server->totals();
+			CHECK(t.recv_retries > 0, "the ring was never empty (recv_retries 0), so the test did not reach the path");
+			CHECK(t.recv_retries <= kConns, "recv_retries " << t.recv_retries << " exceeds the " << kConns
+			                                              << " requests: a receive failed with ENOBUFS more than once");
 			return std::nullopt;
 		}
 
@@ -889,6 +1033,10 @@ namespace oneport::test
 		r["server.kernel_nodelay_inherited"] = kernel_nodelay_inherited;
 		r["server.kernel_rcvlowat_uring"] = kernel_rcvlowat_uring;
 		r["server.kernel_uring_recv_select"] = kernel_uring_recv_select;
+		r["server.uring_empty_ring"] = [] {
+			suite_backend() = Backend::io_uring;
+			return uring_empty_ring();
+		};
 		r["server.not_served"] = not_served;
 	}
 
