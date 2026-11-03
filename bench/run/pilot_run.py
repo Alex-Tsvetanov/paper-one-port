@@ -314,7 +314,8 @@ def main(argv=None) -> int:
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, need_pilot=False,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")), entries=(freeze_guard.M7E_ITEMS,))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")), entries=(freeze_guard.M7E_ITEMS,),
+                                       build_prov=prov)
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(prov, indent=1))
     if "sessions" in a.parts:
         cells = runlib.only_cells(a, pilot_cells(a.dev_r))

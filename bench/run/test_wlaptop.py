@@ -348,16 +348,23 @@ class CostRunR(unittest.TestCase):
 
 
 class LaterChange(unittest.TestCase):
+    # The compiled and test files of the later change with new builds (the revision log's entry of
+    # 2026-11-03, freeze_guard.IO_URING_REBUILD_ITEMS), which a REBUILD_COMMIT line names.
+    REBUILD_FILES = {"bench/server/handlers.cpp", "bench/server/iocp.cpp", "bench/server/server.hpp", "bench/server/server_win.cpp",
+                     "bench/server/uring.cpp", "bench/server/worker.hpp", "tests/CMakeLists.txt", "tests/harness.hpp",
+                     "tests/iocp_tests.cpp", "tests/server_tests.cpp"}
+
     def test_frozen_paths_differ_in_bench_run_python_alone(self):
         """Section 8's rule as the guard reads it (freeze_guard.change_commit): between CODE_FREEZE
         and this tree only Python files directly under bench/run differ in bench, tests and
-        CMakeLists.txt, committed or not."""
+        CMakeLists.txt, committed or not, besides the files of the 2026-11-03 change with new builds,
+        whose REBUILD_COMMIT the guard reads instead."""
         cf = "ff2679cc89d23e08a817308c9aeba7901e056fef"
         out = subprocess.run(["git", "-C", str(REPO), "diff", "--name-only", "--no-renames", cf, "--", *freeze_guard.FROZEN_PATHS],
                              capture_output=True, text=True, check=True).stdout.split()
         new = subprocess.run(["git", "-C", str(REPO), "ls-files", "--others", "--exclude-standard", "--", *freeze_guard.FROZEN_PATHS],
                              capture_output=True, text=True, check=True).stdout.split()
-        other = [p for p in out + new if not freeze_guard.CHANGE_PATHS.fullmatch(p)]
+        other = [p for p in out + new if not freeze_guard.CHANGE_PATHS.fullmatch(p) and p not in self.REBUILD_FILES]
         self.assertEqual(other, [])
         self.assertIn("bench/run/wprobe.py", out + new)
 
@@ -435,7 +442,7 @@ class RuleELoggedAgain(unittest.TestCase):
                 self.assertIn("does not come after", str(e))
             else:
                 self.assertEqual(rec["first_logged_in"], first)
-                change = freeze_guard.change_commit(repo, log(), self.CODE_FREEZE)
+                change, _ = freeze_guard.change_commit(repo, log(), self.CODE_FREEZE)
                 self.assertTrue(freeze_guard.is_ancestor(repo, change, rec["logged_in"]))
                 self.assertIn(freeze_guard.RULE_E_LAPTOP_ITEMS, freeze_guard.git(repo, "show", f"{rec['logged_in']}:hypotheses.md"))
 

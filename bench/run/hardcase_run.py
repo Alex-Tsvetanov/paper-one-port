@@ -647,6 +647,7 @@ def main(argv=None) -> int:
     ap.add_argument("--part", default="server", choices=("server", "competitors"))
     ap.add_argument("--cases", type=lambda s: [int(x) for x in s.split(",")], default=list(range(1, 26)))
     ap.add_argument("--entries", type=lambda s: s.split(","), default=list(ENTRIES))
+    runlib.backend_arg(ap)
     ap.add_argument("--replicates", type=int, default=REPLICATES)
     ap.add_argument("--systems", type=lambda s: s.split(","), default=list(comp.ORDER) + list(comp.LIBRARIES))
     ap.add_argument("--dev-g-ms", type=int, help="development mode: G without a pilot entry")
@@ -655,8 +656,14 @@ def main(argv=None) -> int:
     if a.development and a.dev_seed is None:
         a.dev_seed = 0  # the hard cases have no order to draw
     runlib.check_mode_args(a)
-    full = (sorted(a.cases) == list(range(1, 26)) and a.entries == list(ENTRIES) and a.replicates == REPLICATES
-            and a.dev_g_ms is None and a.dev_gap_split_ms is None)
+    keep_entries: tuple[str, ...] = ()
+    if a.backend is not None:
+        if a.part != "server" or a.entries != list(ENTRIES):
+            raise runlib.InputRefused("--backend takes the server part with every entry of that backend; give no --entries")
+        a.entries = [e for e in ENTRIES if e.split(".")[0] == a.backend]
+        keep_entries = (freeze_guard.IO_URING_REBUILD_ITEMS,)
+    full = (sorted(a.cases) == list(range(1, 26)) and a.entries == [e for e in ENTRIES if a.backend is None or e.split(".")[0] == a.backend]
+            and a.replicates == REPLICATES and a.dev_g_ms is None and a.dev_gap_split_ms is None)
     if not a.development and not full and a.part == "server":
         raise runlib.InputRefused("--cases, --entries, --replicates and the --dev values narrow the frozen run: development only")
     if any(e not in ENTRIES for e in a.entries):
@@ -668,7 +675,7 @@ def main(argv=None) -> int:
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opcase")))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opcase")), entries=keep_entries, build_prov=prov)
     path = a.out / ("hardcases.jsonl" if a.part == "server" else "competitor_cases.jsonl")
     a.rows_prior = runlib_rows(path)
     rprov = runlib.arm_provenance(prov, a.build, ("oneport", "opcase"))

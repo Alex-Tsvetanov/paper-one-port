@@ -176,6 +176,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     runlib.common_args(ap)
     ap.add_argument("--rule-e", type=Path)
+    runlib.backend_arg(ap)
     ap.add_argument("--part", default="cells", choices=("cells", "m2-rate"))
     ap.add_argument("--m2-rates", type=Path, help="m2_rates.json of the m2-rate part, as the revision log records it")
     ap.add_argument("--dev-m2-rate", type=float, help="development mode: one open-loop rate for every M2 cell")
@@ -215,13 +216,17 @@ def main(argv=None) -> int:
     listener = a.dev_backend_listener or M2_BACKEND_LISTENER
     cells = runlib.only_cells(a, m_cells(a.dev_r or R_M, rule_e, m2_rates, a.part, a.dev_r or M2_RATE_SESSIONS, listener))
     prov = runlib.job_provenance(a.build, a.tools, a.out, a.job)
+    if a.backend is not None and a.part != "cells":
+        raise runlib.InputRefused("--backend runs the cells part only (M2_RATE stands: the revision log's entry of 2026-11-03, item 7 (b))")
+    keep, keep_entries = runlib.backend_keep(a, cells)
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        m2_rates=a.m2_rates if a.part == "cells" else None,
                                        binaries=runlib.binaries_of(prov, ("oneport", "opgen")),
-                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7D_ITEMS, freeze_guard.M7E_ITEMS) if a.part == "cells"
-                                       else (freeze_guard.M7D_ITEMS, freeze_guard.M7E_ITEMS))
+                                       entries=((freeze_guard.M7C_ITEMS, freeze_guard.M7D_ITEMS, freeze_guard.M7E_ITEMS) if a.part == "cells"
+                                                else (freeze_guard.M7D_ITEMS, freeze_guard.M7E_ITEMS)) + keep_entries,
+                                       build_prov=prov)
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, m2_rates=m2_rates, part=a.part, not_run=not_run),
                                                                indent=1))
     if a.part == "cells":
@@ -230,7 +235,7 @@ def main(argv=None) -> int:
     eng = SS.Engine("m_run" if a.part == "cells" else "m_run.m2-rate", a.job, a.out, cells, SS.make_plan(cells, seed),
                     window_fn(a, blocks), lambda c, arm: runlib.arm_provenance(prov, a.build, binaries_for(c, arm)),
                     a.development or a.part == "m2-rate", clearance, fingerprint=window.pin_fingerprint,
-                    stop_after_sessions=a.max_sessions)
+                    stop_after_sessions=a.max_sessions, keep=keep)
     summ = eng.run()
     if a.part == "m2-rate":
         rates = m2_rates_from(eng.rows(), cells)

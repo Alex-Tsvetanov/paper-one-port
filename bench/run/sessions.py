@@ -225,6 +225,9 @@ class Engine:
     before_group: Callable[[int, "Engine"], None] | None = None
     log: Callable[[str], None] = lambda s: print(s, flush=True)
     stop_after_sessions: int | None = None  # a development limit: run at most this many sessions in this job
+    # The cells whose sessions run (runlib.backend_keep); None: all. The plan is the whole runner's,
+    # so each kept session keeps the id, order index and X the whole order gives it.
+    keep: frozenset[str] | None = None
     sessions_run: int = 0
     # The job's warm-up (the module's docstring). The runners never set these; the tests give 0
     # (no phase) or a clock of their own.
@@ -385,7 +388,10 @@ class Engine:
 
     def run(self) -> dict:
         """Every group: its base sessions not yet run, then its reruns. Returns a summary."""
-        (self.out / f"plan-{self.runner}.json").write_text(json.dumps(self.plan.to_json(), indent=1), encoding="utf-8")
+        plan = self.plan.to_json()
+        if self.keep is not None:
+            plan["kept_cells"] = sorted(self.keep)
+        (self.out / f"plan-{self.runner}.json").write_text(json.dumps(plan, indent=1), encoding="utf-8")
         offset = 0
         for gi, group in enumerate(self.plan.groups):
             if self.before_group is not None:
@@ -394,13 +400,18 @@ class Engine:
             for i, (cid, n) in enumerate(group):
                 if self._limit():
                     return self.summary()
+                if not self._kept(cid):
+                    continue
                 sid = base_id(cid, n)
                 if sid in done:
                     continue
                 self.run_session(self.cell(cid), sid, self.plan.x_base[(cid, n)], offset + i)
             offset += len(group)
-            self.reruns({cid for cid, _ in group})
+            self.reruns({cid for cid, _ in group if self._kept(cid)})
         return self.summary()
+
+    def _kept(self, cid: str) -> bool:
+        return self.keep is None or cid in self.keep
 
     def reruns(self, cells: set[str]) -> None:
         """At the end of a group: each invalid session of its cells, in the order they ran, gets
@@ -429,6 +440,8 @@ class Engine:
         st = states(self.rows())
         out = {}
         for c in self.cells:
+            if not self._kept(c.id):
+                continue
             ss = [s for s in st.values() if s.cell == c.id]
             out[c.id] = {"R": c.r, "sessions": len(ss), "valid": sum(1 for s in ss if s.valid),
                          "reruns": sum(1 for s in ss if s.is_rerun), "cap": self.plan.caps[c.id],

@@ -107,6 +107,7 @@ def main(argv=None) -> int:
     window.stop_on_signals()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     runlib.common_args(ap)
+    runlib.backend_arg(ap)
     ap.add_argument("--rule-e", type=Path, help="rule E's choices (frozen runs; development takes the proposed defaults)")
     a = ap.parse_args(argv)
     runlib.check_mode_args(a)
@@ -115,10 +116,12 @@ def main(argv=None) -> int:
     pilot = runlib.load_pilot(a.pilot, a.development)
     rule_e = runlib.load_rule_e(a.rule_e, a.development)
     prov = runlib.job_provenance(a.build, a.tools, a.out, a.job)
+    keep, keep_entries = runlib.backend_keep(a, cost_cells(1, rule_e, {}))  # the cells' ids and backends, whatever R and the rates
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
-                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")), entries=(freeze_guard.M7E_ITEMS,))
+                                       binaries=runlib.binaries_of(prov, ("oneport", "opgen")), entries=(freeze_guard.M7E_ITEMS,) + keep_entries,
+                                       build_prov=prov)
     r, rates = pilot_values(pilot, a.development, a.dev_r, "L")
     cells = runlib.only_cells(a, cost_cells(r, rule_e, rates))
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, R_C=r), indent=1))
@@ -132,7 +135,7 @@ def main(argv=None) -> int:
 
     eng = SS.Engine("cost_run", a.job, a.out, cells, SS.make_plan(cells, seed), win,
                     lambda c, arm: runlib.arm_provenance(prov, a.build, ("oneport", "opgen")), a.development, clearance,
-                    fingerprint=window.pin_fingerprint, stop_after_sessions=a.max_sessions)
+                    fingerprint=window.pin_fingerprint, stop_after_sessions=a.max_sessions, keep=keep)
     summ = eng.run()
     print(json.dumps({c: {k: v for k, v in s.items() if k != "invalid_windows"} for c, s in summ["cells"].items()}), flush=True)
     return 0

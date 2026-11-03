@@ -117,6 +117,7 @@ def main(argv=None) -> int:
     runlib.common_args(ap)
     ap.add_argument("--rule-e", type=Path)
     ap.add_argument("--parts", default="kbase,sessions")
+    runlib.backend_arg(ap)
     ap.add_argument("--other-mode-system", choices=(C.SERVER_RELAY, C.SERVER_INPROC), default=OTHER_MODE_SYSTEM_FROZEN,
                     help="the server's system in section 10's B3 cells of the other detection mode (default one-port-relay, the "
                          "revision log's reading; a frozen run refuses one-port-inproc)")
@@ -139,11 +140,14 @@ def main(argv=None) -> int:
     systems = {arm["run"]["system"] for c in cells for arm in c.arms.values()}
     base = runlib.job_provenance(a.build, a.tools, a.out, a.job)
     base = {k: v for k, v in base.items() if k != "binaries_all"}
+    if a.backend is not None and "kbase" in parts:
+        raise runlib.InputRefused("--backend runs the sessions part only (K_BASE stands: the revision log's entry of 2026-11-03, item 7 (b))")
+    keep, keep_entries = runlib.backend_keep(a, cells)
     clearance = None
     if not a.development:
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        binaries=all_binaries(a.build, systems),
-                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7E_ITEMS))
+                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7E_ITEMS) + keep_entries, build_prov=base)
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(base, rule_e=rule_e, n_pend=n), indent=1))
     for s in systems:
         if s in comp.ORDER and not comp.SYSTEMS[s].binary_path().exists():
@@ -166,7 +170,7 @@ def main(argv=None) -> int:
         return dict(base, **b3.binaries_provenance(a.build, cell.arms[arm]["run"]["system"]))
 
     eng = SS.Engine("b3_run", a.job, a.out, cells, SS.make_plan(cells, seed), win, prov, a.development, clearance,
-                    fingerprint=window.pin_fingerprint, stop_after_sessions=a.max_sessions)
+                    fingerprint=window.pin_fingerprint, stop_after_sessions=a.max_sessions, keep=keep)
     summ = eng.run()
     print(json.dumps({c: {k: v for k, v in s.items() if k != "invalid_windows"} for c, s in summ["cells"].items()}), flush=True)
     return 0

@@ -47,6 +47,7 @@ import freeze_guard  # noqa: E402
 import hardcase_run as HR  # noqa: E402
 import m_run  # noqa: E402
 import pilot_run  # noqa: E402
+import rows_by_backend  # noqa: E402
 import rule_e  # noqa: E402
 import runlib  # noqa: E402
 import s_run  # noqa: E402
@@ -352,6 +353,76 @@ class Engine(unittest.TestCase):
         self.assertNotEqual(a.to_json()["base"], SS.make_plan(self.cells(), 6).to_json()["base"])
         self.assertEqual(a.caps, {"C1.L.epoll.http1": 1, "C1.L.epoll.h2c": 1})
         self.assertEqual(len(a.x_rerun), 2)
+
+    def mixed_backends(self, r: int = 2) -> list[SS.Cell]:
+        out = []
+        for b in ("epoll", "io_uring"):
+            f = {"workload": "churn", "backend": b, "mode": "dedicated"}
+            out += [SS.Cell(f"C1.L.{b}.{p}", r, {"A": dict(f, proto=p), "B": dict(f, proto=p)},
+                            shared={"workload": "churn", "proto": p, "backend": b}) for p in ("http1", "h2c")]
+        return out
+
+    def test_kept_cells_run_at_their_places_in_the_whole_order(self):
+        """The entry of 2026-11-03, item 6 (b): the plan is drawn over every cell; only the kept
+        cells' sessions run, each with the id, order index and X the whole order gives it."""
+        cells = self.mixed_backends(2)
+        plan = SS.make_plan(cells, 5)
+        keep = frozenset(c.id for c in cells if "io_uring" in c.id)
+        with tempfile.TemporaryDirectory() as d:
+            e = SS.Engine("t", "j1", Path(d), cells, plan, fake_window, lambda c, arm: prov(), True, None, log=lambda s: None,
+                          warmup_s=0.0, keep=keep)
+            summ = e.run()
+            rows = e.rows()
+            self.assertEqual({r["cell"] for r in rows}, set(keep))
+            self.assertEqual(set(summ["cells"]), set(keep))
+            index = {f"{c}.s{n:02d}": i for i, (c, n) in enumerate(plan.base)}
+            for r in rows:
+                self.assertEqual(r["order_index"], index[r["session"]])
+                cid, n = r["session"].rsplit(".s", 1)
+                x = plan.x_base[(cid, int(n))]
+                self.assertEqual(r["arm"], x if r["position"] in (0, 3) else SS.other(x))
+            self.assertEqual(len(rows), 4 * 2 * len(keep))
+            self.assertEqual(json.loads((Path(d) / "plan-t.json").read_text())["kept_cells"], sorted(keep))
+        with tempfile.TemporaryDirectory() as d:  # without keep, every cell, as before
+            e = SS.Engine("t", "j1", Path(d), cells, plan, fake_window, lambda c, arm: prov(), True, None, log=lambda s: None, warmup_s=0.0)
+            e.run()
+            self.assertEqual({r["cell"] for r in e.rows()}, {c.id for c in cells})
+            self.assertNotIn("kept_cells", json.loads((Path(d) / "plan-t.json").read_text()))
+
+    def test_kept_cells_rerun_only_themselves(self):
+        def flaky(cell, arm, session, position, clr):
+            row = fake_window(cell, arm, session, position, clr)
+            if position == 1:
+                row.update(valid=False, invalid_reasons=["CPU MHz drift 3% > 2%"])
+            return row
+
+        cells = self.mixed_backends(4)
+        keep = frozenset({"C1.L.io_uring.http1"})
+        with tempfile.TemporaryDirectory() as d:
+            e = SS.Engine("t", "j1", Path(d), cells, SS.make_plan(cells, 3), flaky, lambda c, arm: prov(), True, None, log=lambda s: None,
+                          warmup_s=0.0, keep=keep)
+            summ = e.run()
+            self.assertEqual(list(summ["cells"]), ["C1.L.io_uring.http1"])
+            self.assertEqual((summ["cells"]["C1.L.io_uring.http1"]["sessions"], summ["cells"]["C1.L.io_uring.http1"]["reruns"]), (5, 1))
+            self.assertEqual({r["cell"] for r in e.rows()}, set(keep))
+
+    def test_backend_keep(self):
+        cells = cost_run.cost_cells(2, RULE_E, {})
+        a = mock.Mock(backend=None)
+        self.assertEqual(runlib.backend_keep(a, cells), (None, ()))
+        a.backend = "io_uring"
+        keep, entries = runlib.backend_keep(a, cells)
+        self.assertEqual(len(keep), 12)
+        self.assertTrue(all(".io_uring." in c for c in keep))
+        self.assertEqual(entries, (freeze_guard.IO_URING_REBUILD_ITEMS,))
+        with self.assertRaises(runlib.InputRefused):
+            runlib.backend_keep(a, [c for c in cells if "epoll" in c.id])
+        b3 = b3_run.b3_cells(2, RULE_E, b3_run.OTHER_MODE_SYSTEM_FROZEN)
+        self.assertEqual({c.id for c in b3 if "io_uring" in runlib.cell_backends(c)}, set(runlib.backend_keep(a, b3)[0]))
+
+    def test_the_entry_title_is_the_heading_in_the_log(self):
+        log = (REPO / "hypotheses.md").read_text(encoding="utf-8")
+        self.assertIn("### 2026-11-03: " + freeze_guard.IO_URING_REBUILD_ITEMS + "\n", log)
 
     def test_resume_across_jobs(self):
         with tempfile.TemporaryDirectory() as d:
@@ -968,6 +1039,73 @@ class FreezeGuard(unittest.TestCase):
             self.log(f"   CHANGE_COMMIT = {change}\n")
             self.refused("other than the Python of bench/run")
 
+    def test_a_rebuild_runs_on_the_commit_the_log_names_and_checks_the_build(self):
+        """The entry of 2026-11-03, item 6 (a): a compiled change named by REBUILD_COMMIT; the run's
+        build must come from that commit (or a descendant with its frozen paths), clean."""
+        rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
+        self.refused("changed since CODE_FREEZE")
+        self.log(f"- The change's commit:\n   REBUILD_COMMIT = {rebuild}\n")
+        built = {"commit": rebuild, "dirty": False, "source_dir": "/src"}
+        c = self.check(build_prov=built)
+        self.assertEqual(c.record["freeze"]["change_commit"], rebuild)
+        self.assertEqual(c.record["freeze"]["rebuild_commit"], rebuild)
+        self.assertEqual(c.record["freeze"]["build"], {"commit": rebuild, "source_dir": "/src"})
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "build's provenance"):
+            self.check()
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not descend"):
+            self.check(build_prov=dict(built, commit=self.cf))  # a build made before the change
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "not committed"):
+            self.check(build_prov=dict(built, dirty=True))
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "not committed"):
+            self.check(build_prov=dict(built, dirty=None))
+        head = self.head()  # the log commits after the change: same frozen paths, so a build from it passes
+        self.assertEqual(self.check(build_prov=dict(built, commit=head)).record["freeze"]["build"]["commit"], head)
+        later = self.later_change("bench/server/x.cpp", "int x = 2;\n")
+        git(self.repo, "checkout", "-q", rebuild, "--", "bench/server/x.cpp")
+        git(self.repo, "commit", "-q", "-am", "back to the rebuild's file")
+        with self.assertRaisesRegex(freeze_guard.FreezeRefused, "beyond the Python of bench/run"):
+            self.check(build_prov=dict(built, commit=later))  # a descendant whose compiled inputs differ
+
+    def test_a_change_after_a_rebuild_is_counted_from_it(self):
+        rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
+        self.log(f"   REBUILD_COMMIT = {rebuild}\n")
+        py = self.later_change("bench/run/y.py", "y = 1\n")
+        self.log(f"   CHANGE_COMMIT = {py}\n")
+        c = self.check(build_prov={"commit": rebuild, "dirty": False})
+        self.assertEqual((c.record["freeze"]["change_commit"], c.record["freeze"]["rebuild_commit"]), (py, rebuild))
+        self.assertEqual(self.check(build_prov={"commit": py, "dirty": False}).record["freeze"]["build"]["commit"], py)  # Python alone
+        compiled = self.later_change("bench/server/x.cpp", "int x = 3;\n")
+        self.log(f"   CHANGE_COMMIT = {compiled}\n")
+        self.refused("other than the Python of bench/run since REBUILD_COMMIT")
+
+    def test_rebuild_lines_that_are_refused(self):
+        rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
+        self.log(f"   REBUILD_COMMIT = {rebuild} CHANGE_COMMIT\n")
+        self.refused("both CHANGE_COMMIT and REBUILD_COMMIT")
+        for args in ((self.cf,), ()):
+            with self.subTest(args):
+                self.tearDown()
+                self.setUp()
+                if args:
+                    self.log(f"   REBUILD_COMMIT = {self.cf}\n")
+                    self.refused("does not descend from")
+                else:
+                    change = self.later_change()
+                    self.log(f"   CHANGE_COMMIT = {change}\n   REBUILD_COMMIT = {change}\n")
+                    self.refused("named before as CHANGE_COMMIT")
+        self.tearDown()
+        self.setUp()
+        rebuild = self.later_change("bench/server/x.cpp", "int x = 1;\n")
+        self.log(f"   REBUILD_COMMIT = {rebuild} after {self.cf}\n")
+        self.refused("names 2 commits")
+
+    def test_without_a_rebuild_the_build_is_not_read(self):
+        change = self.later_change()
+        self.log(f"   CHANGE_COMMIT = {change}\n")
+        c = self.check(build_prov={"commit": "not a commit", "dirty": True})
+        self.assertNotIn("build", c.record["freeze"])
+        self.assertNotIn("rebuild_commit", c.record["freeze"])
+
     def test_the_word_without_a_commit_names_no_change(self):
         self.log("- the freeze guard reads CHANGE_COMMIT from this log\n")
         self.assertNotIn("change_commit", self.check().record["freeze"])
@@ -1096,6 +1234,31 @@ class FreezeGuard(unittest.TestCase):
         with self.assertRaisesRegex(freeze_guard.FreezeRefused, "does not come after"):
             self.check(code_freeze=cf2, pilot=p, rule_e=None)
 
+    def test_cost_run_with_backend_names_the_entry_and_the_build(self):
+        seen = {}
+
+        def capture(**kw):
+            seen.update(kw)
+            raise freeze_guard.FreezeRefused("stop here")
+
+        built = {"binaries_all": BINS, "commit": "c" * 40, "dirty": False}
+        with mock.patch.object(freeze_guard, "check", side_effect=capture), \
+                mock.patch.object(runlib, "job_provenance", lambda *a, **k: built), \
+                mock.patch.object(cost_run.window, "stop_on_signals", lambda: None), \
+                tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(freeze_guard.FreezeRefused):
+                cost_run.main(["--build", d, "--out", d, "--job", "j", "--seeds", str(self.seeds), "--code-freeze", self.cf,
+                               "--gate", str(self.gate), "--pilot", str(self.pilot), "--rule-e", str(self.rule_e), "--backend", "io_uring"])
+        self.assertIn(freeze_guard.IO_URING_REBUILD_ITEMS, seen["entries"])
+        self.assertIs(seen["build_prov"], built)
+
+    def test_hardcase_run_backend_takes_every_entry_of_it(self):
+        with mock.patch.object(HR.window, "stop_on_signals", lambda: None), tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(runlib.InputRefused):
+                HR.main(["--build", d, "--out", d, "--job", "j", "--development", "--backend", "io_uring", "--entries", "io_uring.peek.inproc"])
+            with self.assertRaises(runlib.InputRefused):
+                HR.main(["--build", d, "--out", d, "--job", "j", "--development", "--backend", "io_uring", "--part", "competitors"])
+
     def test_cost_run_checks_the_guard_before_any_window(self):
         called = []
         with mock.patch.object(freeze_guard, "check", side_effect=freeze_guard.FreezeRefused("no pilot entry")), \
@@ -1109,6 +1272,27 @@ class FreezeGuard(unittest.TestCase):
         self.assertEqual(called, [])
         with self.assertRaises(runlib.InputRefused):
             cost_run.main(["--build", ".", "--out", ".", "--job", "j", "--seeds", str(self.seeds), "--gate", str(self.gate)])
+
+
+class RowsByBackend(unittest.TestCase):
+    """The entry of 2026-11-03, item 6 (c): the split keeps each line unchanged, in its order."""
+
+    def test_split(self):
+        rows = [{"cell": "C1.L.epoll.http1", "backend": "epoll"}, {"cell": "C1.L.io_uring.http1", "backend": "io_uring"},
+                {"cell": "S.relay-io_uring.L.epoll.http1.nginx"}, {"cell": "S.mixed.C1.L.io_uring"},
+                {"kind": "ophold", "system": "ophold"}, {"kind": "hardcase", "entry": "io_uring.peek.relay"},
+                {"kind": "hardcase", "entry": "epoll.peek.relay", "backend": "epoll"}]
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "w.jsonl"
+            src.write_bytes(b"".join(json.dumps(r).encode() + b"\n" for r in rows) + b"\n")
+            mine, others = Path(d) / "io.jsonl", Path(d) / "rest.jsonl"
+            self.assertEqual(rows_by_backend.main(["--backend", "io_uring", "--out-backend", str(mine), "--out-others", str(others), str(src)]), 0)
+            got_mine = [json.loads(ln) for ln in mine.read_text().splitlines()]
+            got_rest = [json.loads(ln) for ln in others.read_text().splitlines()]
+            self.assertEqual(got_mine, [rows[1], rows[3], rows[5]])
+            self.assertEqual(got_rest, [rows[0], rows[2], rows[4], rows[6]])
+            with self.assertRaises(SystemExit):  # never over a file
+                rows_by_backend.main(["--backend", "io_uring", "--out-backend", str(mine), "--out-others", str(others), str(src)])
 
 
 # ---------------------------------------------------------------- the rules the runners compute

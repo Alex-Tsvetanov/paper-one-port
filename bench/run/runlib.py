@@ -211,5 +211,37 @@ def only_cells(a: argparse.Namespace, cells: list) -> list:
     return out
 
 
+# The revision log's entry of 2026-11-03 (freeze_guard.IO_URING_REBUILD_ITEMS), item 6 (b): L's
+# io_uring cells run again on the new build, alone, each session at the place and with the X that the
+# runner's whole order gives it.
+BACKENDS_KEPT = ("io_uring",)
+
+
+def backend_arg(ap: argparse.ArgumentParser) -> None:
+    """`--backend io_uring` (L's runners only): run only the sessions of cells whose arms run on it."""
+    ap.add_argument("--backend", choices=BACKENDS_KEPT,
+                    help="run only the cells whose arms run on this backend, in the places the whole order gives them (frozen runs: "
+                         "the revision log's entry of 2026-11-03)")
+
+
+def cell_backends(cell) -> set[str]:
+    """The backends a cell's arms run on (each arm's identity field `backend`, else the cell's shared one)."""
+    out = {arm.get("backend") for arm in cell.arms.values()} | {cell.shared.get("backend")}
+    return {b for b in out if b}
+
+
+def backend_keep(a: argparse.Namespace, cells: list) -> tuple[frozenset[str] | None, tuple[str, ...]]:
+    """The ids of the cells `--backend` keeps (None: every cell) and the revision-log entry a frozen
+    run with it applies. Refuses a backend no cell runs on."""
+    b = getattr(a, "backend", None)
+    if b is None:
+        return None, ()
+    import freeze_guard  # noqa: PLC0415 - runlib is imported by the guard's tests without it
+    keep = frozenset(c.id for c in cells if b in cell_backends(c))
+    if not keep:
+        raise InputRefused(f"--backend {b}: no cell of this runner runs on it")
+    return keep, (freeze_guard.IO_URING_REBUILD_ITEMS,)
+
+
 def journal_note(a: argparse.Namespace) -> str:
     return "development data (M7c's end-to-end check), never a result" if a.development else "frozen run"

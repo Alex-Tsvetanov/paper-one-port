@@ -22,6 +22,22 @@ looks for in them is fixed here and stated in design/status.md:
   paths above are checked against the last one named instead of CODE_FREEZE, and the clearance's
   record names it; the pilot entry is still checked against CODE_FREEZE. When the log names none,
   the check is CODE_FREEZE's, as before.
+- A later change of compiled code, with new builds (the revision log's entry "io_uring's empty
+  provided-buffer ring, IOCP's start, and the guard's encoding (a later change under section 8,
+  with new builds)", 2026-11-03, item 6 (a)): a line of the revision log that holds the word
+  REBUILD_COMMIT and one full hash. It is read with the CHANGE_COMMIT lines, in the log's order: the
+  commit must descend from CODE_FREEZE and from the last commit a line before it names (either
+  word), and must be named by a commit that descends from it; any frozen path may differ. A
+  CHANGE_COMMIT line after it may change only Python files directly under bench/run, counted from
+  the last REBUILD_COMMIT before it instead of from CODE_FREEZE. The paths above are checked against
+  the last commit named by either word, and the clearance's record names both (`change_commit`,
+  the last named; `rebuild_commit`, the last rebuild). With a REBUILD_COMMIT, the build is checked
+  too: the run gives the build's provenance (aa.py's or waa.py's `commit` and `dirty`, the source
+  tree its CMake cache names), and the build's commit must be the last REBUILD_COMMIT or a
+  descendant of it whose frozen paths differ from it only in Python files directly under bench/run
+  (which no target compiles), with a clean tree, so a binary built before the rebuild, or from
+  compiled inputs after it, does not pass with a gate of the old build. With no REBUILD_COMMIT line, nothing of this applies and the build's
+  provenance is not read.
 - The seeds entry: the sha256 of the seeds file (the 14 seeds of 4.7, as analysis/ reads them) on
   a revision-log line that holds the word "seed".
 - The pilot entry: the sha256 of pilot.py's output on a revision-log line that holds the word
@@ -95,6 +111,12 @@ HEX40 = re.compile(r"\b[0-9a-f]{40}\b")
 # The word of a revision-log line that names a later change's commit (section 8; see the docstring),
 # and the only paths such a change may touch: Python files directly under bench/run.
 CHANGE_COMMIT = re.compile(r"\bCHANGE_COMMIT\b")
+# The word of a revision-log line that names a later change of compiled code (see the docstring).
+REBUILD_COMMIT = re.compile(r"\bREBUILD_COMMIT\b")
+# The title of the entry of that change (2026-11-03), whose io_uring-only runs the L runners apply
+# (runlib.backend_keep, `--backend io_uring`).
+IO_URING_REBUILD_ITEMS = ("io_uring's empty provided-buffer ring, IOCP's start, and the guard's encoding (a later change under section 8, "
+                          "with new builds)")
 CHANGE_PATHS = re.compile(r"bench/run/[^/]+\.py")
 
 
@@ -149,35 +171,66 @@ def adding_commit(repo: Path, token: str) -> str:
     return out[-1]
 
 
-def change_commit(repo: Path, log: str, code_freeze: str) -> str | None:
-    """The last later change's commit the revision log names (see the docstring), or None."""
-    found = None
+def change_commit(repo: Path, log: str, code_freeze: str) -> tuple[str | None, str | None]:
+    """The last later change's commit the revision log names by either word, and the last one named
+    by REBUILD_COMMIT (see the docstring); None where there is none."""
+    found, rebuild = None, None
     for ln in log.splitlines():
-        if not CHANGE_COMMIT.search(ln):
+        is_change, is_rebuild = bool(CHANGE_COMMIT.search(ln)), bool(REBUILD_COMMIT.search(ln))
+        if not (is_change or is_rebuild):
             continue
         hashes = HEX40.findall(ln)
         if not hashes:
             continue
+        if is_change and is_rebuild:
+            raise FreezeRefused(f"a line names a commit as both CHANGE_COMMIT and REBUILD_COMMIT: {ln.strip()[:120]}")
+        word = "REBUILD_COMMIT" if is_rebuild else "CHANGE_COMMIT"
         if len(hashes) > 1:
-            raise FreezeRefused(f"a CHANGE_COMMIT line names {len(hashes)} commits, not one: {ln.strip()[:120]}")
+            raise FreezeRefused(f"a {word} line names {len(hashes)} commits, not one: {ln.strip()[:120]}")
         c, before = hashes[0], found or code_freeze
         if c == found:
+            if is_rebuild and rebuild != c:
+                raise FreezeRefused(f"REBUILD_COMMIT {c[:12]} was named before as CHANGE_COMMIT")
             continue  # the last one, named again
         if c == before or not is_ancestor(repo, before, c):
-            raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} does not descend from {before[:12]} (section 8, the rule for a later change)")
+            raise FreezeRefused(f"{word} {c[:12]} does not descend from {before[:12]} (section 8, the rule for a later change)")
         logged = adding_commit(repo, c)
         if logged == c or not is_ancestor(repo, c, logged):
-            raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} was logged in {logged[:12]}, which does not come after it")
-        changed = git(repo, "diff", "--name-only", "--no-renames", code_freeze, c, "--", *FROZEN_PATHS).split()
-        other = [p for p in changed if not CHANGE_PATHS.fullmatch(p)]
-        if other:
-            raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} changes {len(other)} frozen files other than the Python of bench/run: {other[:5]} "
-                                "(a compiled change needs new records and gates, which this guard does not read)")
+            raise FreezeRefused(f"{word} {c[:12]} was logged in {logged[:12]}, which does not come after it")
+        if is_rebuild:
+            rebuild = c
+        else:
+            base = rebuild or code_freeze
+            changed = git(repo, "diff", "--name-only", "--no-renames", base, c, "--", *FROZEN_PATHS).split()
+            other = [p for p in changed if not CHANGE_PATHS.fullmatch(p)]
+            if other:
+                since = "REBUILD_COMMIT" if rebuild else "CODE_FREEZE"
+                raise FreezeRefused(f"CHANGE_COMMIT {c[:12]} changes {len(other)} frozen files other than the Python of bench/run since {since}: "
+                                    f"{other[:5]} (a compiled change needs new records and gates: a REBUILD_COMMIT line)")
         found = c
-    return found
+    return found, rebuild
 
 
-def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
+def check_build(repo: Path, rebuild: str, build_prov: dict | None) -> dict:
+    """After a REBUILD_COMMIT: the build's source commit is `rebuild` or a descendant whose frozen
+    paths differ from it only in the Python of bench/run, and its tree is clean (see the docstring)."""
+    if not build_prov or not HEX40.fullmatch(str(build_prov.get("commit") or "")):
+        raise FreezeRefused("after a REBUILD_COMMIT a run gives its build's provenance with the build's source commit")
+    b = build_prov["commit"]
+    if build_prov.get("dirty") is not False:
+        raise FreezeRefused(f"the build's source tree at {b[:12]} has changes that are not committed (or its state is unknown)")
+    if b != rebuild:
+        if not is_ancestor(repo, rebuild, b):
+            raise FreezeRefused(f"the build's commit {b[:12]} does not descend from REBUILD_COMMIT {rebuild[:12]}: a build made before the change")
+        diff = git(repo, "diff", "--name-only", "--no-renames", rebuild, b, "--", *FROZEN_PATHS).split()
+        other = [p for p in diff if not CHANGE_PATHS.fullmatch(p)]
+        if other:
+            raise FreezeRefused(f"the build's commit {b[:12]} differs from REBUILD_COMMIT {rebuild[:12]} in {len(other)} frozen files "
+                                f"beyond the Python of bench/run: {other[:5]}")
+    return {"commit": b, "source_dir": build_prov.get("source_dir")}
+
+
+def check_code_freeze(repo: Path, log: str, code_freeze: str, build_prov: dict | None = None) -> dict:
     if not HEX40.fullmatch(code_freeze or ""):
         raise FreezeRefused(f"CODE_FREEZE {code_freeze!r} is not a full 40-character commit hash")
     if not lines_with(log, "CODE_FREEZE", code_freeze):
@@ -185,7 +238,7 @@ def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
     head = git(repo, "rev-parse", "HEAD").strip()
     if not is_ancestor(repo, code_freeze, head):
         raise FreezeRefused(f"CODE_FREEZE {code_freeze[:12]} is not an ancestor of HEAD {head[:12]}")
-    change = change_commit(repo, log, code_freeze)
+    change, rebuild = change_commit(repo, log, code_freeze)
     ref, name = (change, "CHANGE_COMMIT") if change else (code_freeze, "CODE_FREEZE")
     diff = git(repo, "diff", "--name-only", "--no-renames", ref, head, "--", *FROZEN_PATHS).split()
     if diff:
@@ -196,6 +249,9 @@ def check_code_freeze(repo: Path, log: str, code_freeze: str) -> dict:
     rec = {"code_freeze": code_freeze, "head": head}
     if change:
         rec["change_commit"] = change
+    if rebuild:
+        rec["rebuild_commit"] = rebuild
+        rec["build"] = check_build(repo, rebuild, build_prov)
     return rec
 
 
@@ -276,7 +332,7 @@ def check_entries(log: str, titles: tuple[str, ...]) -> list[str]:
 
 def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path], binaries: dict[str, str],
           pilot: Path | None = None, rule_e: Path | None = None, m2_rates: Path | None = None,
-          need_pilot: bool = True, entries: tuple[str, ...] = ()) -> Clearance:
+          need_pilot: bool = True, entries: tuple[str, ...] = (), build_prov: dict | None = None) -> Clearance:
     """Every precondition of a frozen run; raises FreezeRefused at the first that fails."""
     hyp = repo / "hypotheses.md"
     if git(repo, "status", "--porcelain", "--", "hypotheses.md").strip():
@@ -284,7 +340,7 @@ def check(*, repo: Path = REPO, code_freeze: str, seeds: Path, gates: list[Path]
     log = revision_log(git(repo, "show", "HEAD:hypotheses.md"))
     if hyp.read_text(encoding="utf-8").replace("\r\n", "\n") != git(repo, "show", "HEAD:hypotheses.md").replace("\r\n", "\n"):
         raise FreezeRefused("hypotheses.md differs from HEAD's")
-    rec: dict = {"freeze": check_code_freeze(repo, log, code_freeze)}
+    rec: dict = {"freeze": check_code_freeze(repo, log, code_freeze, build_prov)}
     if entries:
         rec["entries"] = check_entries(log, entries)
     s = sha256_file(seeds)

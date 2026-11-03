@@ -212,6 +212,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     runlib.common_args(ap)
     ap.add_argument("--rule-e", type=Path)
+    runlib.backend_arg(ap)
     ap.add_argument("--silent-ports", choices=("http1", "spread"), default=SILENT_PORTS_FROZEN,
                     help="the mixed cell's silent connections in dedicated mode (default http1, the revision log's choice; "
                          "a frozen run refuses spread)")
@@ -228,9 +229,12 @@ def main(argv=None) -> int:
     if not a.development and a.silent_ports != SILENT_PORTS_FROZEN:
         raise runlib.InputRefused(f"a frozen section 10 run puts the mixed cell's silent connections where the revision log fixes them "
                                   f"(--silent-ports {SILENT_PORTS_FROZEN}), not {a.silent_ports}")
+    keep, keep_entries = runlib.backend_keep(a, cells)
     m_rows = [r for p in a.m_rows for r in SS.read_rows(p)]
     rates = {}
     for c in cells:
+        if keep is not None and c.id not in keep:
+            continue  # not run here: its rate is not read
         if "m_cell" in c.shared:
             rr = slower_median_rate(m_rows, c.shared["m_cell"])
             if rr["rate"] is None and a.development and a.dev_rate is not None:
@@ -244,7 +248,7 @@ def main(argv=None) -> int:
             raise runlib.InputRefused("a frozen section 10 run reads the M runner's rows for m-ttfb's rates (--m-rows)")
         clearance = freeze_guard.check(code_freeze=a.code_freeze, seeds=a.seeds, gates=a.gate, pilot=a.pilot, rule_e=a.rule_e,
                                        binaries=runlib.binaries_of(prov, ("oneport", "opgen", "opcase")),
-                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7E_ITEMS))
+                                       entries=(freeze_guard.M7C_ITEMS, freeze_guard.M7E_ITEMS) + keep_entries, build_prov=prov)
     (a.out / f"provenance-{a.job}.json").write_text(json.dumps(dict(prov, rule_e=rule_e, not_run=skipped, m_ttfb_rates=rates), indent=1))
     blocks = window.SourceBlocks(a.blocks)
 
@@ -276,7 +280,7 @@ def main(argv=None) -> int:
 
     eng = SS.Engine("s_run", a.job, a.out, cells, SS.make_plan(cells, seed), win,
                     lambda c, arm: runlib.arm_provenance(prov, a.build, binaries(c, arm)), a.development, clearance,
-                    fingerprint=window.pin_fingerprint, before_group=before_group, stop_after_sessions=a.max_sessions)
+                    fingerprint=window.pin_fingerprint, before_group=before_group, stop_after_sessions=a.max_sessions, keep=keep)
     summ = eng.run()
     summ["not_run"] = skipped
     (a.out / f"not-run-{a.job}.json").write_text(json.dumps(skipped, indent=1))
