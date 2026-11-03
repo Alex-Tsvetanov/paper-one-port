@@ -516,18 +516,27 @@ namespace oneport::test
 		/// connection's one request fails at most once: recv_retries is at most kConns. When the
 		/// receive is posted again into the ring instead (the frozen code), the next pass's 128
 		/// buffers serve 128 of the failed receives and the others fail again, pass after pass, so
-		/// recv_retries exceeds kConns (472 + 344 + 216 + 88 for 600 connections). Every request is
-		/// answered, and the server's books balance at the end.
+		/// recv_retries exceeds kConns (1,116 for 600 connections in a development build, against
+		/// 471 with the fix). Every request is answered, and the server's books balance at the end.
+		/// The server stops with the connections open, so no end of a stream (whose receive selects
+		/// a buffer too) adds to the count.
 		Result uring_empty_ring()
 		{
 			constexpr std::size_t kConns = 600;
 			rlimit nofile{};
 			CHECK(::getrlimit(RLIMIT_NOFILE, &nofile) == 0, "getrlimit");
+			// The descriptor limit, raised for this test and set back at its end.
+			struct Restore
+			{
+				rlimit old;
+				~Restore() { ::setrlimit(RLIMIT_NOFILE, &old); }
+			} restore{nofile};
 			const rlim_t want = 2 * kConns + 64;
 			if (nofile.rlim_cur < want && nofile.rlim_max >= want)
 			{
-				nofile.rlim_cur = want;
-				::setrlimit(RLIMIT_NOFILE, &nofile);
+				rlimit raised = nofile;
+				raised.rlim_cur = want;
+				::setrlimit(RLIMIT_NOFILE, &raised);
 			}
 			CHECK(::getrlimit(RLIMIT_NOFILE, &nofile) == 0 && nofile.rlim_cur >= want, "this test needs " << want << " descriptors");
 			ServerArgs a;
@@ -580,16 +589,11 @@ namespace oneport::test
 					return "connection " + std::to_string(i) + ": no 200 response";
 				}
 			}
-			// The ends come a few at a time, so their receives (which select a buffer too, at
-			// the end of the stream) do not empty the ring again and the count stays the requests'.
-			for (std::size_t i = 0; i < fds.size(); ++i)
-			{
-				::close(fds[i]);
-				if (i % 16 == 15) std::this_thread::sleep_for(5ms);
-			}
-			fds.clear();
-			std::this_thread::sleep_for(200ms);  // the server sees each end and closes
-			if (auto bad = srv.stop_and_check()) return *bad;
+			// The server stops with every connection open (each closed as stopped), then the clients
+			// close.
+			const auto bad = srv.stop_and_check();
+			close_all();
+			if (bad) return *bad;
 			const server::Counters t = srv.server->totals();
 			CHECK(t.recv_retries > 0, "the ring was never empty (recv_retries 0), so the test did not reach the path");
 			CHECK(t.recv_retries <= kConns, "recv_retries " << t.recv_retries << " exceeds the " << kConns

@@ -550,7 +550,7 @@ namespace oneport::server::detail
 		bool eof = false;
 		bool error = false;
 		bool reset = false;  // the error is the peer's reset
-		bool retry = false;  // io_uring: the ring had no buffer (ENOBUFS); the receive is posted again
+		bool retry = false;  // io_uring: ENOBUFS (the ring had no buffer: the receive is posted again into a pool buffer), EINTR or EAGAIN
 	};
 
 	class Worker

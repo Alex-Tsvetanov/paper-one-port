@@ -383,16 +383,20 @@ namespace oneport::server::detail
 		ReadResult rr;
 		++c_.recv_calls;
 		Buffer* selected = (x.flags & IORING_CQE_F_BUFFER) != 0 ? take_selected(x) : nullptr;
+		// The connection's buffer (its own, or the relay's downward one) becomes `b`, empty.
+		auto adopt = [c, &buf, &len](Buffer* b) {
+			buf = b;
+			len = 0;
+			if (&buf == &c->buf) c->beg = 0;
+			else if (c->relay && &buf == &c->relay->down.buf) c->relay->down.beg = 0;
+		};
 		if (x.res > 0)
 		{
 			const auto n = static_cast<std::uint32_t>(x.res);
 			if (selected != nullptr)
 			{
 				if (buf != nullptr) throw std::logic_error("io_uring: a provided buffer for a connection that holds one");
-				buf = selected;
-				len = 0;
-				if (&buf == &c->buf) c->beg = 0;
-				else if (c->relay && &buf == &c->relay->down.buf) c->relay->down.beg = 0;
+				adopt(selected);
 			}
 			// MemorySanitizer cannot see the kernel's copy: exactly the bytes the completion reports.
 			kernel_wrote(buf->data.data() + len, n);
@@ -415,11 +419,10 @@ namespace oneport::server::detail
 				// one io_uring_enter than the ring holds). Posting the same buffer-selecting receive
 				// again could lose the same race without bound, so the connection takes a buffer
 				// from the pool now, and the receive posted again goes into it and completes as soon
-				// as data is there (the revision log's entry of 2026-11-03, item 2).
-				buf = pool_.get();
-				len = 0;
-				if (&buf == &c->buf) c->beg = 0;
-				else if (c->relay && &buf == &c->relay->down.buf) c->relay->down.beg = 0;
+				// as data is there (the revision log's entry of 2026-11-03, item 2). The pool grows
+				// as for the ring and for take_buffer, to its cap of buffer ids, past which get()
+				// throws and the worker reports the error.
+				adopt(pool_.get());
 			}
 			return rr;
 		}

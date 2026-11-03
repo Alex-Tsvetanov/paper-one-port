@@ -120,7 +120,7 @@ namespace oneport::server
 		std::uint64_t connect_calls = 0;   // relay: connects to the backend
 		std::uint64_t splice_calls = 0;    // relay with --relay-copy splice
 		std::uint64_t shutdown_calls = 0;  // relay: a half-close passed on
-		std::uint64_t recv_retries = 0;    // io_uring: a provided-buffer receive that found the ring empty (ENOBUFS)
+		std::uint64_t recv_retries = 0;    // io_uring: a receive posted again: the ring was empty (ENOBUFS; then into a pool buffer), or EINTR, EAGAIN
 		std::uint64_t out_waits = 0;       // output that waited for writability (EPOLLOUT, or a POLLOUT poll)
 		/// io_uring submissions by opcode (IORING_OP_*), from the worker's ring.
 		std::array<std::uint64_t, 80> uring_submissions{};

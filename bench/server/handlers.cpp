@@ -210,6 +210,11 @@ namespace oneport::server::detail
 		// received no byte holds no data buffer (B2(d); section 2.1); IOCP's posted form holds the
 		// handler's buffer from accept, so it is reported here, the B2(d) violation that keeps it
 		// out of rule E (the coordinator's decision of 2026-10-03, hypotheses.md revision log).
+		// On io_uring a receive that found the ring empty (ENOBUFS) gives the connection a pool
+		// buffer before any byte, and no audit runs until the receive posted into it completes:
+		// the retry returns before the audit, and that completion brings the queued bytes or the
+		// end, after which detect_after_read or proxy_after_read drops an empty buffer before this
+		// audit (the revision log's entry of 2026-11-03, item 2).
 		const bool written_by_receive = c->recv_into == Into::own && (c->posted & bit(Op::recv)) != 0;
 		if (!written_by_receive || c->bytes_received == 0) c->buffer_while_silent = true;
 	}
