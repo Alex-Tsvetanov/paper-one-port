@@ -700,7 +700,8 @@ namespace oneport::test
 				std::vector<server::DetectionReport> det;
 				const bool closed = col.wait_close(ntohs(local.sin_port), 5000ms, det);
 				s.stop();
-				CHECK(!s.error(), "run " << run << ": a worker failed: " << *s.error());
+				const auto err = s.error();
+				CHECK(!err, "run " << run << ": a worker failed: " << *err);
 				CHECK(closed, "run " << run << " of " << kRuns << ": the server reported no close of a connection made at once after start()");
 				const server::Counters t = s.totals();
 				CHECK(t.accepted == 1 && t.closed == 1, "run " << run << ": accepted " << t.accepted << ", closed " << t.closed);

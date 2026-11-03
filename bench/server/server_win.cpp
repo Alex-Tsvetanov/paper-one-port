@@ -216,6 +216,13 @@ namespace oneport::server
 			m.threads.emplace_back([worker] { worker->run(); });
 		}
 		m.posted->wait();
+		// A worker that failed before its posts would leave a server that looks started and
+		// cannot accept on that worker's requests: start() stops the others and throws.
+		if (const auto err = error())
+		{
+			stop();
+			throw std::runtime_error("Server::start(): " + *err);
+		}
 	}
 
 	void Server::stop()

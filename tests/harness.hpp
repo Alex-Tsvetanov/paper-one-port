@@ -147,11 +147,6 @@ namespace oneport::test
 		std::map<std::uint16_t, std::vector<server::RelayReport>> relays_;
 	};
 
-#if defined(_WIN32)
-	/// How long a test waits after starting a server on IOCP before its first client (Running).
-	inline constexpr std::chrono::milliseconds kIocpStartWait{250};
-#endif
-
 	/// A started server with its collector.
 	struct Running
 	{
@@ -170,15 +165,10 @@ namespace oneport::test
 			if (extra.before_expiries != nullptr) o.hooks.before_expiries = &Running::forward_before_expiries;
 			server = std::make_unique<server::Server>(make_config(a), o);
 			server->start();
-#if defined(_WIN32)
-			// On IOCP, start() returned once the worker threads ran, before each worker had posted
-			// its listeners' AcceptEx requests, until the revision log's entry of 2026-11-03 (item 3)
-			// made it wait for the posts. HC22's partial variant, which resets 10 ms after its first
-			// byte, had failed its first replicate on W then (the M7 freeze night, design/status.md).
-			// The suite keeps this wait, so its other tests run as they ran before the change;
-			// iocp.start_posts_accepts connects at once after start(), without it.
-			std::this_thread::sleep_for(kIocpStartWait);
-#endif
+			// No wait on IOCP: start() returns only after every worker has posted its AcceptEx
+			// requests (the revision log's entry of 2026-11-03, item 3), so a client may connect at
+			// once. The suite waited 250 ms here from the M7 freeze night (design/status.md, HC22's
+			// partial variant) until that change; iocp.start_posts_accepts tests it alone.
 		}
 
 		Running(const Running&) = delete;

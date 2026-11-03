@@ -124,7 +124,7 @@ namespace oneport::server::detail
 		{
 			error_ = std::string("worker ") + std::to_string(index_) + ": " + e.what();
 		}
-		signal_started();  // a failure before the posts: start() still returns, and error() reports it
+		signal_started();  // a failure before the posts: start() returns and throws the error (server_win.cpp)
 		try
 		{
 			stop_iocp();
