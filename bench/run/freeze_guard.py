@@ -117,7 +117,9 @@ def sha256_file(path: Path) -> str:
 
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
-    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    # UTF-8 whatever the locale: the revision log holds non-ASCII text, which the locale's encoding
+    # (cp1252 on Windows) cannot always decode (the entry of 2026-11-03, item 4).
+    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
     if check and p.returncode != 0:
         raise FreezeRefused(f"git {' '.join(args)}: {p.stderr.strip()[-300:]}")
     return p.stdout

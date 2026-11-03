@@ -972,6 +972,16 @@ class FreezeGuard(unittest.TestCase):
         self.log("- the freeze guard reads CHANGE_COMMIT from this log\n")
         self.assertNotIn("change_commit", self.check().record["freeze"])
 
+    def test_the_log_is_read_as_utf8_whatever_the_locale(self):
+        """The entry of 2026-11-03, item 4: git's output is decoded as UTF-8. The text holds bytes
+        that cp1252 cannot decode (0x81 in U+0141's encoding), so a locale decoding fails on it."""
+        h = self.repo / "hypotheses.md"
+        line = "- Łódź → a line the locale's encoding may not decode\n"
+        h.write_text(h.read_text(encoding="utf-8") + line, encoding="utf-8")
+        git(self.repo, "commit", "-q", "-am", "non-ASCII")
+        self.assertIn(line.strip(), freeze_guard.git(self.repo, "show", "HEAD:hypotheses.md"))
+        self.assertTrue(self.check().pilot_entry)
+
     def test_rule_e_before_the_pilot_entry_is_refused(self):
         r2 = Path(self.tmp.name) / "rule_e2.json"
         r2.write_text(json.dumps(dict(RULE_E, note=1)))
