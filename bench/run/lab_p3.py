@@ -110,7 +110,8 @@ def build_commands(host: str, build: Path, env: dict) -> list[list[str]] | Path:
         extra.append(str(W_NINJA))
     path = ";".join(extra)
     cmd = build.parent / f"build-{build.name.split('-', 1)[1]}.cmd"
-    lines = ["@echo off", f'call "{vcvars}" x64 >nul || exit /b 1']
+    arch = " x64" if Path(vcvars).name.lower() == "vcvarsall.bat" else ""   # LAB_VCVARS may name vcvars64.bat, as P4's lab_p4.py reads it
+    lines = ["@echo off", f'call "{vcvars}"{arch} >nul || exit /b 1']
     if path:
         lines.append(f'set "PATH={path};%PATH%"')
     lines += [f'cmake -S "{REPO}" -B "{build}" -G Ninja -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release || exit /b 2',

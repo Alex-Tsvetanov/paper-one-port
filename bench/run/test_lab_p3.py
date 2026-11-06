@@ -208,6 +208,10 @@ class TestPrepare(Base):
         self.assertIn("-DCMAKE_BUILD_TYPE=Release", text)
         self.assertIn("ninja -C", text)
         self.assertEqual(cmd.name, f"build-{C12}.cmd")
+        v64 = self.tmp / "vcvars64.bat"
+        v64.write_text("@echo off")
+        text = LP.build_commands("W", build, dict(self.env, LAB_VCVARS=str(v64))).read_text(encoding="ascii")
+        self.assertIn(f'call "{v64}" >nul', text)
         with self.assertRaises(LP.Refused):
             LP.build_commands("W", build, dict(self.env, LAB_VCVARS=str(self.tmp / "none.bat")))
 

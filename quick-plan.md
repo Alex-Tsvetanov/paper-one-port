@@ -18,7 +18,8 @@ campaign takes at most 10 minutes. The long reruns (queue files `gap84-*`) were 
 - **M1.** One cell per campaign: HTTP/1.1 or h2c churn on epoll, one-port mode in both arms, arm A the default detection mode
   (`replay`), arm B the other (`peek`). The claim is the frozen M1 claim (hypotheses.md 5.3).
 - **A/A noise run.** HTTP/1.1 keep-alive, dedicated mode against dedicated mode, the same binary on ports 20000 and 20100: the arms of
-  `aa.py` and `waa.py`. It is measured once per OS and reported, never tuned (CLAUDE.md rule 4). It sizes the noise and sets no bound.
+  `aa.py` and `waa.py`. Its windows are `cellwin.run` and `wcellwin.run`, the windows of the cost cells in dedicated mode, and not
+  `window.run_window` of `aa.py` or the window of `waa.py`, so its noise is the noise of the cost cells' own window. It is measured once per OS and reported, never tuned (CLAUDE.md rule 4). It sizes the noise and sets no bound.
 - **Hard cases (B1 and B2).** `hardcase_run.py` and `whardcase_run.py` run through their own `part_server`. This is a correctness
   claim, not a timing claim.
 
@@ -67,7 +68,8 @@ and R is the largest count for which the worst case fits.
 
 `test_quick.py` asserts, for every plan file and with the window figures written out again in the test, that the no-rerun total and the
 worst case are at most 600 s and that R + 1 does not fit. The 25.2 s and 24.492 s sessions are nominal. The overhead of starting and
-stopping processes beyond the 0.3 s and 0.123 s per window is not in them; the rerun allowance is the only margin, and a campaign that
+stopping processes beyond the 0.3 s and 0.123 s per window is not in them, and neither is a window that waits for a timeout (the job's
+`timeout_s` of 1,800 s is the real stop); the rerun allowance is the only margin, and a campaign that
 needs it all still ends at 590 s.
 
 ### Hard cases: the sizing
@@ -90,7 +92,8 @@ because (R + f) / (16 + f) grows with f and f is at most 2.
 L's eight entries do not fit even one replicate with the reference runs (8 * 625 * 3 / 18 = 833 s), so L runs four of them. The four
 are the in-process entries of the default and the other detection mode on both backends. The relay entries are dropped with M2 and
 M3, whose claim they belong to. The per-entry figure of `hl1` includes relay entries, which are slower than in-process ones, so the
-bound is high for the chosen entries. The reference-run allowance and the entry time are not measured for the quick subset; the first
+bound is high for the chosen entries. The bound is not a ceiling: a failing variant can wait up to 20 s per run (`SERVER_WAIT_MS`), and
+the job's `timeout_s` of 1,800 s is the real stop. The reference-run allowance and the entry time are not measured for the quick subset; the first
 quick run is the check, and the plan's expected seconds are the only claim made about it. G and GAP_SPLIT are the pilot entry's values
 (`lab/analysis-inputs/pilot.json`: G 4 ms on L, GAP_SPLIT 5 ms; `laptop-w/pilot.json`: G 16 ms on W), copied into the plan and checked
 against those files by the test. All 25 cases run, so the h2c and MQTT cases are kept.
@@ -112,7 +115,8 @@ entry, and B2's lateness distributions as hypotheses.md 5.2 reports them; it is 
 (`bench/run/quick_guard.py`):
 
 - the plan lives directly under `bench/run/plans/quick/`;
-- its sha256 equals `--quick`;
+- its sha256 equals `--quick` (on the laptop `lab_p3.py quick` computes the argument from the deployed file, so this compares the file with
+  itself; the protection that counts is the folder check and the equality with the generator's output);
 - the plan equals what `quick_plans.py` makes for its stem, so an edited plan with a fresh hash is refused;
 - the plan's host is this machine's, and its worst case is at most 600 s;
 - the build is a Release build (`CMAKE_BUILD_TYPE` Release, no sanitizer; CMake gives -O3 with clang and /O2 with MSVC).
