@@ -1,0 +1,40 @@
+{
+ "schema": 1,
+ "name": "quick-W-aa",
+ "host": "W",
+ "os": "windows",
+ "kind": "aa",
+ "uring_job": false,
+ "about": "Quick A/A noise run, W: HTTP/1.1 keep-alive on IOCP, dedicated mode against dedicated mode, the same binary on ports 20000 and 20100 (the arms of aa.py and waa.py) (quick-plan.md). R 16, job warm-up 80 s.",
+ "backend": "IOCP",
+ "hyp": "AA",
+ "workload": "keepalive",
+ "proto": "http1",
+ "detect": "replay",
+ "dispatch": "inproc",
+ "cells": [
+  {
+   "id": "AA.W.IOCP.http1.keepalive",
+   "r": 16
+  }
+ ],
+ "arms": {
+  "A": "dedicated mode, ports from 20000",
+  "B": "dedicated mode, the same binary, ports from 20100"
+ },
+ "seed_name": "SEED_PILOT_W",
+ "r": 16,
+ "rerun_cap": 4,
+ "session_order": "X Y Y X",
+ "arms_order": "a new random order each round (sessions.make_plan)",
+ "job_warmup_s": 80.0,
+ "warmup_ms": 1000,
+ "duration_ms": 5000,
+ "window_s": 6.123,
+ "session_s": 24.492,
+ "sessions_no_rerun": 16,
+ "sessions_worst_case": 20,
+ "expected_no_rerun_s": 477.995,
+ "expected_worst_case_s": 575.963,
+ "limit_s": 600.0
+}

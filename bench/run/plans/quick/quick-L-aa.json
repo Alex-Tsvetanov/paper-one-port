@@ -1,0 +1,40 @@
+{
+ "schema": 1,
+ "name": "quick-L-aa",
+ "host": "L",
+ "os": "linux",
+ "kind": "aa",
+ "uring_job": false,
+ "about": "Quick A/A noise run, L: HTTP/1.1 keep-alive on epoll, dedicated mode against dedicated mode, the same binary on ports 20000 and 20100 (the arms of aa.py and waa.py) (quick-plan.md). R 16, job warm-up 80 s.",
+ "backend": "epoll",
+ "hyp": "AA",
+ "workload": "keepalive",
+ "proto": "http1",
+ "detect": "replay",
+ "dispatch": "inproc",
+ "cells": [
+  {
+   "id": "AA.L.epoll.http1.keepalive",
+   "r": 16
+  }
+ ],
+ "arms": {
+  "A": "dedicated mode, ports from 20000",
+  "B": "dedicated mode, the same binary, ports from 20100"
+ },
+ "seed_name": "SEED_PILOT_L",
+ "r": 16,
+ "rerun_cap": 4,
+ "session_order": "X Y Y X",
+ "arms_order": "a new random order each round (sessions.make_plan)",
+ "job_warmup_s": 80.0,
+ "warmup_ms": 1000,
+ "duration_ms": 5000,
+ "window_s": 6.3,
+ "session_s": 25.2,
+ "sessions_no_rerun": 16,
+ "sessions_worst_case": 20,
+ "expected_no_rerun_s": 489.5,
+ "expected_worst_case_s": 590.3,
+ "limit_s": 600.0
+}

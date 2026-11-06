@@ -84,10 +84,19 @@ def server_cmd(build: Path, p: dict) -> list[str]:
     return cmd
 
 
+def is_quick_clearance(clearance) -> bool:
+    """The quick benchmarks' plan-hash clearance (bench/run/quick_guard.py, quick-plan.md), the only clearance other
+    than the freeze guard's that lets a one-port window run against dedicated mode. Tested by class, so no other
+    object passes."""
+    import quick_guard  # noqa: PLC0415 - only a quick run has one
+    return isinstance(clearance, quick_guard.QuickClearance)
+
+
 def guard(p: dict, clearance) -> None:
     """Section 8 step 2: a one-port window of a cell that pairs it with dedicated mode needs the
     freeze guard's clearance, which names the pilot entry."""
-    if p["mode"] == "one-port" and p.get("pairs_dedicated") and (clearance is None or not getattr(clearance, "pilot_entry", False)):
+    if p["mode"] == "one-port" and p.get("pairs_dedicated") and (clearance is None or not (getattr(clearance, "pilot_entry", False)
+                                                                                           or is_quick_clearance(clearance))):
         raise WindowError("no one-port window runs against dedicated mode before the pilot entry (section 8 step 2)")
     if p["mode"] not in ("one-port", "dedicated"):
         raise WindowError(f"mode {p['mode']!r}")

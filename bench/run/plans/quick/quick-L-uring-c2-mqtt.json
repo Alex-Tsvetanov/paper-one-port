@@ -1,0 +1,40 @@
+{
+ "schema": 1,
+ "name": "quick-L-uring-c2-mqtt",
+ "host": "L",
+ "os": "linux",
+ "kind": "cost",
+ "uring_job": true,
+ "about": "Quick C2 keepalive, io_uring on L, mqtt: one-port mode against dedicated mode, in-process dispatch (quick-plan.md, decisions d006 and d007). R 16, job warm-up 80 s.",
+ "backend": "io_uring",
+ "hyp": "C2",
+ "workload": "keepalive",
+ "proto": "mqtt",
+ "detect": "replay",
+ "dispatch": "inproc",
+ "cells": [
+  {
+   "id": "C2.L.io_uring.mqtt",
+   "r": 16
+  }
+ ],
+ "arms": {
+  "A": "one-port mode, detection mode replay (rule E's proposed default for io_uring), in-process dispatch",
+  "B": "dedicated mode, the same binary, in-process dispatch"
+ },
+ "seed_name": "SEED_ORDER_C_L",
+ "r": 16,
+ "rerun_cap": 4,
+ "session_order": "X Y Y X",
+ "arms_order": "a new random order each round (sessions.make_plan)",
+ "job_warmup_s": 80.0,
+ "warmup_ms": 1000,
+ "duration_ms": 5000,
+ "window_s": 6.3,
+ "session_s": 25.2,
+ "sessions_no_rerun": 16,
+ "sessions_worst_case": 20,
+ "expected_no_rerun_s": 489.5,
+ "expected_worst_case_s": 590.3,
+ "limit_s": 600.0
+}

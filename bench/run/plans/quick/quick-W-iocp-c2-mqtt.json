@@ -1,0 +1,40 @@
+{
+ "schema": 1,
+ "name": "quick-W-iocp-c2-mqtt",
+ "host": "W",
+ "os": "windows",
+ "kind": "cost",
+ "uring_job": false,
+ "about": "Quick C2 keepalive, IOCP on W, mqtt: one-port mode against dedicated mode, in-process dispatch (quick-plan.md, decisions d006 and d007). R 16, job warm-up 80 s.",
+ "backend": "IOCP",
+ "hyp": "C2",
+ "workload": "keepalive",
+ "proto": "mqtt",
+ "detect": "replay",
+ "dispatch": "inproc",
+ "cells": [
+  {
+   "id": "C2.W.IOCP.mqtt",
+   "r": 16
+  }
+ ],
+ "arms": {
+  "A": "one-port mode, detection mode replay (rule E's proposed default for IOCP), in-process dispatch",
+  "B": "dedicated mode, the same binary, in-process dispatch"
+ },
+ "seed_name": "SEED_ORDER_C_W",
+ "r": 16,
+ "rerun_cap": 4,
+ "session_order": "X Y Y X",
+ "arms_order": "a new random order each round (sessions.make_plan)",
+ "job_warmup_s": 80.0,
+ "warmup_ms": 1000,
+ "duration_ms": 5000,
+ "window_s": 6.123,
+ "session_s": 24.492,
+ "sessions_no_rerun": 16,
+ "sessions_worst_case": 20,
+ "expected_no_rerun_s": 477.995,
+ "expected_worst_case_s": 575.963,
+ "limit_s": 600.0
+}

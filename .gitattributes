@@ -1,1 +1,2 @@
 *.pdf binary
+bench/run/plans/quick/*.json text eol=lf
