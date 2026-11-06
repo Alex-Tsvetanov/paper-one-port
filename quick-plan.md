@@ -34,10 +34,10 @@ warm-up and its expected worst-case seconds; the runner records the plan's sha25
 | quick-L-epoll-c2-http1, -h2c, -tls, -mqtt | L | cost | C2.L.epoll.PROTO | one-port against dedicated | 16 | 590.3 s |
 | quick-L-epoll-c1-http1, -h2c, -tls, -mqtt | L | cost | C1.L.epoll.PROTO | one-port against dedicated | 16 | 590.3 s |
 | quick-L-uring-c2-http1, -h2c, -tls, -mqtt | L | cost | C2.L.io_uring.PROTO | one-port against dedicated | 16 | 590.3 s |
-| quick-W-iocp-c2-http1, -h2c, -tls, -mqtt | W | cost | C2.W.IOCP.PROTO | one-port against dedicated | 16 | 576.0 s |
+| quick-W-iocp-c2-http1, -h2c, -tls, -mqtt | W | cost | C2.W.IOCP.PROTO | one-port against dedicated | 12 | 580.6 s |
 | quick-L-epoll-m1-http1, -h2c | L | m1 | M1.L.epoll.PROTO | replay against peek | 16 | 590.3 s |
 | quick-L-aa | L | aa | AA.L.epoll.http1.keepalive | dedicated against dedicated | 16 | 590.3 s |
-| quick-W-aa | W | aa | AA.W.IOCP.http1.keepalive | dedicated against dedicated | 16 | 576.0 s |
+| quick-W-aa | W | aa | AA.W.IOCP.http1.keepalive | dedicated against dedicated | 12 | 580.6 s |
 | quick-L-hard | L | hard | 25 cases, 4 entries | epoll and io_uring, replay and peek, in-process | 2 | 555.6 s |
 | quick-W-hard | W | hard | 25 cases, 2 entries | IOCP, replay and peek, in-process | 5 | 573.6 s |
 
@@ -45,37 +45,40 @@ The io_uring plans set `uring_job`; the L jobs carry `uring` true and `cgdeleg` 
 
 ## Sessions per cell, with the arithmetic
 
-A window is a 1 s warm-up and a 5 s measured window plus start, probe and stop: 6.3 s on L with connection tracking off
-(`design/status.md`, 47 consecutive windows, 294 s) and 6.123 s on W (the figure plan v2 used). A session is four windows, X Y Y X
-(hypotheses.md 4.1): 25.2 s on L and 24.492 s on W. The brief's single figure of 24.5 s holds for W; L uses its own 6.3 s, so the L
-numbers are the larger and the safer ones. The constants are `quick_plans.WINDOW_S`, and `test_quick.py` checks them against
-`window.WARMUP_MS`, `window.DURATION_MS` and `sessions.JOB_WARMUP_S`.
+A window is a 1 s warm-up and a 5 s measured window plus start, probe and stop: 6.3 s (`design/status.md`, 47 consecutive
+windows, 294 s on L; the laptop's W probe minimum is 6.19 s and status.md gives 6.3 s), the same figure for L and W. A session reads its
+fingerprint once (`sessions.py` calls `fingerprint()` once per session and once before the warm-up): about 0 s on L and 7.27 s on W
+(hypotheses.md section 12). A session is four windows, X Y Y X (hypotheses.md 4.1), plus the fingerprint: 25.2 s on L and 25.2 + 7.27 =
+32.47 s on W. The constants are `quick_plans.WINDOW_S` and `quick_plans.FINGERPRINT_S`, and `test_quick.py` checks them against
+`window.WARMUP_MS`, `window.DURATION_MS` and `sessions.JOB_WARMUP_S`, with the fingerprint in its own formula.
 
 The session engine runs a discarded job warm-up of `sessions.JOB_WARMUP_S` = 80 s before the first session, on both OSes. The window
-that runs when the time is up completes, so the warm-up costs at most 80 s plus one window. The frozen rule allows `ceil(R/4)`
+that runs when the time is up completes, and the fingerprint is read before it, so the warm-up costs at most 80 s plus one window
+plus one fingerprint. The frozen rule allows `ceil(R/4)`
 reruns of invalid sessions per cell (hypotheses.md 4.1; `sessions.rerun_cap`). A campaign of c cells fits when
 
-    worst case:  80 + window + c * (R + ceil(R/4)) * session <= 600 s
-    no rerun:    80 + window + c * R * session               <= 600 s
+    worst case:  80 + window + fingerprint + c * (R + ceil(R/4)) * session <= 600 s
+    no rerun:    80 + window + fingerprint + c * R * session               <= 600 s
 
 and R is the largest count for which the worst case fits.
 
 - L, one cell: 80 + 6.3 + 20 * 25.2 = 590.3 s at R = 16 (16 + 4 sessions); R = 17 needs 22 sessions, 80 + 6.3 + 554.4 = 640.7 s. No
   rerun: 80 + 6.3 + 16 * 25.2 = 489.5 s.
-- W, one cell: 80 + 6.123 + 20 * 24.492 = 575.96 s at R = 16; R = 17 gives 624.9 s. No rerun: 478.0 s.
-- Every session plan has one cell, so R = 16 for all 20 of them; none had to be lowered. The cost, M1 and A/A plans each hold one cell,
-  so the "R lowered if it does not fit" rule did not fire.
+- W, one cell: 80 + 6.3 + 7.27 = 93.57 s of warm-up, and a session of 32.47 s. R = 12 gives 12 + 3 = 15 sessions: 93.57 + 15 * 32.47 =
+  580.62 s. R = 13 needs 13 + 4 = 17 sessions: 93.57 + 551.99 = 645.56 s. No rerun at R = 12: 93.57 + 12 * 32.47 = 483.21 s.
+- Every session plan has one cell. R is 16 for the 15 L session plans and 12 for the 5 W session plans (4 cost, 1 A/A): W's R is lowered
+  from 16 because the fingerprint's 7.27 s per session does not fit 20 sessions in 600 s (93.57 + 20 * 32.47 = 743 s).
 
 `test_quick.py` asserts, for every plan file and with the window figures written out again in the test, that the no-rerun total and the
-worst case are at most 600 s and that R + 1 does not fit. The 25.2 s and 24.492 s sessions are nominal. The overhead of starting and
-stopping processes beyond the 0.3 s and 0.123 s per window is not in them, and neither is a window that waits for a timeout (the job's
+worst case are at most 600 s and that R + 1 does not fit. The 25.2 s and 32.47 s sessions are nominal. The overhead of starting and
+stopping processes beyond the 0.3 s per window is not in them, and neither is a window that waits for a timeout (the job's
 `timeout_s` of 1,800 s is the real stop); the rerun allowance is the only margin, and a campaign that
 needs it all still ends at 590 s.
 
 ### Hard cases: the sizing
 
 The hard-case runner runs no sessions, so its time is not a session count. The long design ran 25 cases, 164 variants per entry, 16
-replicates. Measured: L's `hl1` took 4,850 s for 8 entries (13:14:33 to 14:35:23; `design/status.md`); W's `wh1` took 1,475 s for 2
+replicates. Measured: L's `hl1` took 4,850 s for 8 entries (13:14:33 to 14:35:23; `design/status.md`); W's `wh1`, a job of the desktop and not the laptop, took 1,475 s for 2
 entries (02:28:41 to 02:53:16). The gap84 queue files expected 2,500 s for L's 4 io_uring entries (625 s per entry) and 1,400 s for W's
 2 entries. The larger per-entry figure is used: L 625 s, W 737.5 s.
 
@@ -106,8 +109,16 @@ interval of `analysis/stats.py` (the session as the cluster, the BCa interval). 
 inside [0.98, 1.02] is reported with its interval and is not worded as equivalent. Arms are interleaved: X Y Y X within a session,
 X drawn per session, and sessions in a shuffled order from the seed (`sessions.make_plan`). The seed is given on the command line
 (`quick_requests.py` uses the first four bytes of the sha256 of the plan's stem), recorded in every row as `seed` and in `quick.json`.
+M1 cells are read differently: "the default mode is cheaper" is worded only if the lower end of the interval is above 1.00, and
+otherwise only as "a difference was not shown" (hypotheses.md 5.3 and 12); the margin [0.98, 1.02] is not applied to M1.
 The A/A campaign is reported as the noise of each OS, once, and sets no bound. The hard-case campaign is a pass count per variant and
 entry, and B2's lateness distributions as hypotheses.md 5.2 reports them; it is not a timing claim.
+
+## Reading a hard-case result
+
+`part_server` writes a row with `passed` false and goes on before it updates the table, so the table can miss a failure. The verdict is
+read from `hardcases.jsonl`: `quick_run.py` counts the rows of kind `hardcase` with `passed` false, prints the count and exits 1 if it
+is above 0 or if the table is empty. A table with no failure is not a pass.
 
 ## Running a plan
 
@@ -141,10 +152,13 @@ Every row says `development: false` (the analysis's frozen check reads that) and
 
 ### Jobs
 
-One labrun job is one plan. `bench/run/quick_requests.py --commit C --os L|W` prints the job entries (16 for L, 6 for W). The build phase
+One labrun job is one plan. `bench/run/quick_requests.py --commit C --os L|W` prints the job entries (16 plans and a cleanup for L, 6 plans and a cleanup for W). The build phase
 is `bench/run/lab_p3.py prepare` (the Release build of the commit in the quick home, `build-<C12>`, made once per OS and commit and
 reused by the other jobs). The run phase is `lab_p3.py quick`, which runs `l_quick.sh` on L and `wjob.py run` around `quick_run.py` on W.
-The homes are `~/lab/p3/quick-L` and `C:\Users\alext\lab\p3\quick-W`; the source-block files are in them (`src-blocks.json`,
+The last job of each OS is a cleanup (`lab_p3.py cleanup --commit C --home H`, ids `p3-quick-cleanup-l` and `-w`): it removes the
+commit's `build-<C12>` tree and its `.cmd`, `.log`, `.prepare.json` and `.inputs.json` from the quick home, and nothing else (rule 9).
+`prepare` reuses a build only if its folder, its `CMakeCache.txt` and the binaries the runs start are all present, else it rebuilds. The
+homes are `~/lab/p3/quick-L` and `C:\Users\alext\lab\p3\quick-W`; the source-block files are in them (`src-blocks.json`,
 `src-blocks-w.json`), so no frozen state is touched. The jobs set the environment the gap84 jobs set: on L the clock-floor and THP
 records; on W Ninja on PATH, `C:\Python314`, the numpy venv `C:\Users\alext\lab\p3\venv-numpy` and `PYTHONNOUSERSITE`.
 
@@ -168,23 +182,29 @@ by the session ratio only.
 - Windows churn: a churn window on Windows waits for TIME-WAIT to drain, 24.8 to 30.1 s on the desktop (`lab/laptop/bringup-w-p3p4.md`
   section 4), so a churn session takes 125 to 145 s and about three fit in 600 s (d006 facts).
 - io_uring churn, io_uring M1, IOCP M1 and the Windows M1: option E drops them.
-- In the hard cases: the relay entries on L (they belong to the dropped M2 and M3), and replicates: L 2 and W 5 instead of 16. No case
-  is dropped, so the h2c and MQTT hard cases stay.
+- In the hard cases: the relay entries on L (B1 includes relay dispatch, hypotheses.md 5.2, but the 600 s limit does not fit it), and
+  replicates: L 2 and W 5 instead of 16. No case is dropped, so the h2c and MQTT hard cases stay.
 - The competitors' hard-case table (descriptive) is not re-run.
 - The October Arch rows remain the prior study, reported as such.
 
-## The two named deviations from the frozen design
+Wording. A passing C2 cell is worded "keep-alive throughput equivalent within [0.98, 1.02] at R = N". The words "no measurable cost"
+are not used anywhere, because C3 was not run and C1 ran only on L epoll (hypotheses.md 12).
 
-The paper must state both beside every result.
+## The named deviations from the frozen design
 
-1. **R is 16 for the cost cells, not R_C (28 on L, 18 on W), and the Holm test is not run.** (M1's R is the frozen R_M = 16.) The cost cell
+The paper must state each beside every result it touches.
+
+1. **R is 16 on L and 12 on W for the cost cells, not R_C (28 on L, 18 on W), and the Holm test is not run.** (M1's R is the frozen R_M = 16.) The cost cell
    keeps the frozen margin [0.98, 1.02] and the frozen rerun allowance of `ceil(R/4)`; only R is smaller. With R = 16 an interval is
    wide; the paper states R beside each result and claims no more than the interval supports (the October keep-alive A/A spread was
    0.5 to 1.1 percent, so a 16-session interval inside a 2 percent margin is plausible, not certain). Hypothesis tests of the frozen
    design (Holm over a family) do not run (CLAUDE.md rule 4).
 2. **Windows churn is not run** (the TIME-WAIT facts above). The Windows cost result is C2 keep-alive only.
 
-A third difference is stated here as well: the hard-case replicates (L 2, W 5) and the L entries (four of eight) are a reduction forced by
+3. **B1 and B2 are narrowed to in-process dispatch** on epoll and io_uring (L) and IOCP (W), at the stated R (L 2, W 5). Conformance
+   and bounds of relay dispatch have no new result, and the full robustness claim is not made.
+
+A further difference is stated here as well: the hard-case replicates (L 2, W 5) and the L entries (four of eight) are a reduction forced by
 the 600 s limit, not by choice of claim; the hard-case result is "every case passed in each run" and not a 16-replicate pass rate.
 
 ## Unverified here
@@ -194,6 +214,11 @@ the 600 s limit, not by choice of claim; the hard-case result is "every case pas
   `wdeps.py` made (gap84's job `p3-deps-w2` runs only when they are missing), and `vcvarsall.bat` (`LAB_VCVARS` or vswhere).
 - That `C:\lab\src\Papers\lab\bin` exists on W (used for `--tools`; the runner works without it, only the inputs hash of the build is
   then missing from the provenance) and that `~/lab/Papers/lab/bin/pin.sh` exists on L (the same as the gap84 L jobs).
+- W's hard-case time on the laptop is not measured: the 737.5 s per entry comes from the desktop's `wh1` (and the gap84 expectation of
+  1,400 s for 2 entries), so `quick-W-hard`'s 573.6 s is a bound on that basis only.
 - The time of the hard-case subsets (see the sizing above), and the time of the Release build, which is outside the 600 s: the build
   timeout is 1,800 s on L and 3,600 s on W.
-- That the first quick run's window overhead stays at 0.3 s (L) and 0.123 s (W) per window.
+- Three limits of the gate, not fixed: `check_release` trusts the build's CMake cache; the plan hash that `lab_p3.py quick` passes is
+  computed from the deployed file, so it is self-attested; `QuickClearance` can be constructed by any code that imports it.
+- That the first quick run's window overhead stays at 0.3 s per window and W's fingerprint at 7.27 s (a figure from hypotheses.md section
+  12, not measured for these jobs).

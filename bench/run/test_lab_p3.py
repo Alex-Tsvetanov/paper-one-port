@@ -172,7 +172,7 @@ class TestPrepare(Base):
         self.assertTrue(json.loads((self.home / f"build-{C12}.prepare.json").read_text())["ok"])
         # a second prepare at the same commit reuses the build
         self.calls.clear()
-        with self.clone_ok(), self.host("L"):
+        with self.clone_ok(), self.host("L"), mock.patch("build_inputs.BINARIES", {"L": {}}):
             self.assertEqual(LP.prepare(COMMIT, self.home, self.env, runner), 0)
         self.assertEqual(self.calls, [])
 
@@ -214,6 +214,57 @@ class TestPrepare(Base):
         self.assertIn(f'call "{v64}" >nul', text)
         with self.assertRaises(LP.Refused):
             LP.build_commands("W", build, dict(self.env, LAB_VCVARS=str(self.tmp / "none.bat")))
+
+    def test_a_hollow_or_missing_build_is_rebuilt_not_reused(self):
+        build = self.home / f"build-{C12}"
+        self.make_release(build)
+        marker = self.home / f"build-{C12}.prepare.json"
+        marker.write_text(json.dumps({"ok": True, "commit": COMMIT, "source_dir": str(LP.REPO)}))
+        built = []
+
+        def runner(argv, **kw):
+            built.append(argv)
+            if argv[0] == "cmake":
+                self.make_release(build)
+            return SimpleNamespace(returncode=0)
+        # the cache is there but a binary is not: the marker alone does not let it be reused
+        fake = {"L": {"oneport": "bench/server/oneport", "opgen": "bench/gen/opgen", "opcase": "bench/cases/opcase"}}
+        with self.clone_ok(), self.host("L"), mock.patch("build_inputs.BINARIES", fake):
+            LP.prepare(COMMIT, self.home, self.env, runner)
+        self.assertTrue(built)
+        self.assertFalse(LP.build_intact(self.home / "nowhere", "L"))
+        with mock.patch("build_inputs.BINARIES", fake):
+            self.assertFalse(LP.build_intact(build, "L"))
+            for rel in fake["L"].values():
+                (build / rel).parent.mkdir(parents=True, exist_ok=True)
+                (build / rel).write_text("x")
+            self.assertTrue(LP.build_intact(build, "L"))
+            (build / "CMakeCache.txt").unlink()
+            self.assertFalse(LP.build_intact(build, "L"))
+
+
+class TestCleanup(Base):
+    def test_cleanup_removes_this_commits_build_and_files_only(self):
+        build = self.home / f"build-{C12}"
+        (build / "sub").mkdir(parents=True)
+        other = self.home / "build-aaaaaaaaaaaa"
+        other.mkdir()
+        for n in ("cmd", "log", "prepare.json", "inputs.json"):
+            (self.home / f"build-{C12}.{n}").write_text("x")
+        (self.home / "src-blocks.json").write_text("{}")
+        self.assertEqual(LP.cleanup(COMMIT, self.home, self.env), 0)
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), ["build-aaaaaaaaaaaa", "src-blocks.json"])
+        self.assertEqual(len(json.loads((self.out / "cleanup.json").read_text())["removed"]), 5)
+
+    def test_cleanup_refuses_a_bad_commit_and_a_home_in_the_job_folder(self):
+        with self.assertRaises(LP.Refused):
+            LP.cleanup("abc", self.home, self.env)
+        with self.assertRaises(LP.Refused):
+            LP.cleanup(COMMIT, self.tmp / "job" / "out" / "h", self.env)
+
+    def test_cleanup_via_main(self):
+        self.home.mkdir()
+        self.assertEqual(LP.main(["cleanup", "--commit", COMMIT, "--home", str(self.home)], self.env), 0)
 
 
 if __name__ == "__main__":

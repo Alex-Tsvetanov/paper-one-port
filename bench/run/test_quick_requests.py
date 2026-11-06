@@ -28,17 +28,25 @@ REQUIRED = ("id", "paper", "os", "repo", "commit", "run", "expected_s", "timeout
 class TestRequests(unittest.TestCase):
     def test_counts_and_stems(self):
         l, w = QR.jobs(COMMIT, "L"), QR.jobs(COMMIT, "W")
-        self.assertEqual((len(l), len(w)), (16, 6))
-        stems = [QR.stem_of(j) for j in l + w]
+        self.assertEqual((len(l), len(w)), (17, 7))
+        stems = [QR.stem_of(j) for j in l[:-1] + w[:-1]]
         self.assertEqual(sorted(stems), sorted(quick_plans.build_all()))
-        for j in l:
+        for j in l[:-1]:
             self.assertTrue(QR.stem_of(j).startswith("quick-L-"))
-        for j in w:
+        for j in w[:-1]:
             self.assertTrue(QR.stem_of(j).startswith("quick-W-"))
+        for jobs_, h in ((l, "l"), (w, "w")):   # the last job of each OS is the cleanup (rule 9)
+            c = jobs_[-1]
+            self.assertEqual(c["id"], f"p3-quick-cleanup-{h}")
+            self.assertTrue(ID_RE.fullmatch(c["id"]))
+            self.assertEqual((c["paper"], c["build"]), ("P3", ""))
+            self.assertIn(f"lab_p3.py cleanup --commit {COMMIT}", c["run"])
+            self.assertNotIn("--plan", c["run"])
+            self.assertLessEqual(c["expected_s"], 120)
 
     def test_job_shape(self):
         for host in ("L", "W"):
-            for j in QR.jobs(COMMIT, host):
+            for j in QR.jobs(COMMIT, host)[:-1]:
                 self.assertTrue(ID_RE.fullmatch(j["id"]), j["id"])
                 for k in REQUIRED:
                     self.assertIn(k, j)
@@ -74,17 +82,17 @@ class TestRequests(unittest.TestCase):
         ids = [j["id"] for h in ("L", "W") for j in QR.jobs(COMMIT, h)]
         self.assertEqual(len(ids), len(set(ids)))
         for h in ("L", "W"):
-            for j in QR.jobs(COMMIT, h):
+            for j in QR.jobs(COMMIT, h)[:-1]:
                 self.assertEqual(j["id"], f"p3-{QR.stem_of(j)}".lower())
 
     def test_the_seed_is_in_the_command_and_is_the_stems_hash(self):
-        for j in QR.jobs(COMMIT, "L") + QR.jobs(COMMIT, "W"):
+        for j in QR.jobs(COMMIT, "L")[:-1] + QR.jobs(COMMIT, "W")[:-1]:
             stem = QR.stem_of(j)
             self.assertTrue(j["run"].endswith(f"--plan {stem} --seed {QR.seed_of(stem)}"))
         self.assertEqual(len({QR.seed_of(s) for s in quick_plans.build_all()}), 22)
 
     def test_homes_are_the_quick_homes_and_touch_no_frozen_state(self):
-        for j in QR.jobs(COMMIT, "L") + QR.jobs(COMMIT, "W"):
+        for j in QR.jobs(COMMIT, "L")[:-1] + QR.jobs(COMMIT, "W")[:-1]:
             text = j["build"] + j["run"]
             for frozen in ("cost-L", "hard-L", "m7g", "rec/build-release", "gate-L", "gate-W", "p3-rec"):
                 self.assertNotIn(frozen, text)
@@ -100,7 +108,7 @@ class TestRequests(unittest.TestCase):
     def test_the_command_line_prints_json(self):
         p = subprocess.run([sys.executable, str(HERE / "quick_requests.py"), "--commit", COMMIT, "--os", "windows"], capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(len(json.loads(p.stdout)), 6)
+        self.assertEqual(len(json.loads(p.stdout)), 7)
         p = subprocess.run([sys.executable, str(HERE / "quick_requests.py"), "--commit", "nope", "--os", "L"], capture_output=True, text=True)
         self.assertEqual(p.returncode, 2)
 

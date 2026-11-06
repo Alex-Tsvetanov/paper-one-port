@@ -15,12 +15,13 @@ window that runs when the time is up completes, so the warm-up costs at most JOB
 session is four windows (X Y Y X). The frozen rule allows ceil(R/4) reruns of invalid sessions per cell
 (sessions.rerun_cap). So a campaign of c cells at R fits when
 
-    job warm-up + one window + c * (R + ceil(R/4)) * session <= 600 s        (the worst case)
-    job warm-up + one window + c * R * session           <= 600 s        (no rerun, always smaller)
+    job warm-up + one window + fingerprint + c * (R + ceil(R/4)) * session <= 600 s        (the worst case)
+    job warm-up + one window + fingerprint + c * R * session           <= 600 s        (no rerun, always smaller)
 
 R is the largest count for which the worst case fits. A window is the 1 s warm-up and the 5 s measured
-window plus start, probe and stop: 6.3 s on L (design/status.md, 47 consecutive windows, 294 s) and 6.123 s
-on W (the figure plan v2 used). Cells that need a pilot value take it from the committed pilot entry output
+window plus start, probe and stop: 6.3 s on both OSes (design/status.md, 47 consecutive windows, 294 s on L;
+the laptop's W probe minimum is 6.19 s). A session also reads its fingerprint (7.27 s on W, hypotheses.md section 12), once per
+session and once before the warm-up. Cells that need a pilot value take it from the committed pilot entry output
 (lab/analysis-inputs), read only.
 
 The hard-case plans run no sessions. Their time is the measured time of the long runs scaled to the
@@ -49,7 +50,10 @@ WARMUP_MS = 1000
 DURATION_MS = 5000
 WINDOWS_PER_SESSION = 4
 # A window's length in seconds: 1 s + 5 s, and the start, the probe and the stop.
-WINDOW_S = {"L": 6.3, "W": 6.123}
+WINDOW_S = {"L": 6.3, "W": 6.3}
+# The session's fingerprint (hypotheses.md section 12): sessions.py reads it once per session and once before the warm-up.
+# On L pin.sh is quick; on W it takes 7.27 s.
+FINGERPRINT_S = {"L": 0.0, "W": 7.27}
 PROTOS = ("http1", "h2c", "tls", "mqtt")
 M1_PROTOS = ("http1", "h2c")
 HOSTS = {"L": "linux", "W": "windows"}
@@ -84,12 +88,12 @@ def window_s(host: str) -> float:
 
 
 def session_s(host: str) -> float:
-    return WINDOWS_PER_SESSION * window_s(host)
+    return WINDOWS_PER_SESSION * window_s(host) + FINGERPRINT_S[host]
 
 
 def warmup_cost_s(host: str) -> float:
-    """The job warm-up at its longest: JOB_WARMUP_S and the window that completes after it."""
-    return JOB_WARMUP_S + window_s(host)
+    """The job warm-up at its longest: JOB_WARMUP_S, the window that completes after it and the fingerprint read before it."""
+    return JOB_WARMUP_S + window_s(host) + FINGERPRINT_S[host]
 
 
 def worst_case_s(host: str, cells: int, r: int) -> float:

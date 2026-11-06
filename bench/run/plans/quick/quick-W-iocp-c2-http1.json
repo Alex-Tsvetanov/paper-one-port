@@ -5,7 +5,7 @@
  "os": "windows",
  "kind": "cost",
  "uring_job": false,
- "about": "Quick C2 keepalive, IOCP on W, http1: one-port mode against dedicated mode, in-process dispatch (quick-plan.md, decisions d006 and d007). R 16, job warm-up 80 s.",
+ "about": "Quick C2 keepalive, IOCP on W, http1: one-port mode against dedicated mode, in-process dispatch (quick-plan.md, decisions d006 and d007). R 12, job warm-up 80 s.",
  "backend": "IOCP",
  "hyp": "C2",
  "workload": "keepalive",
@@ -15,7 +15,7 @@
  "cells": [
   {
    "id": "C2.W.IOCP.http1",
-   "r": 16
+   "r": 12
   }
  ],
  "arms": {
@@ -23,18 +23,18 @@
   "B": "dedicated mode, the same binary, in-process dispatch"
  },
  "seed_name": "SEED_ORDER_C_W",
- "r": 16,
- "rerun_cap": 4,
+ "r": 12,
+ "rerun_cap": 3,
  "session_order": "X Y Y X",
  "arms_order": "a new random order each round (sessions.make_plan)",
  "job_warmup_s": 80.0,
  "warmup_ms": 1000,
  "duration_ms": 5000,
- "window_s": 6.123,
- "session_s": 24.492,
- "sessions_no_rerun": 16,
- "sessions_worst_case": 20,
- "expected_no_rerun_s": 477.995,
- "expected_worst_case_s": 575.963,
+ "window_s": 6.3,
+ "session_s": 32.47,
+ "sessions_no_rerun": 12,
+ "sessions_worst_case": 15,
+ "expected_no_rerun_s": 483.21,
+ "expected_worst_case_s": 580.62,
  "limit_s": 600.0
 }

@@ -5,6 +5,7 @@ wrappers (the lab lock, AC power, the quiet check, the clock floor, THP and NOTR
 
     lab_p3.py prepare --commit C --home DIR      (the build phase)
     lab_p3.py quick   --commit C --home DIR --plan NAME --seed N      (the run phase)
+    lab_p3.py cleanup --commit C --home DIR      (the last job: removes build-<C12> and its files, rule 9)
 
 DIR, the home, is a fixed folder of the quick runs on the laptop (~/lab/p3/quick-L, C:\\Users\\alext\\lab\\p3\\quick-W), never
 inside a job's folder and never the frozen runs' folders. It holds build-<C12>, the Release build of the commit, its log
@@ -120,6 +121,14 @@ def build_commands(host: str, build: Path, env: dict) -> list[list[str]] | Path:
     return cmd
 
 
+def build_intact(build: Path, host: str) -> bool:
+    """A build may be reused only if its folder, its cache and the binaries the runs start are all there."""
+    import build_inputs  # noqa: PLC0415
+    if not build.is_dir() or not (build / "CMakeCache.txt").is_file():
+        return False
+    return all((build / rel).exists() for n, rel in build_inputs.BINARIES[host].items() if n in ("oneport", "opgen", "opcase"))
+
+
 def prepare(commit: str, home: Path, env: dict, runner=subprocess.run) -> int:
     c12 = check_clone(commit)
     home = check_home(home, env)
@@ -129,7 +138,7 @@ def prepare(commit: str, home: Path, env: dict, runner=subprocess.run) -> int:
     marker = marker_path(home, c12)
     if marker.exists():
         old = json.loads(marker.read_text(encoding="utf-8"))
-        if old.get("ok") and old.get("commit") == commit and old.get("source_dir") == str(REPO):
+        if old.get("ok") and old.get("commit") == commit and old.get("source_dir") == str(REPO) and build_intact(build, host):
             quick_guard.check_release(build)
             print(f"prepare: the build {build} passed before; reused")
             record(env, {"prepare": old, "reused": True})
@@ -172,6 +181,30 @@ def record(env: dict, data: dict, name: str = "prepare.json") -> None:
     if out:
         Path(out).mkdir(parents=True, exist_ok=True)
         (Path(out) / name).write_text(json.dumps(data, indent=1), encoding="utf-8")
+
+
+# ---------------------------------------------------------------- cleanup
+
+
+def cleanup(commit: str, home: Path, env: dict) -> int:
+    """Rule 9: the build tree of this commit and the files beside it, in the quick home only."""
+    c12 = commit[:12]
+    if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
+        raise Refused(f"--commit {commit!r} is not a full 40-character commit")
+    home = check_home(home, env)
+    gone = []
+    build = home / f"build-{c12}"
+    if build.is_dir():
+        shutil.rmtree(build)
+        gone.append(str(build))
+    for name in (f"build-{c12}.cmd", f"build-{c12}.log", f"build-{c12}.prepare.json", f"build-{c12}.inputs.json"):
+        f = home / name
+        if f.is_file():
+            f.unlink()
+            gone.append(str(f))
+    print(f"cleanup: removed {len(gone)} items under {home}")
+    record(env, {"removed": gone}, "cleanup.json")
+    return 0
 
 
 # ---------------------------------------------------------------- quick
@@ -239,8 +272,13 @@ def main(argv=None, env: dict | None = None, runner=subprocess.run) -> int:
     q.add_argument("--home", type=Path, required=True)
     q.add_argument("--plan", required=True)
     q.add_argument("--seed", type=int, required=True)
+    c = sub.add_parser("cleanup")
+    c.add_argument("--commit", required=True)
+    c.add_argument("--home", type=Path, required=True)
     a = ap.parse_args(argv)
     try:
+        if a.cmd == "cleanup":
+            return cleanup(a.commit, a.home, env)
         if a.cmd == "prepare":
             return prepare(a.commit, a.home, env, runner)
         return quick(a.commit, a.home, a.plan, a.seed, env, runner)

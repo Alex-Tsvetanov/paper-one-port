@@ -190,9 +190,14 @@ def run_hard(plan: dict, stem: str, sha: str, a: argparse.Namespace, host: str, 
     else:
         table = HR.part_server(ns, pilot, rule_e, prov, clearance, emit, procs=procs, host=host)
     (a.out / f"hardcases-table-{a.job}.json").write_text(json.dumps(table, indent=1, sort_keys=True))
+    # part_server writes a row with passed false and goes on before it updates the table, so the table can miss a failure:
+    # the verdict is read from hardcases.jsonl, and a table with no failure is not a pass.
+    rows = HR.runlib_rows(path)
+    failed_rows = sum(1 for r in rows if r.get("kind") == "hardcase" and r.get("passed") is False)
     failed = sum(1 for v in table.values() if v["passed"] != v["runs"])
-    print(f"hard cases (quick, {host}): {len(table)} variant-entries, {failed} with a failing run", flush=True)
-    return 0
+    print(f"hard cases (quick, {host}): {len(table)} variant-entries, {failed} with a failing run in the table, "
+          f"{failed_rows} failing rows in hardcases.jsonl", flush=True)
+    return 1 if failed_rows > 0 or not table else 0
 
 
 def check_resume(out: Path, stem: str, sha: str) -> None:

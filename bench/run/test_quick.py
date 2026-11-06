@@ -40,7 +40,8 @@ import window  # noqa: E402
 LIMIT = 600.0
 PLAN_DIR = HERE / "plans" / "quick"
 # Independent of quick_plans.py: the window figures the brief and design/status.md give, and the constants of the engine.
-WINDOW = {"L": 6.3, "W": 6.123}
+WINDOW = {"L": 6.3, "W": 6.3}
+FINGERPRINT = {"L": 0.0, "W": 7.27}   # hypotheses.md section 12; read once per session and once before the warm-up
 
 
 def plan_files() -> dict[str, Path]:
@@ -52,15 +53,15 @@ def load(stem: str) -> dict:
 
 
 def warmup(host: str) -> float:
-    return SS.JOB_WARMUP_S + WINDOW[host]
+    return SS.JOB_WARMUP_S + WINDOW[host] + FINGERPRINT[host]
 
 
 def worst(host: str, cells: int, r: int) -> float:
-    return warmup(host) + cells * (r + math.ceil(r / 4)) * 4 * WINDOW[host]
+    return warmup(host) + cells * (r + math.ceil(r / 4)) * (4 * WINDOW[host] + FINGERPRINT[host])
 
 
 def nominal(host: str, cells: int, r: int) -> float:
-    return warmup(host) + cells * r * 4 * WINDOW[host]
+    return warmup(host) + cells * r * (4 * WINDOW[host] + FINGERPRINT[host])
 
 
 class TestPlans(unittest.TestCase):
@@ -82,6 +83,7 @@ class TestPlans(unittest.TestCase):
         self.assertEqual((QP.WARMUP_MS, QP.DURATION_MS), (window.WARMUP_MS, window.DURATION_MS))
         self.assertEqual(QP.JOB_WARMUP_S, SS.JOB_WARMUP_S)
         self.assertEqual(QP.WINDOW_S, WINDOW)
+        self.assertEqual(QP.FINGERPRINT_S, FINGERPRINT)
         for host in ("L", "W"):
             self.assertGreater(WINDOW[host], (window.WARMUP_MS + window.DURATION_MS) / 1000)
 
@@ -101,10 +103,11 @@ class TestPlans(unittest.TestCase):
             self.assertEqual(plan["job_warmup_s"], SS.JOB_WARMUP_S, stem)
             self.assertEqual(plan["sessions_worst_case"], cells * (r + math.ceil(r / 4)), stem)
 
-    def test_r_16_everywhere_a_session_plan_has_one_cell(self):
+    def test_r_per_host_and_one_cell_per_session_plan(self):
         for stem, plan in ((s, load(s)) for s in plan_files()):
             if plan["kind"] != "hard":
-                self.assertEqual((len(plan["cells"]), plan["cells"][0]["r"]), (1, 16), stem)
+                self.assertEqual((len(plan["cells"]), plan["cells"][0]["r"]), (1, {"L": 16, "W": 12}[plan["host"]]), stem)
+                self.assertEqual(plan["session_s"], round(4 * WINDOW[plan["host"]] + FINGERPRINT[plan["host"]], 3), stem)
 
     def test_hard_case_plans_fit_and_r_is_largest(self):
         for stem, host, entries, r in (("quick-L-hard", "L", 4, 2), ("quick-W-hard", "W", 2, 5)):
@@ -148,7 +151,7 @@ class TestPlans(unittest.TestCase):
             host = plan["host"]
             cell = quick_run.session_cell(plan, rule_e, host, cost_run, m_run)
             self.assertEqual(cell.id, plan["cells"][0]["id"])
-            self.assertEqual(cell.r, 16)
+            self.assertEqual(cell.r, plan['cells'][0]['r'])
             self.assertEqual(plan["detect"], rule_e["default"][plan["backend"]])
             a, b = cell.arms["A"], cell.arms["B"]
             if plan["kind"] == "cost":
@@ -390,7 +393,8 @@ class TestQuickRows(unittest.TestCase):
         return [json.loads(ln) for ln in (out / "windows.jsonl").read_text().splitlines()], plan
 
     def check_rows(self, rows, plan, seed, arms):
-        self.assertEqual(len(rows), 4 * 16)
+        nr = plan['cells'][0]['r']
+        self.assertEqual(len(rows), 4 * nr)
         for r in rows:
             self.assertIs(r["development"], False)
             self.assertIs(r["quick"], True)
@@ -404,7 +408,7 @@ class TestQuickRows(unittest.TestCase):
         sess = {}
         for r in rows:
             sess.setdefault(r["session"], {})[r["position"]] = r["arm"]
-        self.assertEqual(len(sess), 16)
+        self.assertEqual(len(sess), nr)
         for s in sess.values():   # X Y Y X
             self.assertEqual(s[1], s[2])
             self.assertEqual(s[0], s[3])
@@ -493,6 +497,30 @@ class TestQuickRows(unittest.TestCase):
             self.assertEqual(seen["pilot"]["G"][host]["G_ms"], plan["pilot"]["G_ms"])
             self.assertEqual(seen["pilot"]["gap_split"]["GAP_SPLIT_ms"], 5)
             self.assertEqual(seen["host"], host)
+
+    def hard_run(self, rows, table):
+        tmp = Path(tempfile.mkdtemp(prefix="p3q-hardv-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+
+        def fake(ns, pilot, rule_e, prov, clearance, emit, procs=None, host="L"):
+            for r in rows:
+                emit(dict(r))
+            return table
+        a = mock.Mock(build=tmp / "b", out=tmp / "out", job="jh")
+        clr = quick_guard.QuickClearance({"quick": True, "pilot": None}, "c" * 64)
+        with mock.patch("hardcase_run.part_server", fake), contextlib.redirect_stdout(io.StringIO()):
+            return quick_run.run_hard(load("quick-L-hard"), "quick-L-hard", "c" * 64, a, "L", clr, None,
+                                      {"binaries_all": {"oneport": "o", "opcase": "c"}}, runlib.load_rule_e(None, True))
+
+    def test_hard_verdict_is_read_from_the_rows_not_the_table(self):
+        ok = {"kind": "hardcase", "entry": "e", "id": "x", "replicate": 1, "passed": True}
+        bad = dict(ok, replicate=2, passed=False)
+        clean_table = {"k": {"runs": 1, "passed": 1}}
+        self.assertEqual(self.hard_run([ok], clean_table), 0)
+        # a failing row that the table does not count (part_server writes it and goes on) fails the run
+        self.assertEqual(self.hard_run([ok, bad], clean_table), 1)
+        # an empty table is not a pass
+        self.assertEqual(self.hard_run([ok], {}), 1)
 
     def test_a_folder_of_another_plan_is_not_extended(self):
         with tempfile.TemporaryDirectory() as d:

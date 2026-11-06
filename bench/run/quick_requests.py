@@ -4,7 +4,7 @@
     quick_requests.py --commit C --os L|W
 
 prints, as a JSON list, one labrun job for each quick plan of that OS: the plans of bench/run/plans/quick/ whose host is
-the OS (L: 16 plans, W: 6). Each job is shaped as the P3 jobs of lab/laptop/queues/gap84-a-q4-p3-hard-iou-l.json (L) and
+the OS (L: 16 plans and a cleanup job, W: 6 plans and a cleanup job). Each job is shaped as the P3 jobs of lab/laptop/queues/gap84-a-q4-p3-hard-iou-l.json (L) and
 gap84-w-q3-p3-cost-w2.json (W): the build phase is lab_p3.py prepare at C (the Release build, made once per OS and commit
 and reused by the other jobs), the run phase is lab_p3.py quick at C for the plan. C is the full 40-character commit that
 labrun deploys; it is the job's commit and the code commit alike. The quick jobs keep their own homes
@@ -83,6 +83,23 @@ def job(commit: str, host: str, stem: str) -> dict:
     return out
 
 
+def cleanup_job(commit: str, host: str) -> dict:
+    """The last job of an OS: lab_p3.py cleanup removes the commit's build tree and its files from the quick home (rule 9)."""
+    if host == "L":
+        run = f'cd "$LAB_SRC" && python3 bench/run/lab_p3.py cleanup --commit {commit} --home {HOME_L}'
+    else:
+        run = f'cd /d "%LAB_SRC%" && {W_ENV}{W_PYTHON} bench\\run\\lab_p3.py cleanup --commit {commit} --home {HOME_W}'
+    out = {"id": f"p3-quick-cleanup-{host}".lower(), "paper": "P3", "os": OS_NAME[host], "repo": {"name": "one-port", "path": "p3-one-port/one-port"},
+           "commit": commit, "build": "", "run": run, "outputs": ["out", "record.json"], "record_name": "id"}
+    if host == "L":
+        out.update({"uring": False, "cgdeleg": False})
+    out.update({"quiet": False, "boost": False, "expected_s": 60, "poll_s": 30, "timeout_s": 600,
+                "run_label": f"P3 quick benchmark cleanup at {commit[:12]}",
+                "note": "quick-plan.md; removes the quick home's build tree of this commit after the last quick job of the OS (rule 9)",
+                "plain": "Remove P3's quick-benchmark build"})
+    return out
+
+
 def stem_of(j: dict) -> str:
     """The plan stem a job runs (the id is lowercased for labqueue; the file name is not)."""
     return j["run"].split("--plan ", 1)[1].split(" ", 1)[0]
@@ -93,7 +110,7 @@ def jobs(commit: str, host: str) -> list[dict]:
         raise ValueError(f"--commit {commit!r} is not a full 40-character commit")
     if host not in OS_NAME:
         raise ValueError(f"--os {host!r} is not L or W")
-    return [job(commit, host, stem) for stem in plans_of(host)]
+    return [job(commit, host, stem) for stem in plans_of(host)] + [cleanup_job(commit, host)]
 
 
 def main(argv=None) -> int:
